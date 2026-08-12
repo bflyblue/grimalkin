@@ -1,0 +1,111 @@
+name: Native CI environments
+
+# Trusted main builds populate the cache namespace consumed by untrusted
+# GitHub-hosted PR jobs. The persistent home runners populate their separate
+# trusted namespace during ordinary CI and releases.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/native-ci-environments.yml"
+      - ".github/workflows/platform-ci.yml"
+      - ".github/workflows/release.yml"
+      - "CMakeLists.txt"
+      - "build-windows.ps1"
+      - "cmake/BootstrapZig.cmake"
+      - "ghostty-revision.txt"
+      - "scripts/build-macos-release.sh"
+      - "scripts/macos-toolchain.env"
+      - "scripts/setup-windows-release.ps1"
+      - "vcpkg.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ci-environments-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  macos-hosted:
+    name: Prepare GitHub-hosted macOS environment
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      GRIMALKIN_MACOS_BUILD_DIR: ${{ github.workspace }}/build/macos-environment
+
+    steps:
+      - name: Check out trusted environment definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore prepared native environment
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/grimalkin-macos-native/downloads
+            ~/Library/Caches/grimalkin-macos-native/toolchains
+            ~/Library/Caches/grimalkin-macos-native/ghostty
+            ~/Library/Caches/grimalkin-macos-native/zig-cache
+            ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
+          key: grimalkin-untrusted-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'scripts/macos-toolchain.env', 'scripts/build-macos-release.sh') }}
+          restore-keys: |
+            grimalkin-untrusted-macos-arm64-
+
+      - name: Prepare pinned toolchain and native dependencies
+        shell: bash
+        run: |
+          cache_root="$HOME/Library/Caches/grimalkin-macos-native"
+          GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
+          VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
+            scripts/build-macos-release.sh --prepare-only
+
+  windows-hosted:
+    name: Prepare GitHub-hosted Windows environment
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\build\windows\vcpkg-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}\build\windows\zig-cache
+
+    steps:
+      - name: Check out trusted environment definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Expose Git archive tools
+        shell: pwsh
+        run: |
+          $gitUsrBin = Join-Path $env:ProgramFiles 'Git\usr\bin'
+          $gzip = Join-Path $gitUsrBin 'gzip.exe'
+          if (-not (Test-Path -LiteralPath $gzip)) {
+              throw "Git for Windows gzip was not found at $gzip"
+          }
+          $gitUsrBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore prepared native environment
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/windows/downloads
+            build/windows/toolchains
+            build/windows/_deps
+            build/windows/vcpkg-cache
+            build/windows/zig-cache
+          key: grimalkin-untrusted-windows-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'CMakeLists.txt', 'cmake/BootstrapZig.cmake', 'build-windows.ps1', 'scripts/setup-windows-release.ps1') }}
+          restore-keys: |
+            grimalkin-untrusted-windows-x64-
+
+      - name: Set up pinned Windows tools
+        shell: pwsh
+        run: .\scripts\setup-windows-release.ps1
+
+      - name: Prepare native dependencies
+        shell: pwsh
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_environment

@@ -1,0 +1,190 @@
+name: Platform CI
+
+on:
+  workflow_call:
+    inputs:
+      trusted:
+        description: Use the persistent home runner fleet
+        required: true
+        type: boolean
+      checkout_repository:
+        description: Repository containing the exact commit to test
+        required: true
+        type: string
+      checkout_ref:
+        description: Exact commit SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ inputs.trusted && 'grimalkin-windows-vm' || format('grimalkin-hosted-ci-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: Linux native tests and flake checks
+    runs-on: ${{ inputs.trusted && 'grimalkin-linux' || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.checkout_repository }}
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Install Nix on the GitHub-hosted runner
+        if: ${{ !inputs.trusted }}
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run native and Odin tests
+        run: nix develop path:. -c make test
+
+      - name: Build package and run flake checks
+        run: nix flake check path:. --print-build-logs
+
+  macos:
+    name: macOS Apple Silicon native build
+    runs-on: ${{ inputs.trusted && 'grimalkin-macos' || 'macos-15' }}
+    timeout-minutes: 90
+    env:
+      GRIMALKIN_MACOS_BUILD_DIR: ${{ github.workspace }}/build/macos-native-ci
+
+    steps:
+      - name: Check out exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.checkout_repository }}
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Restore isolated native dependency cache
+        if: ${{ !inputs.trusted }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/grimalkin-macos-native/downloads
+            ~/Library/Caches/grimalkin-macos-native/toolchains
+            ~/Library/Caches/grimalkin-macos-native/ghostty
+            ~/Library/Caches/grimalkin-macos-native/zig-cache
+            ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
+          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'scripts/macos-toolchain.env', 'scripts/build-macos-release.sh') }}
+          restore-keys: |
+            grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-
+
+      - name: Build and verify native application bundle
+        shell: bash
+        run: |
+          cache_root="$HOME/Library/Caches/grimalkin-macos-native"
+          source scripts/macos-toolchain.env
+          cmake_bin="$cache_root/toolchains/cmake-$CMAKE_VERSION/CMake.app/Contents/bin"
+          PATH="$cmake_bin:$PATH" \
+          GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
+          VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
+            scripts/build-macos-release.sh build/macos-native-ci/Grimalkin.app
+
+  start-windows-runner:
+    name: Start trusted Windows runner VM
+    if: inputs.trusted
+    runs-on: grimalkin-linux
+    timeout-minutes: 5
+    env:
+      GRIMALKIN_WINDOWS_VM_NAME: ${{ vars.GRIMALKIN_WINDOWS_VM_NAME }}
+      GRIMALKIN_WINDOWS_RUNNER_SERVICE: ${{ vars.GRIMALKIN_WINDOWS_RUNNER_SERVICE }}
+
+    steps:
+      - name: Check out trusted runner helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.checkout_repository }}
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Start VM and wait for the guest agent
+        shell: bash
+        run: bash scripts/start-windows-runner.sh
+
+  windows:
+    name: Windows x64 native build
+    needs: start-windows-runner
+    if: ${{ always() && (!inputs.trusted || needs.start-windows-runner.result == 'success') }}
+    runs-on: ${{ inputs.trusted && 'grimalkin-windows' || 'windows-2025' }}
+    timeout-minutes: 120
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\build\windows\vcpkg-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}\build\windows\zig-cache
+
+    steps:
+      - name: Configure persistent trusted dependency cache
+        if: inputs.trusted
+        shell: pwsh
+        run: |
+          $runnerRoot = Split-Path -Parent (Split-Path -Parent $env:RUNNER_TEMP)
+          $cacheRoot = Join-Path $runnerRoot '_cache\grimalkin-windows-native'
+          New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+          "GRIMALKIN_WINDOWS_CACHE_DIR=$cacheRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_DEFAULT_BINARY_CACHE=$(Join-Path $cacheRoot 'vcpkg-cache')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZIG_GLOBAL_CACHE_DIR=$(Join-Path $cacheRoot 'zig-cache')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check out exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.checkout_repository }}
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Expose Git archive tools
+        if: ${{ !inputs.trusted }}
+        shell: pwsh
+        run: |
+          $gitUsrBin = Join-Path $env:ProgramFiles 'Git\usr\bin'
+          $gzip = Join-Path $gitUsrBin 'gzip.exe'
+          if (-not (Test-Path -LiteralPath $gzip)) {
+              throw "Git for Windows gzip was not found at $gzip"
+          }
+          $gitUsrBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore isolated native dependency cache
+        id: native-cache
+        if: ${{ !inputs.trusted }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/windows/downloads
+            build/windows/toolchains
+            build/windows/_deps
+            build/windows/vcpkg-cache
+            build/windows/zig-cache
+          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-windows-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'CMakeLists.txt', 'cmake/BootstrapZig.cmake', 'build-windows.ps1', 'scripts/setup-windows-release.ps1') }}
+          restore-keys: |
+            grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-windows-x64-
+
+      - name: Set up pinned Windows tools
+        shell: pwsh
+        run: .\scripts\setup-windows-release.ps1
+
+      - name: Run native Windows tests
+        shell: pwsh
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_tests
+
+      - name: Build native Windows application
+        shell: pwsh
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin
+
+      - name: Save isolated native dependency cache
+        if: ${{ success() && !inputs.trusted && steps.native-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/windows/downloads
+            build/windows/toolchains
+            build/windows/_deps
+            build/windows/vcpkg-cache
+            build/windows/zig-cache
+          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-windows-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'CMakeLists.txt', 'cmake/BootstrapZig.cmake', 'build-windows.ps1', 'scripts/setup-windows-release.ps1') }}

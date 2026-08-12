@@ -1,0 +1,452 @@
+package main
+
+import "core:fmt"
+import "core:testing"
+import "vendor:glfw"
+
+@(test)
+osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	change := osd_adjust_text_rendering(&settings, 0, 1)
+	testing.expect_value(t, settings.text_smoothing, Text_Smoothing.Subpixel)
+	testing.expect(t, .Font_Resources in change)
+	change = osd_adjust_text_rendering(&settings, 1, 1)
+	testing.expect_value(t, settings.text_contrast, Text_Contrast.Crisp)
+	testing.expect(t, .Persistence in change && .Font_Resources not_in change)
+	change = osd_adjust_text_rendering(&settings, 2, 1)
+	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
+	change = osd_adjust_text_rendering(&settings, 3, 1)
+	testing.expect_value(t, settings.subpixel_layout, Subpixel_Layout.BGR)
+	change = osd_adjust_text_rendering(&settings, 4, 1)
+	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Degrees_0)
+	testing.expect(t, .Persistence in change && .Font_Resources not_in change)
+	change = osd_adjust_text_rendering(&settings, 4, 1)
+	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Degrees_90)
+	testing.expect(t, .Font_Resources in change)
+	settings.text_smoothing = .Monochrome
+	change = osd_adjust_text_rendering(&settings, 1, 1)
+	testing.expect_value(t, settings.text_contrast, Text_Contrast.Crisp)
+	testing.expect(t, change == {})
+	change = osd_adjust_text_rendering(&settings, 2, 1)
+	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
+	testing.expect(t, change == {})
+	change = osd_adjust_text_rendering(&settings, 3, 1)
+	testing.expect_value(t, settings.subpixel_layout, Subpixel_Layout.BGR)
+	testing.expect(t, change == {})
+	change = osd_reset_text_rendering(&settings, 2)
+	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
+	testing.expect(t, change == {})
+	change = osd_reset_setting(&settings, OSD_TEXT_RENDERING_ROW)
+	testing.expect_value(t, settings.text_smoothing, Text_Smoothing.Grayscale)
+	testing.expect_value(t, settings.text_contrast, Text_Contrast.Balanced)
+	testing.expect_value(t, settings.font_hinting, Font_Hinting.Normal)
+	testing.expect_value(t, settings.subpixel_layout, Subpixel_Layout.RGB)
+	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Auto)
+
+	settings.font_size = SETTINGS_FONT_SIZE_MAX
+	change = osd_adjust_font_setting(&settings, 1, 1)
+	testing.expect_value(t, settings.font_size, SETTINGS_FONT_SIZE_MAX)
+	testing.expect(t, .Font_Resources in change && .Layout in change)
+
+	settings.padding = 0
+	_ = osd_adjust_setting(&settings, 3, -1)
+	testing.expect_value(t, settings.padding, u16(0))
+
+	change = osd_adjust_setting(&settings, 5, 1)
+	testing.expect(t, !settings.nerd_font_symbols)
+	testing.expect(t, .Font_Resources in change)
+
+	change = osd_adjust_setting(&settings, 6, 1)
+	testing.expect_value(t, settings.window_style, Window_Style.Frameless)
+	testing.expect(t, .Window_Style in change)
+	change = osd_reset_setting(&settings, 6)
+	testing.expect_value(t, settings.window_style, Window_Style.System)
+	testing.expect(t, .Window_Style in change)
+
+	change = osd_adjust_key_binding(&settings, 0, 1)
+	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Ctrl)
+	testing.expect(t, .Input in change)
+	change = osd_adjust_key_binding(&settings, 0, 1)
+	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Ctrl_Shift)
+	change = osd_adjust_key_binding(&settings, 0, 1)
+	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Off)
+	change = osd_adjust_key_binding(&settings, 1, 1)
+	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Off)
+	change = osd_adjust_key_binding(&settings, 1, -1)
+	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
+	change = osd_adjust_key_binding(&settings, 2, 1)
+	testing.expect(t, !settings.font_size_shortcuts)
+	testing.expect(t, .Input in change)
+	change = osd_reset_key_binding(&settings, 2)
+	testing.expect(t, settings.font_size_shortcuts)
+	change = osd_reset_setting(&settings, OSD_KEY_BINDING_ROW)
+	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Shift)
+	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
+	testing.expect(t, settings.font_size_shortcuts)
+	testing.expect(t, .Input in change)
+
+	change = osd_adjust_copy_paste(&settings, 0, 1)
+	testing.expect(t, !settings.clipboard_insert_shortcuts)
+	change = osd_adjust_copy_paste(&settings, 1, 1)
+	testing.expect(t, !settings.copy_on_select)
+	change = osd_adjust_copy_paste(&settings, 2, 1)
+	testing.expect(t, !settings.right_click_paste)
+	change = osd_adjust_copy_paste(&settings, 3, 1)
+	testing.expect(t, settings.paste_protection)
+	change = osd_adjust_copy_paste(&settings, 4, 1)
+	testing.expect_value(t, settings.terminal_clipboard, Terminal_Clipboard_Policy.Read_Write)
+	change = osd_adjust_copy_paste(&settings, 5, 1)
+	testing.expect_value(t, settings.block_selection_whitespace, Block_Selection_Whitespace.Preserve)
+	change = osd_adjust_copy_paste(&settings, 6, 1)
+	testing.expect_value(t, settings.selection_style, Selection_Style.Glass)
+	change = osd_reset_setting(&settings, OSD_COPY_PASTE_ROW)
+	testing.expect(t, settings.clipboard_insert_shortcuts)
+	testing.expect(t, settings.copy_on_select)
+	testing.expect(t, settings.right_click_paste)
+	testing.expect(t, !settings.paste_protection)
+	testing.expect_value(t, settings.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
+	testing.expect_value(t, settings.block_selection_whitespace, Block_Selection_Whitespace.Trim)
+	testing.expect_value(t, settings.selection_style, Selection_Style.Solid)
+	testing.expect(t, .Input in change)
+}
+
+@(test)
+osd_key_binding_labels_describe_complete_shortcuts :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+
+	label, value := osd_key_binding_row_text(settings, 0)
+	testing.expect_value(t, label, "Page/Home/End")
+	testing.expect_value(t, value, "Shift")
+	label, value = osd_key_binding_row_text(settings, 1)
+	testing.expect_value(t, label, "Line scroll (↑/↓)")
+	testing.expect_value(t, value, "Ctrl+Shift")
+	label, value = osd_key_binding_row_text(settings, 2)
+	testing.expect_value(t, label, "Font size")
+	testing.expect_value(t, value, "Ctrl + / Ctrl -")
+
+	settings.scroll_page_modifier = .Off
+	settings.scroll_line_modifier = .Off
+	settings.font_size_shortcuts = false
+	_, value = osd_key_binding_row_text(settings, 0)
+	testing.expect_value(t, value, "Disabled")
+	_, value = osd_key_binding_row_text(settings, 1)
+	testing.expect_value(t, value, "Disabled")
+	_, value = osd_key_binding_row_text(settings, 2)
+	testing.expect_value(t, value, "Disabled")
+}
+
+@(test)
+osd_footer_help_fits_the_preferred_panel_width :: proc(t: ^testing.T) {
+	for page in Osd_Page {
+		footer := osd_footer_text(page)
+		columns := 0
+		for _ in footer do columns += 1
+		testing.expect(t, columns <= int(OSD_PREFERRED_COLUMNS))
+	}
+	testing.expect_value(
+		t,
+		osd_footer_text(.Main),
+		"↕↔ Adjust  Enter Open  R Reset  Esc Close",
+	)
+	testing.expect_value(
+		t,
+		osd_footer_text(.Font),
+		"↕↔ Adjust  Enter Open  R Reset  Esc Back",
+	)
+	adjustment_pages := [?]Osd_Page{.Text_Rendering, .Key_Bindings, .Copy_Paste}
+	for page in adjustment_pages {
+		testing.expect_value(t, osd_footer_text(page), "↕↔ Adjust  R Reset  Esc Back")
+	}
+	testing.expect_value(
+		t,
+		osd_footer_text(.Font_List),
+		"↕ Navigate  Enter Apply  Esc Cancel",
+	)
+	testing.expect_value(t, osd_footer_text(.Paste_Confirm), "Enter Paste  Esc Cancel")
+}
+
+@(test)
+osd_main_title_includes_the_build_version :: proc(t: ^testing.T) {
+	version := application_version()
+	testing.expect(t, version != "")
+	testing.expect_value(t, osd_main_title_text(), fmt.tprintf("Grimalkin %s", version))
+}
+
+@(test)
+osd_padding_glow_is_inactive_without_padding_and_retains_its_profile :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	settings.padding_glow = .Tint
+	testing.expect(t, !osd_main_row_enabled(settings, OSD_PADDING_GLOW_ROW))
+	_, value := osd_row_text(settings, OSD_PADDING_GLOW_ROW)
+	testing.expect_value(t, value, "Inactive")
+	testing.expect_value(t, osd_move_main_selection(settings, 3, 1), 5)
+	testing.expect_value(t, osd_move_main_selection(settings, 5, -1), 3)
+	change := osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	testing.expect(t, change == {})
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Tint)
+
+	settings.padding = 1
+	testing.expect(t, osd_main_row_enabled(settings, OSD_PADDING_GLOW_ROW))
+	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	testing.expect(t, .Persistence in change)
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Off)
+	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Background)
+	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Tint)
+	change = osd_reset_setting(&settings, OSD_PADDING_GLOW_ROW)
+	testing.expect(t, .Persistence in change)
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Off)
+
+	settings.padding_glow = .Background
+	settings.padding = 0
+	testing.expect_value(t, settings.padding_glow, Padding_Glow.Background)
+}
+
+@(test)
+osd_text_rendering_dependencies_disable_and_skip_inactive_rows :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+
+	// Grayscale uses hinting but has no subpixel layout.
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 0))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 1))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 2))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3))
+	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1), 0)
+
+	// Subpixel rendering exposes hinting, layout, and rotation when auto is known.
+	settings.text_smoothing = .Subpixel
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 1))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 2))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 3))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 4))
+	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1), 3)
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3, .Unknown))
+	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1, .Unknown), 4)
+	settings.subpixel_rotation = .Degrees_90
+	testing.expect(t, osd_text_rendering_row_enabled(settings, 3, .Unknown))
+
+	// Monochrome forces binary coverage and FreeType's mono hinter, so only smoothing is adjustable.
+	settings.text_smoothing = .Monochrome
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 1))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 2))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, 4))
+	testing.expect_value(t, osd_move_text_rendering_selection(settings, 0, 1), 0)
+	testing.expect_value(t, osd_move_text_rendering_selection(settings, 0, -1), 0)
+}
+
+@(test)
+osd_subpixel_labels_follow_effective_rotation :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	settings.text_smoothing = .Subpixel
+
+	_, value := osd_text_rendering_row_text(settings, 3, .Degrees_0)
+	testing.expect_value(t, value, "Horizontal RGB")
+	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_90)
+	testing.expect_value(t, value, "Vertical RGB")
+	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_180)
+	testing.expect_value(t, value, "Horizontal BGR")
+	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_270)
+	testing.expect_value(t, value, "Vertical BGR")
+	_, value = osd_text_rendering_row_text(settings, 4, .Degrees_90)
+	testing.expect_value(t, value, "Auto (90°)")
+
+	settings.subpixel_layout = .BGR
+	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_90)
+	testing.expect_value(t, value, "Vertical BGR")
+}
+
+@(test)
+osd_text_rendering_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: ^testing.T) {
+	entry_keys := [?]i32{glfw.KEY_RIGHT, glfw.KEY_ENTER, glfw.KEY_SPACE}
+	for key in entry_keys {
+		app := Vulkan_App {
+			settings = application_settings_default(),
+			osd = {visible = true, page = .Main, selected = OSD_TEXT_RENDERING_ROW},
+		}
+		osd_handle_key(&app, key, 0)
+		testing.expect_value(t, app.osd.page, Osd_Page.Text_Rendering)
+		testing.expect_value(t, app.osd.selected, 0)
+
+		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+		testing.expect(t, app.osd.visible)
+		testing.expect_value(t, app.osd.page, Osd_Page.Main)
+		testing.expect_value(t, app.osd.selected, OSD_TEXT_RENDERING_ROW)
+
+		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+		testing.expect(t, !app.osd.visible)
+	}
+}
+
+@(test)
+osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: ^testing.T) {
+	entry_keys := [?]i32{glfw.KEY_RIGHT, glfw.KEY_ENTER, glfw.KEY_SPACE}
+	for key in entry_keys {
+		app := Vulkan_App {
+			settings = application_settings_default(),
+			osd = {visible = true, page = .Main, selected = OSD_KEY_BINDING_ROW},
+		}
+		osd_handle_key(&app, key, 0)
+		testing.expect_value(t, app.osd.page, Osd_Page.Key_Bindings)
+		testing.expect_value(t, app.osd.selected, 0)
+		osd_handle_key(&app, glfw.KEY_UP, 0)
+		testing.expect_value(t, app.osd.selected, 2)
+		osd_handle_key(&app, glfw.KEY_DOWN, 0)
+		testing.expect_value(t, app.osd.selected, 0)
+
+		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+		testing.expect(t, app.osd.visible)
+		testing.expect_value(t, app.osd.page, Osd_Page.Main)
+		testing.expect_value(t, app.osd.selected, OSD_KEY_BINDING_ROW)
+
+		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+		testing.expect(t, !app.osd.visible)
+	}
+}
+
+@(test)
+osd_font_submenus_apply_on_enter_and_cancel_on_escape :: proc(t: ^testing.T) {
+	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code"})
+	defer font_catalog_destroy(&catalog)
+	app := Vulkan_App {
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		font_catalog = &catalog,
+		osd = {visible = true, page = .Main, selected = OSD_FONT_ROW},
+	}
+	defer osd_state_destroy(&app.osd)
+
+	osd_handle_key(&app, glfw.KEY_ENTER, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Font)
+	testing.expect_value(t, app.osd.selected, 0)
+	osd_handle_key(&app, glfw.KEY_RIGHT, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Font_List)
+	testing.expect_value(t, app.osd.font_list_candidate, 0)
+	osd_handle_key(&app, glfw.KEY_DOWN, 0)
+	osd_handle_key(&app, glfw.KEY_ENTER, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Font)
+	testing.expect_value(t, font_family_setting_name(&app.settings.font_family), "Consolas")
+	testing.expect(t, app.settings_font_rebuild_pending)
+
+	osd_handle_key(&app, glfw.KEY_RIGHT, 0)
+	osd_handle_key(&app, glfw.KEY_DOWN, 0)
+	osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Font)
+	testing.expect_value(t, font_family_setting_name(&app.settings.font_family), "Consolas")
+	osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Main)
+	testing.expect_value(t, app.osd.selected, OSD_FONT_ROW)
+}
+
+@(test)
+osd_font_list_supports_paging_home_end_and_typeahead :: proc(t: ^testing.T) {
+	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code"})
+	defer font_catalog_destroy(&catalog)
+	app := Vulkan_App {
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		font_catalog = &catalog,
+		osd = {
+			visible = true,
+			page = .Font_List,
+			rows = OSD_FONT_LIST_PREFERRED_ROWS,
+			cols = OSD_PREFERRED_COLUMNS,
+		},
+	}
+	defer osd_state_destroy(&app.osd)
+
+	osd_handle_key(&app, glfw.KEY_END, 0)
+	testing.expect_value(t, app.osd.font_list_candidate, 3)
+	osd_handle_key(&app, glfw.KEY_HOME, 0)
+	testing.expect_value(t, app.osd.font_list_candidate, 0)
+	osd_handle_key(&app, glfw.KEY_PAGE_DOWN, 0)
+	testing.expect_value(t, app.osd.font_list_candidate, 3)
+	osd_handle_key(&app, glfw.KEY_HOME, 0)
+	osd_handle_character(&app, 'j')
+	osd_handle_character(&app, 'e')
+	testing.expect_value(t, app.osd.font_search, "je")
+	testing.expect_value(t, app.osd.font_list_candidate, 2)
+	osd_handle_key(&app, glfw.KEY_BACKSPACE, 0)
+	testing.expect_value(t, app.osd.font_search, "j")
+}
+
+@(test)
+osd_font_family_is_disabled_by_environment_override_but_size_remains_available :: proc(t: ^testing.T) {
+	catalog := test_font_catalog([]string{"Consolas"})
+	catalog.environment_override = true
+	defer font_catalog_destroy(&catalog)
+	testing.expect(t, !osd_font_row_enabled(&catalog, 0))
+	testing.expect(t, osd_font_row_enabled(&catalog, 1))
+	testing.expect_value(t, osd_move_font_selection(&catalog, 0, 1), 1)
+	settings := application_settings_default()
+	change := osd_adjust_font_setting(&settings, 1, 1)
+	testing.expect(t, .Font_Resources in change && .Layout in change)
+	testing.expect_value(t, settings.font_size, u16(17))
+}
+
+@(test)
+nerd_font_symbol_ranges_cover_bmp_and_supplementary_private_use_areas :: proc(t: ^testing.T) {
+	testing.expect(t, nerd_font_symbol_codepoint(0xe0b0))
+	testing.expect(t, nerd_font_symbol_codepoint(0xf0001))
+	testing.expect(t, nerd_font_symbol_codepoint(0x100000))
+	testing.expect(t, !nerd_font_symbol_codepoint('A'))
+	testing.expect(t, !nerd_font_symbol_codepoint(0x1f600))
+}
+
+@(test)
+osd_panel_is_centered_and_constrained_to_the_framebuffer :: proc(t: ^testing.T) {
+	cols, rows := osd_layout_dimensions(1200, 880, 10, 22)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_PREFERRED_ROWS)
+	rect := osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.width, u32(480))
+	testing.expect_value(t, rect.extent.height, u32(308))
+	testing.expect_value(t, rect.offset.x, i32(360))
+	testing.expect_value(t, rect.offset.y, i32(286))
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Text_Rendering)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_TEXT_RENDERING_PREFERRED_ROWS)
+	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.height, u32(220))
+	testing.expect_value(t, rect.offset.y, i32(330))
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Key_Bindings)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_KEY_BINDING_PREFERRED_ROWS)
+	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.height, u32(176))
+	testing.expect_value(t, rect.offset.y, i32(352))
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Copy_Paste)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_COPY_PASTE_PREFERRED_ROWS)
+	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.height, u32(264))
+	testing.expect_value(t, rect.offset.y, i32(308))
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Paste_Confirm)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_PASTE_CONFIRM_PREFERRED_ROWS)
+	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.height, u32(176))
+	testing.expect_value(t, rect.offset.y, i32(352))
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Font)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_FONT_PREFERRED_ROWS)
+
+	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Font_List)
+	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
+	testing.expect_value(t, rows, OSD_FONT_LIST_PREFERRED_ROWS)
+	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
+	testing.expect_value(t, rect.extent.width, u32(480))
+	testing.expect_value(t, rect.extent.height, u32(352))
+	testing.expect_value(t, rect.offset.y, i32(264))
+
+	cols, rows = osd_layout_dimensions(80, 44, 10, 22)
+	rect = osd_panel_rect(80, 44, 10, 22, cols, rows)
+	testing.expect(t, rect.extent.width <= 80)
+	testing.expect(t, rect.extent.height <= 44)
+}

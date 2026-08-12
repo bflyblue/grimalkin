@@ -1,0 +1,147 @@
+name: Linux CI images
+
+on:
+  workflow_call:
+    inputs:
+      force:
+        description: Rebuild images even when this environment is already published
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      image_tag:
+        description: Content-derived tag shared by the distro images
+        value: ${{ jobs.resolve.outputs.image_tag }}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild images even when this environment is already published
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/containers/linux/**"
+      - ".github/workflows/linux-ci-images.yml"
+      - "scripts/linux-toolchain.env"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-ci-images
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve Linux environment identity
+    if: >-
+      github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    timeout-minutes: 10
+    outputs:
+      image_tag: ${{ steps.identity.outputs.image_tag }}
+
+    steps:
+      - name: Check out image definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Resolve content and base-image identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          definition_digest=$(sha256sum \
+            .github/containers/linux/Containerfile \
+            scripts/linux-toolchain.env | sha256sum | awk '{ print $1 }')
+          base_state=
+          for base in \
+            docker.io/library/ubuntu:22.04 \
+            docker.io/library/debian:12 \
+            docker.io/library/archlinux:base-devel; do
+            docker pull "$base"
+            image_id=$(docker image inspect --format '{{.Id}}' "$base")
+            base_state+="$base=$image_id"$'\n'
+          done
+          image_tag=$(printf '%s\n%s' "$definition_digest" "$base_state" |
+            sha256sum | awk '{ print $1 }')
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.name }} build environment
+    needs: resolve
+    if: needs.resolve.result == 'success'
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            distro: ubuntu-22.04
+            family: debian
+            base_image: docker.io/library/ubuntu:22.04
+          - name: Debian 12
+            distro: debian-12
+            family: debian
+            base_image: docker.io/library/debian:12
+          - name: Arch Linux
+            distro: archlinux
+            family: arch
+            base_image: docker.io/library/archlinux:base-devel
+    env:
+      IMAGE_REPOSITORY: localhost:5000/grimalkin-linux-ci
+
+    steps:
+      - name: Check out image definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Check for an existing content image
+        id: image
+        shell: bash
+        env:
+          FORCE_REBUILD: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          image="$IMAGE_REPOSITORY:${{ matrix.distro }}-${{ needs.resolve.outputs.image_tag }}"
+          if [[ "$FORCE_REBUILD" != true ]] && docker pull "$image"; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build image
+        if: steps.image.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$IMAGE_REPOSITORY:${{ matrix.distro }}-${{ needs.resolve.outputs.image_tag }}"
+          latest="$IMAGE_REPOSITORY:${{ matrix.distro }}"
+          context=$(mktemp -d "$RUNNER_TEMP/grimalkin-linux-ci.XXXXXX")
+          install -m 644 .github/containers/linux/Containerfile "$context/Containerfile"
+          install -m 644 scripts/linux-toolchain.env "$context/linux-toolchain.env"
+          docker pull "${{ matrix.base_image }}"
+          docker build \
+            --build-arg "BASE_IMAGE=${{ matrix.base_image }}" \
+            --build-arg "DISTRO_FAMILY=${{ matrix.family }}" \
+            --label "org.opencontainers.image.version=${{ needs.resolve.outputs.image_tag }}" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --file "$context/Containerfile" \
+            --tag "$image" \
+            --tag "$latest" \
+            "$context"
+
+      - name: Publish image
+        if: steps.image.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_REPOSITORY:${{ matrix.distro }}-${{ needs.resolve.outputs.image_tag }}"
+          docker push "$IMAGE_REPOSITORY:${{ matrix.distro }}"

@@ -1,0 +1,613 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish (for example, v0.1.8)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  # Trusted CI and releases share one on-demand Windows VM. Serialize their
+  # complete workflows so one run cannot stop it while another is using it.
+  group: grimalkin-windows-vm
+  cancel-in-progress: false
+
+jobs:
+  validate-source:
+    name: Validate trusted release source
+    if: >-
+      github.actor == github.repository_owner &&
+      (github.event_name == 'push' || github.ref == 'refs/heads/main')
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    timeout-minutes: 5
+    outputs:
+      release_tag: ${{ steps.release_source.outputs.release_tag }}
+      release_sha: ${{ steps.release_source.outputs.release_sha }}
+      version: ${{ steps.release_source.outputs.version }}
+
+    steps:
+      - name: Expose release utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix shell nixpkgs#git nixpkgs#gh -c sh -c \
+            "dirname \"\$(command -v git)\"; dirname \"\$(command -v gh)\"" \
+            >> "$GITHUB_PATH"
+
+      - name: Check out complete source history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          clean: false
+          # Validation fetches the requested tag and current main.
+          persist-credentials: true
+
+      - name: Validate version and blessed ancestry
+        id: release_source
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            [[ "$GITHUB_REF" == refs/heads/main ]]
+            release_tag="$REQUESTED_TAG"
+          fi
+
+          [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid release tag: $release_tag" >&2
+            exit 1
+          }
+
+          git fetch --force origin \
+            "refs/tags/$release_tag:refs/tags/$release_tag" \
+            "+refs/heads/main:refs/remotes/origin/main"
+          release_sha=$(git rev-parse "$release_tag^{commit}")
+          version="${release_tag#v}"
+          package_version=$(git show "$release_sha:VERSION" | tr -d '\r\n')
+          [[ "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$version" == "$package_version" ]] || {
+            echo "Tag version $version does not match package version $package_version" >&2
+            exit 1
+          }
+          release_notes="docs/releases/$release_tag.md"
+          git cat-file -e "$release_sha:$release_notes" || {
+            echo "Release notes are missing from $release_notes" >&2
+            exit 1
+          }
+
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            pushed_sha=$(git rev-parse "$GITHUB_SHA^{commit}")
+            [[ "$pushed_sha" == "$release_sha" ]] || {
+              echo "Push SHA $pushed_sha does not match tag commit $release_sha" >&2
+              exit 1
+            }
+          fi
+
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "Release commit $release_sha is not reachable from blessed branch main" >&2
+            exit 1
+          }
+
+          {
+            echo "release_tag=$release_tag"
+            echo "release_sha=$release_sha"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+  prepare-linux-images:
+    name: Prepare Linux build environments
+    needs: validate-source
+    if: >-
+      needs.validate-source.result == 'success'
+    uses: ./.github/workflows/linux-ci-images.yml
+
+  macos-arm64:
+    name: macOS ARM64 DMG
+    needs: validate-source
+    if: needs.validate-source.result == 'success'
+    runs-on: [self-hosted, macOS, ARM64, grimalkin-macos]
+    environment: release
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.release_sha }}
+          clean: false
+          persist-credentials: false
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate-source.outputs.version }}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          package_version=$(tr -d '\r\n' < VERSION)
+          [[ "$package_version" == "$version" ]] || {
+            echo "Tag version $version does not match package version $package_version" >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check required release secrets
+        shell: bash
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for name in CERTIFICATE CERTIFICATE_PASSWORD NOTARY_PRIVATE_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            [[ -n "${!name:-}" ]] || { echo "Required release secret $name is empty" >&2; exit 1; }
+          done
+
+      - name: Build application bundle
+        env:
+          GRIMALKIN_MACOS_BUILD_DIR: ${{ github.workspace }}/build/macos-release
+        run: |
+          cache_root="$HOME/Library/Caches/grimalkin-macos-native"
+          source scripts/macos-toolchain.env
+          cmake_bin="$cache_root/toolchains/cmake-$CMAKE_VERSION/CMake.app/Contents/bin"
+          PATH="$cmake_bin:$PATH" \
+          GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
+          VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
+            scripts/build-macos-release.sh build/macos-release/Grimalkin.app
+
+      - name: Install signing certificate
+        id: signing
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/grimalkin-signing.keychain-db"
+          original_keychains_file="$RUNNER_TEMP/grimalkin-original-keychains.txt"
+          keychain_password=$(openssl rand -base64 32)
+          security delete-keychain "$keychain" 2>/dev/null || rm -f "$keychain"
+          : > "$original_keychains_file"
+          while IFS= read -r existing_keychain; do
+            existing_keychain="${existing_keychain#"${existing_keychain%%[![:space:]]*}"}"
+            existing_keychain=${existing_keychain#\"}
+            existing_keychain=${existing_keychain%\"}
+            [[ -z "$existing_keychain" || "$existing_keychain" == "$keychain" ]] || \
+              printf '%s\n' "$existing_keychain" >> "$original_keychains_file"
+          done < <(security list-keychains -d user)
+          if [[ ! -s "$original_keychains_file" && \
+                -f "$HOME/Library/Keychains/login.keychain-db" ]]; then
+            printf '%s\n' "$HOME/Library/Keychains/login.keychain-db" > \
+              "$original_keychains_file"
+          fi
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode -o "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          active_keychains=("$keychain")
+          while IFS= read -r existing_keychain; do
+            [[ -z "$existing_keychain" ]] || active_keychains+=("$existing_keychain")
+          done < "$original_keychains_file"
+          security list-keychains -d user -s "${active_keychains[@]}"
+          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$keychain_password" "$keychain"
+          identity=
+          for _ in {1..10}; do
+            identity=$(security find-identity -v -p codesigning "$keychain" | \
+              awk '/Developer ID Application/ { print $2; exit }')
+            [[ -z "$identity" ]] || break
+            sleep 1
+          done
+          if [[ -z "$identity" ]]; then
+            echo "Developer ID Application identity not found after waiting for keychain indexing" >&2
+            security find-identity -v -p codesigning "$keychain" >&2 || true
+            exit 1
+          fi
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          rm -f "$certificate"
+
+      - name: Install notarization key
+        id: notary
+        shell: bash
+        env:
+          PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          private_key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$PRIVATE_KEY_BASE64" | base64 --decode -o "$private_key"
+          chmod 600 "$private_key"
+          echo "private_key=$private_key" >> "$GITHUB_OUTPUT"
+
+      - name: Sign, notarize, and package DMG
+        shell: bash
+        env:
+          CODE_SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          EXPECTED_TEAM_ID: YWKZGNGK4Q
+          NOTARY_KEY_PATH: ${{ steps.notary.outputs.private_key }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          scripts/package-macos-release.sh \
+            build/macos-release/Grimalkin.app \
+            "${{ steps.version.outputs.version }}" \
+            dist
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: grimalkin-${{ steps.version.outputs.version }}-macos-arm64
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Remove signing material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/grimalkin-signing.keychain-db"
+          original_keychains_file="$RUNNER_TEMP/grimalkin-original-keychains.txt"
+          original_keychains=()
+          if [[ -f "$original_keychains_file" ]]; then
+            while IFS= read -r existing_keychain; do
+              [[ -z "$existing_keychain" ]] || original_keychains+=("$existing_keychain")
+            done < "$original_keychains_file"
+          fi
+          if (( ${#original_keychains[@]} > 0 )); then
+            security list-keychains -d user -s "${original_keychains[@]}"
+          elif [[ -f "$HOME/Library/Keychains/login.keychain-db" ]]; then
+            security list-keychains -d user -s \
+              "$HOME/Library/Keychains/login.keychain-db"
+          fi
+          security delete-keychain "$keychain" 2>/dev/null || rm -f "$keychain"
+          rm -f "$original_keychains_file"
+
+  linux-x86-64:
+    name: ${{ matrix.name }} x86_64 packages
+    needs:
+      - validate-source
+      - prepare-linux-images
+    if: >-
+      needs.validate-source.result == 'success' &&
+      needs.prepare-linux-images.result == 'success'
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            distro: ubuntu-22.04
+            family: debian
+            formats: all
+            appimage: true
+            test-font: /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
+            test-cjk-font: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+          - name: Debian 12
+            distro: debian-12
+            family: debian
+            formats: deb
+            appimage: false
+            test-font: /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
+            test-cjk-font: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+          - name: Arch Linux
+            distro: archlinux
+            family: arch
+            formats: arch
+            appimage: false
+            test-font: /usr/share/fonts/TTF/DejaVuSansMono.ttf
+            test-cjk-font: /usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+    container:
+      image: localhost:5000/grimalkin-linux-ci:${{ matrix.distro }}-${{ needs.prepare-linux-images.outputs.image_tag }}
+      volumes:
+        - grimalkin-linux-vcpkg:/var/cache/grimalkin-vcpkg
+    timeout-minutes: 60
+    env:
+      GRIMALKIN_LINUX_BUILD_DIR: ${{ github.workspace }}/build/linux-release-${{ matrix.distro }}
+      VCPKG_DEFAULT_BINARY_CACHE: /var/cache/grimalkin-vcpkg/${{ matrix.distro }}
+      GRIMALKIN_LINUX_TEST_FONT_PATH: ${{ matrix.test-font }}
+      GRIMALKIN_LINUX_TEST_CJK_FONT_PATH: ${{ matrix.test-cjk-font }}
+      GRIMALKIN_TEST_FONT_PATH: ${{ matrix.test-font }}
+      GRIMALKIN_TEST_FONT_BOLD_PATH: ${{ matrix.test-font }}
+      GRIMALKIN_TEST_FONT_ITALIC_PATH: ${{ matrix.test-font }}
+      GRIMALKIN_TEST_FONT_BOLD_ITALIC_PATH: ${{ matrix.test-font }}
+      GRIMALKIN_TEST_CJK_FONT_PATH: ${{ matrix.test-cjk-font }}
+
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.release_sha }}
+          clean: false
+          persist-credentials: false
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate-source.outputs.version }}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          package_version=$(tr -d '\r\n' < VERSION)
+          [[ "$package_version" == "$version" ]] || {
+            echo "Tag version $version does not match package version $package_version" >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.family }}" == arch ]]; then
+            chmod o+rx /__w "$(dirname "$GITHUB_WORKSPACE")" "$GITHUB_WORKSPACE"
+            mkdir -p "$GRIMALKIN_LINUX_BUILD_DIR" "$VCPKG_DEFAULT_BINARY_CACHE" dist
+            chown -R builder:builder "$GRIMALKIN_LINUX_BUILD_DIR" dist
+            if ! runuser -u builder -- test -w "$VCPKG_DEFAULT_BINARY_CACHE"; then
+              chown -R builder:builder "$VCPKG_DEFAULT_BINARY_CACHE"
+            fi
+            runuser -u builder -- env \
+              HOME=/home/builder \
+              GRIMALKIN_LINUX_BUILD_DIR="$GRIMALKIN_LINUX_BUILD_DIR" \
+              VCPKG_DEFAULT_BINARY_CACHE="$VCPKG_DEFAULT_BINARY_CACHE" \
+              GRIMALKIN_LINUX_TEST_FONT_PATH="$GRIMALKIN_LINUX_TEST_FONT_PATH" \
+              GRIMALKIN_LINUX_TEST_CJK_FONT_PATH="$GRIMALKIN_LINUX_TEST_CJK_FONT_PATH" \
+              scripts/package-linux-release.sh dist "${{ matrix.formats }}" "${{ matrix.distro }}"
+          else
+            scripts/package-linux-release.sh dist "${{ matrix.formats }}" "${{ matrix.distro }}"
+          fi
+
+      - name: Smoke-test AppImage with software Vulkan
+        if: ${{ matrix.appimage }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a timeout 5s \
+            "dist/Grimalkin-${{ steps.version.outputs.version }}-x86_64.AppImage"
+          status=$?
+          set -e
+          [[ "$status" -eq 124 ]] || {
+            echo "AppImage smoke test exited unexpectedly with status $status" >&2
+            exit 1
+          }
+
+      - name: Install and smoke-test DEB with software Vulkan
+        if: ${{ matrix.family == 'debian' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="dist/Grimalkin-${{ steps.version.outputs.version }}-${{ matrix.distro }}-amd64.deb"
+          smoke_log="$RUNNER_TEMP/grimalkin-deb-smoke.log"
+          dpkg-deb --info "$package"
+          dpkg -i "$package"
+          set +e
+          xvfb-run -a timeout 5s grimalkin 2>&1 | tee "$smoke_log"
+          status=$?
+          set -e
+          if [[ "$status" -eq 124 ]]; then
+            exit 0
+          fi
+          if [[ "${{ matrix.distro }}" == debian-12 ]] &&
+             grep -Fq "no Vulkan 1.2 device supports swapchains plus non-uniform sampled-image indexing" "$smoke_log"; then
+            echo "Debian 12 llvmpipe reached the expected unsupported-device gate"
+            exit 0
+          fi
+          echo "Installed DEB smoke test exited unexpectedly with status $status" >&2
+          exit 1
+
+      - name: Install and smoke-test Arch package with software Vulkan
+        if: ${{ matrix.family == 'arch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="dist/grimalkin-${{ steps.version.outputs.version }}-1-x86_64.pkg.tar.zst"
+          pacman -Qip "$package"
+          pacman -U --noconfirm "$package"
+          Xvfb :99 -screen 0 1280x720x24 > /tmp/grimalkin-xvfb.log 2>&1 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT
+          for _ in {1..50}; do
+            [[ -S /tmp/.X11-unix/X99 ]] && break
+            sleep 0.1
+          done
+          [[ -S /tmp/.X11-unix/X99 ]] || {
+            cat /tmp/grimalkin-xvfb.log >&2
+            exit 1
+          }
+          set +e
+          DISPLAY=:99 timeout 5s grimalkin
+          status=$?
+          set -e
+          [[ "$status" -eq 124 ]] || {
+            echo "Installed Arch package smoke test exited unexpectedly with status $status" >&2
+            exit 1
+          }
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: grimalkin-${{ steps.version.outputs.version }}-${{ matrix.distro }}-x86_64
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/grimalkin-${{ steps.version.outputs.version }}-1-x86_64.pkg.tar.zst
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Restore host ownership after Arch packaging
+        if: ${{ always() && matrix.family == 'arch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in "$GRIMALKIN_LINUX_BUILD_DIR" dist; do
+            [[ ! -e "$target" ]] || chown -R 0:0 "$target"
+          done
+
+  start-windows-runner:
+    name: Start Windows runner VM
+    needs: validate-source
+    if: needs.validate-source.result == 'success'
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    timeout-minutes: 5
+    env:
+      GRIMALKIN_WINDOWS_VM_NAME: ${{ vars.GRIMALKIN_WINDOWS_VM_NAME }}
+      GRIMALKIN_WINDOWS_RUNNER_SERVICE: ${{ vars.GRIMALKIN_WINDOWS_RUNNER_SERVICE }}
+
+    steps:
+      - name: Check out release runner helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.release_sha }}
+          persist-credentials: false
+
+      - name: Start VM and wait for the guest agent
+        shell: bash
+        run: bash scripts/start-windows-runner.sh
+
+  windows-x64:
+    name: Windows x64 installer
+    if: >-
+      needs.validate-source.result == 'success' &&
+      needs.start-windows-runner.result == 'success'
+    needs:
+      - validate-source
+      - start-windows-runner
+    # ConPTY v2 requires Windows build 26100 or newer.
+    runs-on: [self-hosted, Windows, X64, grimalkin-windows]
+    timeout-minutes: 120
+
+    steps:
+      - name: Configure persistent native dependency cache
+        shell: pwsh
+        run: |
+          $runnerRoot = Split-Path -Parent (Split-Path -Parent $env:RUNNER_TEMP)
+          $cacheRoot = Join-Path $runnerRoot '_cache\grimalkin-windows-native'
+          New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+          "GRIMALKIN_WINDOWS_CACHE_DIR=$cacheRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_DEFAULT_BINARY_CACHE=$(Join-Path $cacheRoot 'vcpkg-cache')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZIG_GLOBAL_CACHE_DIR=$(Join-Path $cacheRoot 'zig-cache')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.release_sha }}
+          persist-credentials: false
+
+      - name: Validate release version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ needs.validate-source.outputs.version }}'
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') {
+              throw "Invalid release version: $version"
+          }
+          $packageVersion = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          if ($packageVersion -ne $version) {
+              throw "Tag version $version does not match package version $packageVersion"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Set up pinned Windows release tools
+        shell: pwsh
+        run: .\scripts\setup-windows-release.ps1
+
+      - name: Run native Windows tests
+        shell: pwsh
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_tests
+
+      - name: Build NSIS installer
+        shell: pwsh
+        run: .\package-windows.ps1 -Format NSIS
+
+      - name: Install and verify x64 package
+        shell: pwsh
+        run: .\scripts\test-windows-installer.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: grimalkin-${{ steps.version.outputs.version }}-windows-x64
+          path: |
+            build/windows/packages/*.exe
+            build/windows/packages/*.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    if: needs.validate-source.result == 'success'
+    needs:
+      - validate-source
+      - macos-arm64
+      - linux-x86-64
+      - windows-x64
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    environment: release
+    timeout-minutes: 15
+
+    steps:
+      - name: Expose release utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix shell nixpkgs#git nixpkgs#gh -c sh -c \
+            "dirname \"\$(command -v git)\"; dirname \"\$(command -v gh)\"" \
+            >> "$GITHUB_PATH"
+
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.release_sha }}
+          fetch-depth: 0
+          clean: false
+          # Publishing re-fetches the tag immediately before creation.
+          persist-credentials: true
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.validate-source.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate-source.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_sha=$(git rev-parse "$RELEASE_TAG^{commit}")
+          [[ "$tag_sha" == "$RELEASE_SHA" ]] || {
+            echo "Release tag moved from $RELEASE_SHA to $tag_sha; refusing to publish" >&2
+            exit 1
+          }
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace it" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            dist/* \
+            --verify-tag \
+            --title "Grimalkin $RELEASE_VERSION" \
+            --notes-file "docs/releases/$RELEASE_TAG.md"

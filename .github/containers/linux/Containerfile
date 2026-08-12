@@ -1,0 +1,111 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG DISTRO_FAMILY
+
+RUN if [ "$DISTRO_FAMILY" = debian ]; then \
+      export DEBIAN_FRONTEND=noninteractive; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends \
+        autoconf \
+        autoconf-archive \
+        automake \
+        build-essential \
+        ca-certificates \
+        clang \
+        cmake \
+        curl \
+        file \
+        fonts-dejavu-core \
+        fonts-noto-cjk \
+        git \
+        glslang-tools \
+        libvulkan1 \
+        libxcursor-dev \
+        libxi-dev \
+        libxinerama-dev \
+        libxrandr-dev \
+        libx11-dev \
+        libtool \
+        mesa-vulkan-drivers \
+        ninja-build \
+        patchelf \
+        pkg-config \
+        python3 \
+        unzip \
+        xauth \
+        xvfb \
+        xz-utils \
+        zip; \
+      rm -rf /var/lib/apt/lists/*; \
+    elif [ "$DISTRO_FAMILY" = arch ]; then \
+      pacman -Syu --noconfirm --needed \
+        autoconf \
+        autoconf-archive \
+        automake \
+        base-devel \
+        ca-certificates \
+        clang \
+        cmake \
+        curl \
+        file \
+        git \
+        glslang \
+        libglvnd \
+        libxcursor \
+        libxi \
+        libxinerama \
+        libxrandr \
+        libx11 \
+        libtool \
+        ninja \
+        noto-fonts-cjk \
+        patchelf \
+        pkgconf \
+        python \
+        shadow \
+        ttf-dejavu \
+        unzip \
+        vulkan-icd-loader \
+        vulkan-swrast \
+        xorg-server-xvfb \
+        xorg-xauth \
+        xz \
+        zip; \
+      pacman -Scc --noconfirm; \
+      useradd --create-home builder; \
+    else \
+      echo "Unsupported DISTRO_FAMILY: $DISTRO_FAMILY" >&2; \
+      exit 1; \
+    fi
+
+COPY linux-toolchain.env /tmp/grimalkin-linux-toolchain.env
+
+RUN set -eu; \
+    . /tmp/grimalkin-linux-toolchain.env; \
+    toolchains=/opt/grimalkin/toolchains; \
+    downloads=/tmp/grimalkin-toolchain-downloads; \
+    mkdir -p "$toolchains/odin" "$toolchains/zig" "$downloads"; \
+    odin_archive="$downloads/odin.tar.gz"; \
+    curl --fail --location --retry 3 --show-error \
+      --output "$odin_archive" \
+      "https://github.com/odin-lang/Odin/releases/download/$ODIN_VERSION/odin-linux-amd64-$ODIN_VERSION.tar.gz"; \
+    printf '%s  %s\n' "$ODIN_SHA256" "$odin_archive" | sha256sum --check --status; \
+    tar -xzf "$odin_archive" --strip-components=1 -C "$toolchains/odin"; \
+    zig_archive="$downloads/zig.tar.xz"; \
+    curl --fail --location --retry 3 --show-error \
+      --output "$zig_archive" \
+      "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"; \
+    printf '%s  %s\n' "$ZIG_SHA256" "$zig_archive" | sha256sum --check --status; \
+    tar -xJf "$zig_archive" --strip-components=1 -C "$toolchains/zig"; \
+    linuxdeploy="$toolchains/linuxdeploy-x86_64.AppImage"; \
+    curl --fail --location --retry 3 --show-error \
+      --output "$linuxdeploy" \
+      "https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_VERSION/linuxdeploy-x86_64.AppImage"; \
+    printf '%s  %s\n' "$LINUXDEPLOY_SHA256" "$linuxdeploy" | sha256sum --check --status; \
+    chmod 755 "$linuxdeploy"; \
+    rm -rf "$downloads" /tmp/grimalkin-linux-toolchain.env
+
+ENV GRIMALKIN_ODIN_ROOT=/opt/grimalkin/toolchains/odin \
+    GRIMALKIN_ZIG_ROOT=/opt/grimalkin/toolchains/zig \
+    GRIMALKIN_LINUXDEPLOY=/opt/grimalkin/toolchains/linuxdeploy-x86_64.AppImage

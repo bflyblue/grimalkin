@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${APPDIR:-}" ]; then
+  APPDIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+fi
+
+export FONTCONFIG_FILE="$APPDIR/usr/share/grimalkin/fonts.conf"
+if [ -d "$APPDIR/usr/share/X11/locale" ]; then
+  export XLOCALEDIR="$APPDIR/usr/share/X11/locale"
+fi
+if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+  export LD_LIBRARY_PATH="$APPDIR/usr/lib:$LD_LIBRARY_PATH"
+else
+  export LD_LIBRARY_PATH="$APPDIR/usr/lib"
+fi
+
+exec "$APPDIR/usr/bin/grimalkin" "$@"

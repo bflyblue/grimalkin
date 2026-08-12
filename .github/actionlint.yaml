@@ -1,0 +1,9 @@
+self-hosted-runner:
+  labels:
+    - grimalkin-linux
+    - grimalkin-macos
+    - grimalkin-windows
+
+config-variables: null
+
+paths:

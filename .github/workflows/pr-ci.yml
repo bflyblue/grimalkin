@@ -1,0 +1,69 @@
+name: PR CI
+
+# pull_request_target deliberately loads this dispatcher from main. It must not
+# execute PR code itself; it delegates the exact head SHA to either the trusted
+# home fleet or isolated GitHub-hosted runners after evaluating immutable event
+# metadata.
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-platforms:
+    name: Trusted owner branch
+    if: >-
+      github.actor == github.repository_owner &&
+      github.event.pull_request.user.login == github.repository_owner &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/platform-ci.yml
+    with:
+      trusted: true
+      checkout_repository: ${{ github.repository }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+
+  untrusted-platforms:
+    name: Isolated contributor branch
+    if: >-
+      github.actor != github.repository_owner ||
+      github.event.pull_request.user.login != github.repository_owner ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    uses: ./.github/workflows/platform-ci.yml
+    with:
+      trusted: false
+      checkout_repository: ${{ github.event.pull_request.head.repo.full_name }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+
+  required-checks:
+    name: Required checks
+    if: ${{ always() }}
+    needs:
+      - trusted-platforms
+      - untrusted-platforms
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the selected platform matrix
+        shell: bash
+        env:
+          TRUSTED_RESULT: ${{ needs.trusted-platforms.result }}
+          UNTRUSTED_RESULT: ${{ needs.untrusted-platforms.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$TRUSTED_RESULT" == success && "$UNTRUSTED_RESULT" == skipped ]]; then
+            exit 0
+          fi
+          if [[ "$TRUSTED_RESULT" == skipped && "$UNTRUSTED_RESULT" == success ]]; then
+            exit 0
+          fi
+          echo "Expected exactly one successful platform matrix; trusted=$TRUSTED_RESULT untrusted=$UNTRUSTED_RESULT" >&2
+          exit 1

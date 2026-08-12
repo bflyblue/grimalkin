@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+: "${FONTCONFIG_FILE:=/usr/share/grimalkin/fonts.conf}"
+: "${GRIMALKIN_NERD_FONT_PATH:=/usr/share/grimalkin/fonts/SymbolsNerdFontMono-Regular.ttf}"
+export FONTCONFIG_FILE GRIMALKIN_NERD_FONT_PATH
+
+exec /usr/lib/grimalkin/grimalkin "$@"

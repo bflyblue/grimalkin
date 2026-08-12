@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Grimalkin
+Comment=A lightweight native terminal emulator built on libghostty
+Exec=grimalkin
+TryExec=grimalkin
+Icon=dev.grimalkin.Grimalkin
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;terminal;
+StartupNotify=true

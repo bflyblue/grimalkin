@@ -1,0 +1,13 @@
+.direnv/
+.ua/
+.DS_Store
+/build/
+/dist/
+/grimalkin
+/grimalkin-capture.png
+/result
+/src.bin
+/src/*.o
+/src/*.a
+/src/session_shim_test
+/src/shaders/*.spv

@@ -1,0 +1,9 @@
+prefix=/
+includedir=@INCLUDEDIR@
+libdir=@LIBDIR@
+
+Name: libghostty-vt
+Description: Ghostty virtual terminal library
+Version: 0
+Cflags: -I${includedir}
+Libs: -L${libdir} -lghostty-vt

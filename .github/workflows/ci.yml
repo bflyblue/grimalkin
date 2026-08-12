@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trusted-platforms:
+    name: Trusted platform matrix
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/platform-ci.yml
+    with:
+      trusted: true
+      checkout_repository: ${{ github.repository }}
+      checkout_ref: ${{ github.sha }}
