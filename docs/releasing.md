@@ -166,5 +166,5 @@ Workflows never stop the VM directly. Trusted CI and releases share one
 concurrency group because the repository currently has one Windows runner VM.
 The host-side idle watchdog must refresh its lease while a job is running, leave
 the VM running when inspection fails, and request graceful shutdown only after
-the configured idle interval. The runner account needs `virsh` and `jq` plus
-permission to manage the configured domain through `qemu:///system`.
+the configured idle interval. The runner account needs `virsh` plus permission
+to manage the configured domain through `qemu:///system`.
