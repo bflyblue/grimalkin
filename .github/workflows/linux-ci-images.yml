@@ -57,6 +57,7 @@ jobs:
           set -euo pipefail
           definition_digest=$(sha256sum \
             .github/containers/linux/Containerfile \
+            scripts/glslc-from-glslang.sh \
             scripts/linux-toolchain.env | sha256sum | awk '{ print $1 }')
           base_state=
           for base in \
@@ -127,6 +128,7 @@ jobs:
           latest="$IMAGE_REPOSITORY:${{ matrix.distro }}"
           context=$(mktemp -d "$RUNNER_TEMP/grimalkin-linux-ci.XXXXXX")
           install -m 644 .github/containers/linux/Containerfile "$context/Containerfile"
+          install -m 755 scripts/glslc-from-glslang.sh "$context/glslc-from-glslang.sh"
           install -m 644 scripts/linux-toolchain.env "$context/linux-toolchain.env"
           docker pull "${{ matrix.base_image }}"
           cache_args=()
