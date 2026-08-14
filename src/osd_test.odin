@@ -7,36 +7,36 @@ import "vendor:glfw"
 @(test)
 osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.T) {
 	settings := application_settings_default()
-	change := osd_adjust_text_rendering(&settings, 0, 1)
+	change := osd_adjust_text_rendering(&settings, .Smoothing, 1)
 	testing.expect_value(t, settings.text_smoothing, Text_Smoothing.Subpixel)
 	testing.expect(t, .Font_Resources in change)
-	change = osd_adjust_text_rendering(&settings, 1, 1)
+	change = osd_adjust_text_rendering(&settings, .Contrast, 1)
 	testing.expect_value(t, settings.text_contrast, Text_Contrast.Crisp)
-	testing.expect(t, .Persistence in change && .Font_Resources not_in change)
-	change = osd_adjust_text_rendering(&settings, 2, 1)
+	testing.expect(t, .Persist in change && .Font_Resources not_in change)
+	change = osd_adjust_text_rendering(&settings, .Hinting, 1)
 	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
-	change = osd_adjust_text_rendering(&settings, 3, 1)
+	change = osd_adjust_text_rendering(&settings, .Subpixel_Layout, 1)
 	testing.expect_value(t, settings.subpixel_layout, Subpixel_Layout.BGR)
-	change = osd_adjust_text_rendering(&settings, 4, 1)
+	change = osd_adjust_text_rendering(&settings, .Rotation, 1)
 	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Degrees_0)
-	testing.expect(t, .Persistence in change && .Font_Resources not_in change)
-	change = osd_adjust_text_rendering(&settings, 4, 1)
+	testing.expect(t, .Persist in change && .Font_Resources not_in change)
+	change = osd_adjust_text_rendering(&settings, .Rotation, 1)
 	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Degrees_90)
 	testing.expect(t, .Font_Resources in change)
 	settings.text_smoothing = .Monochrome
-	change = osd_adjust_text_rendering(&settings, 1, 1)
+	change = osd_adjust_text_rendering(&settings, .Contrast, 1)
 	testing.expect_value(t, settings.text_contrast, Text_Contrast.Crisp)
 	testing.expect(t, change == {})
-	change = osd_adjust_text_rendering(&settings, 2, 1)
+	change = osd_adjust_text_rendering(&settings, .Hinting, 1)
 	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
 	testing.expect(t, change == {})
-	change = osd_adjust_text_rendering(&settings, 3, 1)
+	change = osd_adjust_text_rendering(&settings, .Subpixel_Layout, 1)
 	testing.expect_value(t, settings.subpixel_layout, Subpixel_Layout.BGR)
 	testing.expect(t, change == {})
-	change = osd_reset_text_rendering(&settings, 2)
+	change = osd_reset_text_rendering(&settings, .Hinting)
 	testing.expect_value(t, settings.font_hinting, Font_Hinting.Light)
 	testing.expect(t, change == {})
-	change = osd_reset_setting(&settings, OSD_TEXT_RENDERING_ROW)
+	change = osd_reset_setting(&settings, .Text_Rendering)
 	testing.expect_value(t, settings.text_smoothing, Text_Smoothing.Grayscale)
 	testing.expect_value(t, settings.text_contrast, Text_Contrast.Balanced)
 	testing.expect_value(t, settings.font_hinting, Font_Hinting.Normal)
@@ -44,62 +44,62 @@ osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.
 	testing.expect_value(t, settings.subpixel_rotation, Subpixel_Rotation.Auto)
 
 	settings.font_size = SETTINGS_FONT_SIZE_MAX
-	change = osd_adjust_font_setting(&settings, 1, 1)
+	change = osd_adjust_font_setting(&settings, .Size, 1)
 	testing.expect_value(t, settings.font_size, SETTINGS_FONT_SIZE_MAX)
 	testing.expect(t, .Font_Resources in change && .Layout in change)
 
 	settings.padding = 0
-	_ = osd_adjust_setting(&settings, 3, -1)
+	_ = osd_adjust_setting(&settings, .Padding, -1)
 	testing.expect_value(t, settings.padding, u16(0))
 
-	change = osd_adjust_setting(&settings, 5, 1)
+	change = osd_adjust_setting(&settings, .Nerd_Font_Symbols, 1)
 	testing.expect(t, !settings.nerd_font_symbols)
 	testing.expect(t, .Font_Resources in change)
 
-	change = osd_adjust_setting(&settings, 6, 1)
+	change = osd_adjust_setting(&settings, .Window_Style, 1)
 	testing.expect_value(t, settings.window_style, Window_Style.Frameless)
 	testing.expect(t, .Window_Style in change)
-	change = osd_reset_setting(&settings, 6)
+	change = osd_reset_setting(&settings, .Window_Style)
 	testing.expect_value(t, settings.window_style, Window_Style.System)
 	testing.expect(t, .Window_Style in change)
 
-	change = osd_adjust_key_binding(&settings, 0, 1)
+	change = osd_adjust_key_binding(&settings, .Page_Scrolling, 1)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Ctrl)
-	testing.expect(t, .Input in change)
-	change = osd_adjust_key_binding(&settings, 0, 1)
+	testing.expect(t, .Persist in change)
+	change = osd_adjust_key_binding(&settings, .Page_Scrolling, 1)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Ctrl_Shift)
-	change = osd_adjust_key_binding(&settings, 0, 1)
+	change = osd_adjust_key_binding(&settings, .Page_Scrolling, 1)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Off)
-	change = osd_adjust_key_binding(&settings, 1, 1)
+	change = osd_adjust_key_binding(&settings, .Line_Scrolling, 1)
 	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Off)
-	change = osd_adjust_key_binding(&settings, 1, -1)
+	change = osd_adjust_key_binding(&settings, .Line_Scrolling, -1)
 	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
-	change = osd_adjust_key_binding(&settings, 2, 1)
+	change = osd_adjust_key_binding(&settings, .Font_Size, 1)
 	testing.expect(t, !settings.font_size_shortcuts)
-	testing.expect(t, .Input in change)
-	change = osd_reset_key_binding(&settings, 2)
+	testing.expect(t, .Persist in change)
+	change = osd_reset_key_binding(&settings, .Font_Size)
 	testing.expect(t, settings.font_size_shortcuts)
-	change = osd_reset_setting(&settings, OSD_KEY_BINDING_ROW)
+	change = osd_reset_setting(&settings, .Key_Bindings)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Shift)
 	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
 	testing.expect(t, settings.font_size_shortcuts)
-	testing.expect(t, .Input in change)
+	testing.expect(t, .Persist in change)
 
-	change = osd_adjust_copy_paste(&settings, 0, 1)
+	change = osd_adjust_copy_paste(&settings, .Insert_Shortcuts, 1)
 	testing.expect(t, !settings.clipboard_insert_shortcuts)
-	change = osd_adjust_copy_paste(&settings, 1, 1)
+	change = osd_adjust_copy_paste(&settings, .Copy_On_Select, 1)
 	testing.expect(t, !settings.copy_on_select)
-	change = osd_adjust_copy_paste(&settings, 2, 1)
+	change = osd_adjust_copy_paste(&settings, .Right_Click_Paste, 1)
 	testing.expect(t, !settings.right_click_paste)
-	change = osd_adjust_copy_paste(&settings, 3, 1)
+	change = osd_adjust_copy_paste(&settings, .Paste_Protection, 1)
 	testing.expect(t, settings.paste_protection)
-	change = osd_adjust_copy_paste(&settings, 4, 1)
+	change = osd_adjust_copy_paste(&settings, .Terminal_Clipboard, 1)
 	testing.expect_value(t, settings.terminal_clipboard, Terminal_Clipboard_Policy.Read_Write)
-	change = osd_adjust_copy_paste(&settings, 5, 1)
+	change = osd_adjust_copy_paste(&settings, .Block_Whitespace, 1)
 	testing.expect_value(t, settings.block_selection_whitespace, Block_Selection_Whitespace.Preserve)
-	change = osd_adjust_copy_paste(&settings, 6, 1)
+	change = osd_adjust_copy_paste(&settings, .Selection_Style, 1)
 	testing.expect_value(t, settings.selection_style, Selection_Style.Glass)
-	change = osd_reset_setting(&settings, OSD_COPY_PASTE_ROW)
+	change = osd_reset_setting(&settings, .Copy_Paste)
 	testing.expect(t, settings.clipboard_insert_shortcuts)
 	testing.expect(t, settings.copy_on_select)
 	testing.expect(t, settings.right_click_paste)
@@ -107,31 +107,31 @@ osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.
 	testing.expect_value(t, settings.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
 	testing.expect_value(t, settings.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, settings.selection_style, Selection_Style.Solid)
-	testing.expect(t, .Input in change)
+	testing.expect(t, .Persist in change)
 }
 
 @(test)
 osd_key_binding_labels_describe_complete_shortcuts :: proc(t: ^testing.T) {
 	settings := application_settings_default()
 
-	label, value := osd_key_binding_row_text(settings, 0)
+	label, value := osd_key_binding_row_text(settings, .Page_Scrolling)
 	testing.expect_value(t, label, "Page/Home/End")
 	testing.expect_value(t, value, "Shift")
-	label, value = osd_key_binding_row_text(settings, 1)
+	label, value = osd_key_binding_row_text(settings, .Line_Scrolling)
 	testing.expect_value(t, label, "Line scroll (↑/↓)")
 	testing.expect_value(t, value, "Ctrl+Shift")
-	label, value = osd_key_binding_row_text(settings, 2)
+	label, value = osd_key_binding_row_text(settings, .Font_Size)
 	testing.expect_value(t, label, "Font size")
 	testing.expect_value(t, value, "Ctrl + / Ctrl -")
 
 	settings.scroll_page_modifier = .Off
 	settings.scroll_line_modifier = .Off
 	settings.font_size_shortcuts = false
-	_, value = osd_key_binding_row_text(settings, 0)
+	_, value = osd_key_binding_row_text(settings, .Page_Scrolling)
 	testing.expect_value(t, value, "Disabled")
-	_, value = osd_key_binding_row_text(settings, 1)
+	_, value = osd_key_binding_row_text(settings, .Line_Scrolling)
 	testing.expect_value(t, value, "Disabled")
-	_, value = osd_key_binding_row_text(settings, 2)
+	_, value = osd_key_binding_row_text(settings, .Font_Size)
 	testing.expect_value(t, value, "Disabled")
 }
 
@@ -176,26 +176,26 @@ osd_main_title_includes_the_build_version :: proc(t: ^testing.T) {
 osd_padding_glow_is_inactive_without_padding_and_retains_its_profile :: proc(t: ^testing.T) {
 	settings := application_settings_default()
 	settings.padding_glow = .Tint
-	testing.expect(t, !osd_main_row_enabled(settings, OSD_PADDING_GLOW_ROW))
-	_, value := osd_row_text(settings, OSD_PADDING_GLOW_ROW)
+	testing.expect(t, !osd_main_row_enabled(settings, .Padding_Glow))
+	_, value := osd_row_text(settings, .Padding_Glow)
 	testing.expect_value(t, value, "Inactive")
-	testing.expect_value(t, osd_move_main_selection(settings, 3, 1), 5)
-	testing.expect_value(t, osd_move_main_selection(settings, 5, -1), 3)
-	change := osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 3, 1), 5)
+	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 5, -1), 3)
+	change := osd_adjust_setting(&settings, .Padding_Glow, 1)
 	testing.expect(t, change == {})
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Tint)
 
 	settings.padding = 1
-	testing.expect(t, osd_main_row_enabled(settings, OSD_PADDING_GLOW_ROW))
-	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
-	testing.expect(t, .Persistence in change)
+	testing.expect(t, osd_main_row_enabled(settings, .Padding_Glow))
+	change = osd_adjust_setting(&settings, .Padding_Glow, 1)
+	testing.expect(t, .Persist in change)
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Off)
-	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	change = osd_adjust_setting(&settings, .Padding_Glow, 1)
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Background)
-	change = osd_adjust_setting(&settings, OSD_PADDING_GLOW_ROW, 1)
+	change = osd_adjust_setting(&settings, .Padding_Glow, 1)
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Tint)
-	change = osd_reset_setting(&settings, OSD_PADDING_GLOW_ROW)
-	testing.expect(t, .Persistence in change)
+	change = osd_reset_setting(&settings, .Padding_Glow)
+	testing.expect(t, .Persist in change)
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Off)
 
 	settings.padding_glow = .Background
@@ -208,32 +208,32 @@ osd_text_rendering_dependencies_disable_and_skip_inactive_rows :: proc(t: ^testi
 	settings := application_settings_default()
 
 	// Grayscale uses hinting but has no subpixel layout.
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 0))
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 1))
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 2))
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3))
-	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1), 0)
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Smoothing))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Contrast))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Hinting))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Subpixel_Layout))
+	testing.expect_value(t, osd_page_move_selection(.Text_Rendering, settings, nil, 2, 1), 0)
 
 	// Subpixel rendering exposes hinting, layout, and rotation when auto is known.
 	settings.text_smoothing = .Subpixel
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 1))
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 2))
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 3))
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 4))
-	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1), 3)
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3, .Unknown))
-	testing.expect_value(t, osd_move_text_rendering_selection(settings, 2, 1, .Unknown), 4)
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Contrast))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Hinting))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Subpixel_Layout))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Rotation))
+	testing.expect_value(t, osd_page_move_selection(.Text_Rendering, settings, nil, 2, 1), 3)
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Subpixel_Layout, .Unknown))
+	testing.expect_value(t, osd_page_move_selection(.Text_Rendering, settings, nil, 2, 1, .Unknown), 4)
 	settings.subpixel_rotation = .Degrees_90
-	testing.expect(t, osd_text_rendering_row_enabled(settings, 3, .Unknown))
+	testing.expect(t, osd_text_rendering_row_enabled(settings, .Subpixel_Layout, .Unknown))
 
 	// Monochrome forces binary coverage and FreeType's mono hinter, so only smoothing is adjustable.
 	settings.text_smoothing = .Monochrome
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 1))
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 2))
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 3))
-	testing.expect(t, !osd_text_rendering_row_enabled(settings, 4))
-	testing.expect_value(t, osd_move_text_rendering_selection(settings, 0, 1), 0)
-	testing.expect_value(t, osd_move_text_rendering_selection(settings, 0, -1), 0)
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Contrast))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Hinting))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Subpixel_Layout))
+	testing.expect(t, !osd_text_rendering_row_enabled(settings, .Rotation))
+	testing.expect_value(t, osd_page_move_selection(.Text_Rendering, settings, nil, 0, 1), 0)
+	testing.expect_value(t, osd_page_move_selection(.Text_Rendering, settings, nil, 0, -1), 0)
 }
 
 @(test)
@@ -241,19 +241,19 @@ osd_subpixel_labels_follow_effective_rotation :: proc(t: ^testing.T) {
 	settings := application_settings_default()
 	settings.text_smoothing = .Subpixel
 
-	_, value := osd_text_rendering_row_text(settings, 3, .Degrees_0)
+	_, value := osd_text_rendering_row_text(settings, .Subpixel_Layout, .Degrees_0)
 	testing.expect_value(t, value, "Horizontal RGB")
-	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_90)
+	_, value = osd_text_rendering_row_text(settings, .Subpixel_Layout, .Degrees_90)
 	testing.expect_value(t, value, "Vertical RGB")
-	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_180)
+	_, value = osd_text_rendering_row_text(settings, .Subpixel_Layout, .Degrees_180)
 	testing.expect_value(t, value, "Horizontal BGR")
-	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_270)
+	_, value = osd_text_rendering_row_text(settings, .Subpixel_Layout, .Degrees_270)
 	testing.expect_value(t, value, "Vertical BGR")
-	_, value = osd_text_rendering_row_text(settings, 4, .Degrees_90)
+	_, value = osd_text_rendering_row_text(settings, .Rotation, .Degrees_90)
 	testing.expect_value(t, value, "Auto (90°)")
 
 	settings.subpixel_layout = .BGR
-	_, value = osd_text_rendering_row_text(settings, 3, .Degrees_90)
+	_, value = osd_text_rendering_row_text(settings, .Subpixel_Layout, .Degrees_90)
 	testing.expect_value(t, value, "Vertical BGR")
 }
 
@@ -263,7 +263,7 @@ osd_text_rendering_submenu_navigation_uses_right_enter_space_and_escape :: proc(
 	for key in entry_keys {
 		app := Vulkan_App {
 			settings = application_settings_default(),
-			osd = {visible = true, page = .Main, selected = OSD_TEXT_RENDERING_ROW},
+			osd = {visible = true, page = .Main, selected = int(Osd_Main_Row.Text_Rendering)},
 		}
 		osd_handle_key(&app, key, 0)
 		testing.expect_value(t, app.osd.page, Osd_Page.Text_Rendering)
@@ -272,7 +272,7 @@ osd_text_rendering_submenu_navigation_uses_right_enter_space_and_escape :: proc(
 		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
 		testing.expect(t, app.osd.visible)
 		testing.expect_value(t, app.osd.page, Osd_Page.Main)
-		testing.expect_value(t, app.osd.selected, OSD_TEXT_RENDERING_ROW)
+		testing.expect_value(t, app.osd.selected, int(Osd_Main_Row.Text_Rendering))
 
 		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
 		testing.expect(t, !app.osd.visible)
@@ -285,7 +285,7 @@ osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: 
 	for key in entry_keys {
 		app := Vulkan_App {
 			settings = application_settings_default(),
-			osd = {visible = true, page = .Main, selected = OSD_KEY_BINDING_ROW},
+			osd = {visible = true, page = .Main, selected = int(Osd_Main_Row.Key_Bindings)},
 		}
 		osd_handle_key(&app, key, 0)
 		testing.expect_value(t, app.osd.page, Osd_Page.Key_Bindings)
@@ -298,7 +298,7 @@ osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: 
 		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
 		testing.expect(t, app.osd.visible)
 		testing.expect_value(t, app.osd.page, Osd_Page.Main)
-		testing.expect_value(t, app.osd.selected, OSD_KEY_BINDING_ROW)
+		testing.expect_value(t, app.osd.selected, int(Osd_Main_Row.Key_Bindings))
 
 		osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
 		testing.expect(t, !app.osd.visible)
@@ -313,7 +313,7 @@ osd_font_submenus_apply_on_enter_and_cancel_on_escape :: proc(t: ^testing.T) {
 		settings = application_settings_default(),
 		applied_settings = application_settings_default(),
 		font_catalog = &catalog,
-		osd = {visible = true, page = .Main, selected = OSD_FONT_ROW},
+		osd = {visible = true, page = .Main, selected = int(Osd_Main_Row.Font)},
 	}
 	defer osd_state_destroy(&app.osd)
 
@@ -336,7 +336,7 @@ osd_font_submenus_apply_on_enter_and_cancel_on_escape :: proc(t: ^testing.T) {
 	testing.expect_value(t, font_family_setting_name(&app.settings.font_family), "Consolas")
 	osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
 	testing.expect_value(t, app.osd.page, Osd_Page.Main)
-	testing.expect_value(t, app.osd.selected, OSD_FONT_ROW)
+	testing.expect_value(t, app.osd.selected, int(Osd_Main_Row.Font))
 }
 
 @(test)
@@ -376,11 +376,11 @@ osd_font_family_is_disabled_by_environment_override_but_size_remains_available :
 	catalog := test_font_catalog([]string{"Consolas"})
 	catalog.environment_override = true
 	defer font_catalog_destroy(&catalog)
-	testing.expect(t, !osd_font_row_enabled(&catalog, 0))
-	testing.expect(t, osd_font_row_enabled(&catalog, 1))
-	testing.expect_value(t, osd_move_font_selection(&catalog, 0, 1), 1)
+	testing.expect(t, !osd_font_row_enabled(&catalog, .Family))
+	testing.expect(t, osd_font_row_enabled(&catalog, .Size))
+	testing.expect_value(t, osd_page_move_selection(.Font, {}, &catalog, 0, 1), 1)
 	settings := application_settings_default()
-	change := osd_adjust_font_setting(&settings, 1, 1)
+	change := osd_adjust_font_setting(&settings, .Size, 1)
 	testing.expect(t, .Font_Resources in change && .Layout in change)
 	testing.expect_value(t, settings.font_size, u16(17))
 }

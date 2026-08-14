@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -30,9 +31,19 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, expected.selection_style, Selection_Style.Solid)
 	data, ok := settings_encode(expected, context.temp_allocator)
 	testing.expect(t, ok)
+	testing.expect(t, !strings.contains(string(data), `"text_clarity"`))
 	actual, valid := settings_decode(data)
 	testing.expect(t, valid)
 	testing.expect_value(t, actual, expected)
+}
+
+@(test)
+settings_json_prefers_current_smoothing_over_legacy_clarity :: proc(t: ^testing.T) {
+	text := `{"version":1,"text_clarity":"bgr","text_smoothing":"monochrome"}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, valid)
+	testing.expect_value(t, actual.text_smoothing, Text_Smoothing.Monochrome)
+	testing.expect_value(t, actual.subpixel_layout, Subpixel_Layout.RGB)
 }
 
 @(test)

@@ -23,16 +23,12 @@ endif
 SESSION_SHIM := src/libgrimalkin_session.a
 SESSION_TEST := src/session_shim_test
 SUPPORT_LIBRARIES := $(FREETYPE_SHIM) $(GHOSTTY_SHIM) $(PNG_SHIM) $(SESSION_SHIM)
-VERTEX_SHADER := src/shaders/text.vert.spv
-FRAGMENT_SHADER := src/shaders/text.frag.spv
-OSD_VERTEX_SHADER := src/shaders/osd.vert.spv
-OSD_FRAGMENT_SHADER := src/shaders/osd.frag.spv
-PADDING_GLOW_VERTEX_SHADER := src/shaders/padding_glow.vert.spv
-PADDING_GLOW_FRAGMENT_SHADER := src/shaders/padding_glow.frag.spv
-PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER := src/shaders/padding_glow_background.frag.spv
-SCROLL_INDICATOR_FRAGMENT_SHADER := src/shaders/scroll_indicator.frag.spv
-SELECTION_VERTEX_SHADER := src/shaders/selection.vert.spv
-SELECTION_FRAGMENT_SHADER := src/shaders/selection.frag.spv
+SHADER_MANIFEST := src/shaders/manifest.txt
+# Match manifest entries by their valid filename prefix instead of spelling a
+# comment marker here; Apple's GNU Make 3.81 parses that marker as Make syntax.
+SHADER_SOURCES := $(addprefix src/shaders/,$(shell awk 'NF && $$1 ~ /^[[:alnum:]_.-]/ { print $$1 }' $(SHADER_MANIFEST)))
+SHADER_OUTPUTS := $(addsuffix .spv,$(SHADER_SOURCES))
+SHADER_INCLUDES := src/shaders/colour.glsl
 
 .PHONY: benchmark build capture check clean debug run shaders test test-gpu
 
@@ -48,11 +44,7 @@ clean:
 		$(GHOSTTY_OBJECT) $(GHOSTTY_SHIM) \
 		$(PNG_OBJECT) $(PNG_SHIM) \
 		$(SESSION_OBJECTS) $(SESSION_SHIM) $(SESSION_TEST) \
-		$(VERTEX_SHADER) $(FRAGMENT_SHADER) $(OSD_VERTEX_SHADER) $(OSD_FRAGMENT_SHADER) \
-		$(PADDING_GLOW_VERTEX_SHADER) $(PADDING_GLOW_FRAGMENT_SHADER) \
-		$(PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER) \
-		$(SCROLL_INDICATOR_FRAGMENT_SHADER) \
-		$(SELECTION_VERTEX_SHADER) $(SELECTION_FRAGMENT_SHADER)
+		$(SHADER_OUTPUTS)
 
 capture: shaders $(SUPPORT_LIBRARIES)
 	GRIMALKIN_CAPTURE_PATH="$(or $(CAPTURE_PATH),grimalkin-capture.png)" odin run ./src -define:DEMO_FRAME_LIMIT=1 $(ODIN_FLAGS) $(ODIN_GLFW_FLAGS) $(ODIN_LINK_FLAGS) -- --demo
@@ -92,7 +84,7 @@ test-gpu: build
 		./grimalkin --cursor-gpu-test; \
 	fi
 
-shaders: $(VERTEX_SHADER) $(FRAGMENT_SHADER) $(OSD_VERTEX_SHADER) $(OSD_FRAGMENT_SHADER) $(PADDING_GLOW_VERTEX_SHADER) $(PADDING_GLOW_FRAGMENT_SHADER) $(PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER) $(SCROLL_INDICATOR_FRAGMENT_SHADER) $(SELECTION_VERTEX_SHADER) $(SELECTION_FRAGMENT_SHADER)
+shaders: $(SHADER_OUTPUTS)
 
 $(FREETYPE_OBJECT): src/freetype_shim.c src/freetype_shim.h
 	$(CC) $$(pkg-config --cflags freetype2 harfbuzz fontconfig) -c $< -o $@
@@ -126,32 +118,5 @@ $(SESSION_SHIM): $(SESSION_OBJECTS)
 $(SESSION_TEST): src/session_shim.c src/session_shim.h src/session_shim_test.c VERSION
 	$(CC) $$(pkg-config --cflags glfw3) $(GRIMALKIN_VERSION_CFLAG) -DGRIMALKIN_SESSION_TEST -pthread src/session_shim.c src/session_shim_test.c -lutil -o $@
 
-$(VERTEX_SHADER): src/shaders/text.vert
-	glslc $< -o $@
-
-$(FRAGMENT_SHADER): src/shaders/text.frag
-	glslc $< -o $@
-
-$(OSD_VERTEX_SHADER): src/shaders/osd.vert
-	glslc $< -o $@
-
-$(OSD_FRAGMENT_SHADER): src/shaders/osd.frag
-	glslc $< -o $@
-
-$(PADDING_GLOW_VERTEX_SHADER): src/shaders/padding_glow.vert
-	glslc $< -o $@
-
-$(PADDING_GLOW_FRAGMENT_SHADER): src/shaders/padding_glow.frag
-	glslc $< -o $@
-
-$(PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER): src/shaders/padding_glow_background.frag
-	glslc $< -o $@
-
-$(SCROLL_INDICATOR_FRAGMENT_SHADER): src/shaders/scroll_indicator.frag
-	glslc $< -o $@
-
-$(SELECTION_VERTEX_SHADER): src/shaders/selection.vert
-	glslc $< -o $@
-
-$(SELECTION_FRAGMENT_SHADER): src/shaders/selection.frag
-	glslc $< -o $@
+src/shaders/%.spv: src/shaders/% $(SHADER_MANIFEST) $(SHADER_INCLUDES)
+	glslc -I src/shaders $< -o $@

@@ -32,21 +32,17 @@ BENCHMARK_WARMUP_FRAMES :: #config(BENCHMARK_WARMUP_FRAMES, 60)
 BENCHMARK_SAMPLE_FRAMES :: #config(BENCHMARK_SAMPLE_FRAMES, 300)
 MAX_TEXTURE_RESOURCES_CAP :: u32(1024)
 MAX_FRAMES_IN_FLIGHT :: 3
-WINDOW_PADDING_PX :: u32(0)
 PADDING_GLOW_SOURCE_FORMAT :: vk.Format.R16G16B16A16_SFLOAT
 
 #assert(BENCHMARK_WARMUP_FRAMES >= 0)
 #assert(BENCHMARK_SAMPLE_FRAMES > 0)
 
-VERTEX_SHADER :: #load("shaders/text.vert.spv")
+FULLSCREEN_VERTEX_SHADER :: #load("shaders/fullscreen.vert.spv")
 FRAGMENT_SHADER :: #load("shaders/text.frag.spv")
-OSD_VERTEX_SHADER :: #load("shaders/osd.vert.spv")
 OSD_FRAGMENT_SHADER :: #load("shaders/osd.frag.spv")
-PADDING_GLOW_VERTEX_SHADER :: #load("shaders/padding_glow.vert.spv")
 PADDING_GLOW_FRAGMENT_SHADER :: #load("shaders/padding_glow.frag.spv")
 PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER :: #load("shaders/padding_glow_background.frag.spv")
 SCROLL_INDICATOR_FRAGMENT_SHADER :: #load("shaders/scroll_indicator.frag.spv")
-SELECTION_VERTEX_SHADER :: #load("shaders/selection.vert.spv")
 SELECTION_FRAGMENT_SHADER :: #load("shaders/selection.frag.spv")
 
 Gpu_Buffer :: struct {
@@ -94,21 +90,21 @@ Gpu_Upload_Stats :: struct {
 	visual_bytes: u64,
 }
 
+Offscreen_Target :: struct {
+	image:           vk.Image,
+	memory:          vk.DeviceMemory,
+	sampled_view:    vk.ImageView,
+	attachment_view: vk.ImageView,
+	framebuffer:     vk.Framebuffer,
+}
+
 Frame_Context :: struct {
 	descriptor_set:       vk.DescriptorSet,
 	osd_descriptor_set:   vk.DescriptorSet,
 	selection_descriptor_set: vk.DescriptorSet,
 	padding_glow_descriptor_set: vk.DescriptorSet,
-	padding_glow_source_image: vk.Image,
-	padding_glow_source_memory: vk.DeviceMemory,
-	padding_glow_source_view: vk.ImageView,
-	padding_glow_source_attachment_view: vk.ImageView,
-	padding_glow_source_framebuffer: vk.Framebuffer,
-	padding_glow_background_image: vk.Image,
-	padding_glow_background_memory: vk.DeviceMemory,
-	padding_glow_background_view: vk.ImageView,
-	padding_glow_background_attachment_view: vk.ImageView,
-	padding_glow_background_framebuffer: vk.Framebuffer,
+	padding_glow_source: Offscreen_Target,
+	padding_glow_background: Offscreen_Target,
 	cell_buffer:          Gpu_Buffer,
 	cell_capacity:        int,
 	decoration_buffer:    Gpu_Buffer,
@@ -1064,11 +1060,21 @@ settings_changed :: proc(app: ^Vulkan_App, change: Osd_Settings_Change) {
 
 osd_prepare :: proc(app: ^Vulkan_App) {
 	if app.demo == nil || app.extent.width == 0 || app.extent.height == 0 do return
-	if app.osd.page == .Main && !osd_main_row_enabled(app.settings, app.osd.selected) {
-		app.osd.selected = osd_move_main_selection(app.settings, app.osd.selected, 1)
-	}
-	if app.osd.page == .Font && !osd_font_row_enabled(app.font_catalog, app.osd.selected) {
-		app.osd.selected = osd_move_font_selection(app.font_catalog, app.osd.selected, 1)
+	if osd_page_row_count(app.osd.page) > 0 && !osd_page_row_enabled(
+		app.osd.page,
+		app.settings,
+		app.font_catalog,
+		app.osd.selected,
+		app.detected_display_rotation,
+	) {
+		app.osd.selected = osd_page_move_selection(
+			app.osd.page,
+			app.settings,
+			app.font_catalog,
+			app.osd.selected,
+			1,
+			app.detected_display_rotation,
+		)
 	}
 	metrics := app.demo.resources.cell_metrics
 	cols, rows := osd_layout_dimensions(
@@ -1091,10 +1097,13 @@ osd_prepare :: proc(app: ^Vulkan_App) {
 osd_set_visible :: proc(app: ^Vulkan_App, visible: bool) {
 	if visible {
 		font_size_shortcut_clear(&app.font_size_shortcut)
-		if app.osd.page == .Text_Rendering do app.osd.selected = OSD_TEXT_RENDERING_ROW
-		if app.osd.page == .Font || app.osd.page == .Font_List do app.osd.selected = OSD_FONT_ROW
-		if app.osd.page == .Key_Bindings do app.osd.selected = OSD_KEY_BINDING_ROW
-		if app.osd.page == .Copy_Paste do app.osd.selected = OSD_COPY_PASTE_ROW
+		switch app.osd.page {
+		case .Text_Rendering: app.osd.selected = int(Osd_Main_Row.Text_Rendering)
+		case .Font, .Font_List: app.osd.selected = int(Osd_Main_Row.Font)
+		case .Key_Bindings: app.osd.selected = int(Osd_Main_Row.Key_Bindings)
+		case .Copy_Paste: app.osd.selected = int(Osd_Main_Row.Copy_Paste)
+		case .Main, .Paste_Confirm:
+		}
 		app.osd.page = .Main
 		app.osd.selected = clamp(app.osd.selected, 0, OSD_MAIN_ROW_COUNT - 1)
 	}
@@ -1111,53 +1120,8 @@ osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
 	change := Osd_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
-		change = {.Font_Resources, .Layout, .Cursor, .Window_Style, .Input}
+		change = {.Font_Resources, .Layout, .Cursor, .Window_Style}
 		settings_changed(app, change)
-		return
-	}
-	if app.osd.page == .Text_Rendering {
-		switch key {
-		case glfw.KEY_ESCAPE:
-			app.osd.page = .Main
-			app.osd.selected = OSD_TEXT_RENDERING_ROW
-		case glfw.KEY_UP:
-			app.osd.selected = osd_move_text_rendering_selection(
-				app.settings,
-				app.osd.selected,
-				-1,
-				app.detected_display_rotation,
-			)
-		case glfw.KEY_DOWN:
-			app.osd.selected = osd_move_text_rendering_selection(
-				app.settings,
-				app.osd.selected,
-				1,
-				app.detected_display_rotation,
-			)
-		case glfw.KEY_LEFT:
-			change = osd_adjust_text_rendering(
-				&app.settings,
-				app.osd.selected,
-				-1,
-				app.detected_display_rotation,
-			)
-		case glfw.KEY_RIGHT:
-			change = osd_adjust_text_rendering(
-				&app.settings,
-				app.osd.selected,
-				1,
-				app.detected_display_rotation,
-			)
-		case glfw.KEY_R:
-			change = osd_reset_text_rendering(
-				&app.settings,
-				app.osd.selected,
-				app.detected_display_rotation,
-			)
-		}
-		settings_changed(app, change)
-		if change == {} do osd_prepare(app)
-		app.redraw = true
 		return
 	}
 	if app.osd.page == .Font_List {
@@ -1168,9 +1132,9 @@ osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
 			if app.osd.font_search != "" {
 				delete(app.osd.font_search)
 				app.osd.font_search = ""
-			}
-			app.osd.page = .Font
-			app.osd.selected = 0
+				}
+				app.osd.page = .Font
+				app.osd.selected = int(Osd_Font_Row.Family)
 		case glfw.KEY_UP:
 			app.osd.font_list_candidate = max(0, app.osd.font_list_candidate - 1)
 		case glfw.KEY_DOWN:
@@ -1205,9 +1169,9 @@ osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
 				}
 			}
 			delete(app.osd.font_error)
-			app.osd.font_error = ""
-			app.osd.page = .Font
-			app.osd.selected = 0
+				app.osd.font_error = ""
+				app.osd.page = .Font
+				app.osd.selected = int(Osd_Font_Row.Family)
 			change = {.Font_Resources, .Layout}
 		}
 		osd_font_list_clamp_top(&app.osd, app.font_catalog)
@@ -1216,127 +1180,58 @@ osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
 		app.redraw = true
 		return
 	}
-	if app.osd.page == .Font {
-		switch key {
-		case glfw.KEY_ESCAPE:
-			app.osd.page = .Main
-			app.osd.selected = OSD_FONT_ROW
-		case glfw.KEY_UP:
-			app.osd.selected = osd_move_font_selection(app.font_catalog, app.osd.selected, -1)
-		case glfw.KEY_DOWN:
-			app.osd.selected = osd_move_font_selection(app.font_catalog, app.osd.selected, 1)
-		case glfw.KEY_LEFT:
-			change = osd_adjust_font_setting(&app.settings, app.osd.selected, -1)
-		case glfw.KEY_RIGHT, glfw.KEY_ENTER, glfw.KEY_SPACE:
-			if app.osd.selected == 0 && osd_font_row_enabled(app.font_catalog, 0) {
-				app.osd.page = .Font_List
-				app.osd.font_list_candidate = osd_font_applied_list_index(app.settings, app.font_catalog)
-				app.osd.font_list_top = 0
-				delete(app.osd.font_error)
-				app.osd.font_error = ""
-			} else if key == glfw.KEY_RIGHT {
-				change = osd_adjust_font_setting(&app.settings, app.osd.selected, 1)
-			}
-		case glfw.KEY_R:
-			change = osd_reset_font_setting(&app.settings, app.osd.selected)
-		}
-		settings_changed(app, change)
-		if change == {} do osd_prepare(app)
-		app.redraw = true
-		return
-	}
-	if app.osd.page == .Key_Bindings {
-		switch key {
-		case glfw.KEY_ESCAPE:
-			app.osd.page = .Main
-			app.osd.selected = OSD_KEY_BINDING_ROW
-		case glfw.KEY_UP:
-			app.osd.selected =
-				(app.osd.selected + OSD_KEY_BINDING_COUNT - 1) % OSD_KEY_BINDING_COUNT
-		case glfw.KEY_DOWN:
-			app.osd.selected = (app.osd.selected + 1) % OSD_KEY_BINDING_COUNT
-		case glfw.KEY_LEFT:
-			change = osd_adjust_key_binding(&app.settings, app.osd.selected, -1)
-		case glfw.KEY_RIGHT:
-			change = osd_adjust_key_binding(&app.settings, app.osd.selected, 1)
-		case glfw.KEY_R:
-			change = osd_reset_key_binding(&app.settings, app.osd.selected)
-		}
-		settings_changed(app, change)
-		if change == {} do osd_prepare(app)
-		app.redraw = true
-		return
-	}
-	if app.osd.page == .Copy_Paste {
-		switch key {
-		case glfw.KEY_ESCAPE:
-			app.osd.page = .Main
-			app.osd.selected = OSD_COPY_PASTE_ROW
-		case glfw.KEY_UP:
-			app.osd.selected =
-				(app.osd.selected + OSD_COPY_PASTE_COUNT - 1) % OSD_COPY_PASTE_COUNT
-		case glfw.KEY_DOWN:
-			app.osd.selected = (app.osd.selected + 1) % OSD_COPY_PASTE_COUNT
-		case glfw.KEY_LEFT:
-			change = osd_adjust_copy_paste(&app.settings, app.osd.selected, -1)
-		case glfw.KEY_RIGHT:
-			change = osd_adjust_copy_paste(&app.settings, app.osd.selected, 1)
-		case glfw.KEY_R:
-			change = osd_reset_copy_paste(&app.settings, app.osd.selected)
-		}
-		settings_changed(app, change)
-		if change == {} do osd_prepare(app)
-		app.redraw = true
-		return
-	}
+	if osd_page_row_count(app.osd.page) == 0 do return
 	switch key {
 	case glfw.KEY_ESCAPE:
-		osd_set_visible(app, false)
-		return
-	case glfw.KEY_UP:
-		app.osd.selected = osd_move_main_selection(app.settings, app.osd.selected, -1)
-	case glfw.KEY_DOWN:
-		app.osd.selected = osd_move_main_selection(app.settings, app.osd.selected, 1)
-	case glfw.KEY_LEFT:
-		if app.osd.selected != OSD_TEXT_RENDERING_ROW &&
-		   app.osd.selected != OSD_FONT_ROW &&
-		   app.osd.selected != OSD_KEY_BINDING_ROW &&
-		   app.osd.selected != OSD_COPY_PASTE_ROW {
-			change = osd_adjust_setting(&app.settings, app.osd.selected, -1)
+		if !osd_close_submenu(&app.osd) {
+			osd_set_visible(app, false)
+			return
 		}
+	case glfw.KEY_UP:
+		app.osd.selected = osd_page_move_selection(
+			app.osd.page,
+			app.settings,
+			app.font_catalog,
+			app.osd.selected,
+			-1,
+			app.detected_display_rotation,
+		)
+	case glfw.KEY_DOWN:
+		app.osd.selected = osd_page_move_selection(
+			app.osd.page,
+			app.settings,
+			app.font_catalog,
+			app.osd.selected,
+			1,
+			app.detected_display_rotation,
+		)
+	case glfw.KEY_LEFT:
+		change = osd_page_adjust_setting(
+			app.osd.page,
+			&app.settings,
+			app.font_catalog,
+			app.osd.selected,
+			-1,
+			app.detected_display_rotation,
+		)
 	case glfw.KEY_RIGHT:
-		if app.osd.selected == OSD_TEXT_RENDERING_ROW {
-			app.osd.page = .Text_Rendering
-			app.osd.selected = 0
-		} else if app.osd.selected == OSD_FONT_ROW {
-			app.osd.page = .Font
-			app.osd.selected = osd_font_row_enabled(app.font_catalog, 0) ? 0 : 1
-		} else if app.osd.selected == OSD_KEY_BINDING_ROW {
-			app.osd.page = .Key_Bindings
-			app.osd.selected = 0
-		} else if app.osd.selected == OSD_COPY_PASTE_ROW {
-			app.osd.page = .Copy_Paste
-			app.osd.selected = 0
-		} else {
-			change = osd_adjust_setting(&app.settings, app.osd.selected, 1)
+		if !osd_open_submenu(&app.osd, app.settings, app.font_catalog) {
+			change = osd_page_adjust_setting(
+				app.osd.page,
+				&app.settings,
+				app.font_catalog,
+				app.osd.selected,
+				1,
+				app.detected_display_rotation,
+			)
 		}
 	case glfw.KEY_ENTER, glfw.KEY_SPACE:
-		if app.osd.selected == OSD_TEXT_RENDERING_ROW {
-			app.osd.page = .Text_Rendering
-			app.osd.selected = 0
-		} else if app.osd.selected == OSD_FONT_ROW {
-			app.osd.page = .Font
-			app.osd.selected = osd_font_row_enabled(app.font_catalog, 0) ? 0 : 1
-		} else if app.osd.selected == OSD_KEY_BINDING_ROW {
-			app.osd.page = .Key_Bindings
-			app.osd.selected = 0
-		} else if app.osd.selected == OSD_COPY_PASTE_ROW {
-			app.osd.page = .Copy_Paste
-			app.osd.selected = 0
-		}
+		_ = osd_open_submenu(&app.osd, app.settings, app.font_catalog)
 	case glfw.KEY_R:
-		change = osd_reset_setting(
+		change = osd_page_reset_setting(
+			app.osd.page,
 			&app.settings,
+			app.font_catalog,
 			app.osd.selected,
 			app.detected_display_rotation,
 		)
@@ -1796,9 +1691,20 @@ init_vulkan :: proc(app: ^Vulkan_App) {
 	create_swapchain(app)
 	resize_terminal_to_extent(app)
 	osd_prepare(app)
-	create_render_pass(app)
 	create_descriptor_layout(app)
 	create_padding_glow_descriptor_layout(app)
+	create_swapchain_resources(app)
+	create_commands(app)
+	create_swapchain_frame_resources(app)
+	when BENCHMARK_MODE {
+		create_timestamp_queries(app)
+	}
+	create_text_resources(app)
+	create_synchronization(app)
+}
+
+create_swapchain_resources :: proc(app: ^Vulkan_App) {
+	create_render_pass(app)
 	create_graphics_pipeline(app)
 	create_padding_glow_source_render_pass(app)
 	create_padding_glow_source_pipeline(app)
@@ -1808,16 +1714,11 @@ init_vulkan :: proc(app: ^Vulkan_App) {
 	create_selection_pipeline(app)
 	create_scroll_indicator_pipeline(app)
 	create_framebuffers(app)
-	create_commands(app)
+}
+
+create_swapchain_frame_resources :: proc(app: ^Vulkan_App) {
 	create_padding_glow_source_resources(app)
-	when BENCHMARK_MODE {
-		create_timestamp_queries(app)
-	}
-	create_text_resources(app)
-	if app.framebuffer_readback {
-		create_capture_buffer(app)
-	}
-	create_synchronization(app)
+	if app.framebuffer_readback do create_capture_buffer(app)
 }
 
 text_grid_extent :: proc(app: ^Vulkan_App) -> vk.Extent2D {
@@ -1909,46 +1810,8 @@ destroy_swapchain_resources :: proc(app: ^Vulkan_App) {
 	}
 	for &frame in app.frames {
 		frame.padding_glow_descriptor_set = 0
-		if frame.padding_glow_source_framebuffer != 0 {
-			vk.DestroyFramebuffer(app.device, frame.padding_glow_source_framebuffer, nil)
-		}
-		if frame.padding_glow_source_attachment_view != 0 {
-			vk.DestroyImageView(app.device, frame.padding_glow_source_attachment_view, nil)
-		}
-		if frame.padding_glow_source_view != 0 {
-			vk.DestroyImageView(app.device, frame.padding_glow_source_view, nil)
-		}
-		if frame.padding_glow_source_image != 0 {
-			vk.DestroyImage(app.device, frame.padding_glow_source_image, nil)
-		}
-		if frame.padding_glow_source_memory != 0 {
-			vk.FreeMemory(app.device, frame.padding_glow_source_memory, nil)
-		}
-		frame.padding_glow_source_framebuffer = 0
-		frame.padding_glow_source_attachment_view = 0
-		frame.padding_glow_source_view = 0
-		frame.padding_glow_source_image = 0
-		frame.padding_glow_source_memory = 0
-		if frame.padding_glow_background_framebuffer != 0 {
-			vk.DestroyFramebuffer(app.device, frame.padding_glow_background_framebuffer, nil)
-		}
-		if frame.padding_glow_background_attachment_view != 0 {
-			vk.DestroyImageView(app.device, frame.padding_glow_background_attachment_view, nil)
-		}
-		if frame.padding_glow_background_view != 0 {
-			vk.DestroyImageView(app.device, frame.padding_glow_background_view, nil)
-		}
-		if frame.padding_glow_background_image != 0 {
-			vk.DestroyImage(app.device, frame.padding_glow_background_image, nil)
-		}
-		if frame.padding_glow_background_memory != 0 {
-			vk.FreeMemory(app.device, frame.padding_glow_background_memory, nil)
-		}
-		frame.padding_glow_background_framebuffer = 0
-		frame.padding_glow_background_attachment_view = 0
-		frame.padding_glow_background_view = 0
-		frame.padding_glow_background_image = 0
-		frame.padding_glow_background_memory = 0
+		destroy_offscreen_target(app.device, &frame.padding_glow_source)
+		destroy_offscreen_target(app.device, &frame.padding_glow_background)
 	}
 	for framebuffer in app.framebuffers do vk.DestroyFramebuffer(app.device, framebuffer, nil)
 	delete(app.framebuffers)
@@ -1999,19 +1862,26 @@ recreate_swapchain :: proc(app: ^Vulkan_App) {
 	create_swapchain_image_synchronization(app)
 	resize_terminal_to_extent(app)
 	osd_prepare(app)
-	create_render_pass(app)
-	create_graphics_pipeline(app)
-	create_padding_glow_source_render_pass(app)
-	create_padding_glow_source_pipeline(app)
-	create_padding_glow_background_pipeline(app)
-	create_padding_glow_pipeline(app)
-	create_osd_pipeline(app)
-	create_selection_pipeline(app)
-	create_scroll_indicator_pipeline(app)
-	create_framebuffers(app)
-	create_padding_glow_source_resources(app)
-	if app.framebuffer_readback do create_capture_buffer(app)
+	create_swapchain_resources(app)
+	create_swapchain_frame_resources(app)
 	app.capture_complete = false
+}
+
+destroy_frame_text_buffers :: proc(device: vk.Device, frame: ^Frame_Context) {
+	destroy_buffer(device, &frame.visual_buffer)
+	destroy_buffer(device, &frame.cell_buffer)
+	destroy_buffer(device, &frame.decoration_buffer)
+	destroy_buffer(device, &frame.osd_cell_buffer)
+	destroy_buffer(device, &frame.selection_mask_buffer)
+	frame.descriptor_set = 0
+	frame.osd_descriptor_set = 0
+	frame.selection_descriptor_set = 0
+	frame.cell_capacity = 0
+	frame.decoration_capacity = 0
+	frame.osd_cell_capacity = 0
+	frame.selection_mask_capacity = 0
+	frame.visual_capacity = 0
+	frame.visuals_uploaded = 0
 }
 
 destroy_vulkan :: proc(app: ^Vulkan_App) {
@@ -2021,11 +1891,7 @@ destroy_vulkan :: proc(app: ^Vulkan_App) {
 		destroy_buffer(app.device, &app.staging_buffer)
 		for &frame in app.frames {
 			if frame.timestamp_pool != 0 do vk.DestroyQueryPool(app.device, frame.timestamp_pool, nil)
-			destroy_buffer(app.device, &frame.visual_buffer)
-			destroy_buffer(app.device, &frame.cell_buffer)
-			destroy_buffer(app.device, &frame.decoration_buffer)
-			destroy_buffer(app.device, &frame.osd_cell_buffer)
-			destroy_buffer(app.device, &frame.selection_mask_buffer)
+			destroy_frame_text_buffers(app.device, &frame)
 			vk.DestroyFence(app.device, frame.in_flight, nil)
 			vk.DestroySemaphore(app.device, frame.image_available, nil)
 		}
@@ -2037,7 +1903,7 @@ destroy_vulkan :: proc(app: ^Vulkan_App) {
 			destroy_texture_image(app.device, &texture)
 		}
 		delete(app.texture_images)
-		vk.DestroyDescriptorPool(app.device, app.descriptor_pool, nil)
+		if app.descriptor_pool != 0 do vk.DestroyDescriptorPool(app.device, app.descriptor_pool, nil)
 
 		vk.DestroyCommandPool(app.device, app.command_pool, nil)
 		vk.DestroyFence(app.device, app.upload_fence, nil)
@@ -2064,20 +1930,7 @@ destroy_vulkan :: proc(app: ^Vulkan_App) {
 
 destroy_gpu_text_resources :: proc(app: ^Vulkan_App) {
 	for &frame in app.frames {
-		destroy_buffer(app.device, &frame.visual_buffer)
-		destroy_buffer(app.device, &frame.cell_buffer)
-		destroy_buffer(app.device, &frame.decoration_buffer)
-		destroy_buffer(app.device, &frame.osd_cell_buffer)
-		destroy_buffer(app.device, &frame.selection_mask_buffer)
-		frame.descriptor_set = 0
-		frame.osd_descriptor_set = 0
-		frame.selection_descriptor_set = 0
-		frame.cell_capacity = 0
-		frame.decoration_capacity = 0
-		frame.osd_cell_capacity = 0
-		frame.selection_mask_capacity = 0
-		frame.visual_capacity = 0
-		frame.visuals_uploaded = 0
+		destroy_frame_text_buffers(app.device, &frame)
 	}
 	for &texture in app.texture_images do destroy_texture_image(app.device, &texture)
 	delete(app.texture_images)
@@ -2777,99 +2630,122 @@ create_padding_glow_descriptor_layout :: proc(app: ^Vulkan_App) {
 	)
 }
 
-create_graphics_pipeline :: proc(app: ^Vulkan_App) {
-	vertex_module := create_shader_module(app.device, VERTEX_SHADER)
+Fullscreen_Pipeline_Spec :: struct {
+	name:              string,
+	fragment_shader:   []byte,
+	render_pass:       vk.RenderPass,
+	descriptor_layout: vk.DescriptorSetLayout,
+	push_constant_size: u32,
+	blend:             bool,
+	pipeline_layout:   vk.PipelineLayout,
+}
+
+create_fullscreen_pipeline :: proc(
+	app: ^Vulkan_App,
+	spec: Fullscreen_Pipeline_Spec,
+) -> (vk.PipelineLayout, vk.Pipeline) {
+	vertex_module := create_shader_module(app.device, FULLSCREEN_VERTEX_SHADER)
 	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, FRAGMENT_SHADER)
+	fragment_module := create_shader_module(app.device, spec.fragment_shader)
 	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-
-	shader_stages := [2]vk.PipelineShaderStageCreateInfo {
-		{
-			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
-			stage = {.VERTEX},
-			module = vertex_module,
-			pName = "main",
-		},
-		{
-			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
-			stage = {.FRAGMENT},
-			module = fragment_module,
-			pName = "main",
-		},
+	stages := [2]vk.PipelineShaderStageCreateInfo {
+		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
+		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
 	}
-
-	vertex_input := vk.PipelineVertexInputStateCreateInfo {
-		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-	}
-	input_assembly := vk.PipelineInputAssemblyStateCreateInfo {
-		sType    = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
+	assembly := vk.PipelineInputAssemblyStateCreateInfo {
+		sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 		topology = .TRIANGLE_STRIP,
 	}
-	viewport_state := vk.PipelineViewportStateCreateInfo {
-		sType         = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+	viewport := vk.PipelineViewportStateCreateInfo {
+		sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
 		viewportCount = 1,
-		scissorCount  = 1,
+		scissorCount = 1,
 	}
-	rasterization := vk.PipelineRasterizationStateCreateInfo {
-		sType       = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+	raster := vk.PipelineRasterizationStateCreateInfo {
+		sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		polygonMode = .FILL,
-		lineWidth   = 1.0,
-		frontFace   = .CLOCKWISE,
+		lineWidth = 1,
+		frontFace = .CLOCKWISE,
 	}
-	multisampling := vk.PipelineMultisampleStateCreateInfo {
-		sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+	multisample := vk.PipelineMultisampleStateCreateInfo {
+		sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		rasterizationSamples = {._1},
 	}
-	colour_blend_attachment := vk.PipelineColorBlendAttachmentState {
+	blend_attachment := vk.PipelineColorBlendAttachmentState {
+		blendEnable = b32(spec.blend),
+		srcColorBlendFactor = .ONE,
+		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+		colorBlendOp = .ADD,
+		srcAlphaBlendFactor = .ONE,
+		dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
+		alphaBlendOp = .ADD,
 		colorWriteMask = {.R, .G, .B, .A},
 	}
-	colour_blending := vk.PipelineColorBlendStateCreateInfo {
-		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+	blend := vk.PipelineColorBlendStateCreateInfo {
+		sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
 		attachmentCount = 1,
-		pAttachments    = &colour_blend_attachment,
+		pAttachments = &blend_attachment,
 	}
 	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_state := vk.PipelineDynamicStateCreateInfo {
-		sType             = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+	dynamic_info := vk.PipelineDynamicStateCreateInfo {
+		sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
 		dynamicStateCount = u32(len(dynamic_states)),
-		pDynamicStates    = &dynamic_states[0],
+		pDynamicStates = &dynamic_states[0],
 	}
 
-	push_range := vk.PushConstantRange {
-		stageFlags = {.FRAGMENT},
-		size       = u32(size_of(Text_Layout_Push)),
+	layout := spec.pipeline_layout
+	if layout == 0 {
+		push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = spec.push_constant_size}
+		layout_info := vk.PipelineLayoutCreateInfo{sType = .PIPELINE_LAYOUT_CREATE_INFO}
+		descriptor_layout := spec.descriptor_layout
+		if spec.descriptor_layout != 0 {
+			layout_info.setLayoutCount = 1
+			layout_info.pSetLayouts = &descriptor_layout
+		}
+		if spec.push_constant_size > 0 {
+			layout_info.pushConstantRangeCount = 1
+			layout_info.pPushConstantRanges = &push_range
+		}
+		vk_must(
+			vk.CreatePipelineLayout(app.device, &layout_info, nil, &layout),
+			fmt.tprintf("creating the %s pipeline layout", spec.name),
+		)
 	}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType                  = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount         = 1,
-		pSetLayouts            = &app.descriptor_layout,
-		pushConstantRangeCount = 1,
-		pPushConstantRanges    = &push_range,
-	}
-	vk_must(
-		vk.CreatePipelineLayout(app.device, &layout_info, nil, &app.pipeline_layout),
-		"creating the pipeline layout",
-	)
-
+	pipeline: vk.Pipeline
 	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount          = u32(len(shader_stages)),
-		pStages             = &shader_stages[0],
-		pVertexInputState   = &vertex_input,
-		pInputAssemblyState = &input_assembly,
-		pViewportState      = &viewport_state,
-		pRasterizationState = &rasterization,
-		pMultisampleState   = &multisampling,
-		pColorBlendState    = &colour_blending,
-		pDynamicState       = &dynamic_state,
-		layout              = app.pipeline_layout,
-		renderPass          = app.render_pass,
-		subpass             = 0,
-		basePipelineIndex   = -1,
+		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
+		stageCount = u32(len(stages)),
+		pStages = &stages[0],
+		pVertexInputState = &vertex_input,
+		pInputAssemblyState = &assembly,
+		pViewportState = &viewport,
+		pRasterizationState = &raster,
+		pMultisampleState = &multisample,
+		pColorBlendState = &blend,
+		pDynamicState = &dynamic_info,
+		layout = layout,
+		renderPass = spec.render_pass,
+		subpass = 0,
+		basePipelineIndex = -1,
 	}
 	vk_must(
-		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &app.pipeline),
-		"creating the graphics pipeline",
+		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &pipeline),
+		fmt.tprintf("creating the %s graphics pipeline", spec.name),
+	)
+	return layout, pipeline
+}
+
+create_graphics_pipeline :: proc(app: ^Vulkan_App) {
+	app.pipeline_layout, app.pipeline = create_fullscreen_pipeline(
+		app,
+		{
+			name = "text",
+			fragment_shader = FRAGMENT_SHADER,
+			render_pass = app.render_pass,
+			descriptor_layout = app.descriptor_layout,
+			push_constant_size = u32(size_of(Text_Layout_Push)),
+		},
 	)
 }
 
@@ -2943,285 +2819,68 @@ create_padding_glow_source_pipeline_with_fragment :: proc(
 	fragment_shader: []byte,
 	pipeline: ^vk.Pipeline,
 ) {
-	vertex_module := create_shader_module(app.device, VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, fragment_shader)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-	stages := [2]vk.PipelineShaderStageCreateInfo {
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
-	}
-	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
-	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = .TRIANGLE_STRIP}
-	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
-	raster := vk.PipelineRasterizationStateCreateInfo{sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO, polygonMode = .FILL, lineWidth = 1, frontFace = .CLOCKWISE}
-	multisample := vk.PipelineMultisampleStateCreateInfo{sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, rasterizationSamples = {._1}}
-	colour_attachment := vk.PipelineColorBlendAttachmentState{colorWriteMask = {.R, .G, .B, .A}}
-	colour_blend := vk.PipelineColorBlendStateCreateInfo {
-		sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		attachmentCount = 1,
-		pAttachments = &colour_attachment,
-	}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_info := vk.PipelineDynamicStateCreateInfo {
-		sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		dynamicStateCount = u32(len(dynamic_states)),
-		pDynamicStates = &dynamic_states[0],
-	}
-	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount = u32(len(stages)),
-		pStages = &stages[0],
-		pVertexInputState = &vertex_input,
-		pInputAssemblyState = &assembly,
-		pViewportState = &viewport,
-		pRasterizationState = &raster,
-		pMultisampleState = &multisample,
-		pColorBlendState = &colour_blend,
-		pDynamicState = &dynamic_info,
-		layout = app.pipeline_layout,
-		renderPass = app.padding_glow_source_render_pass,
-		subpass = 0,
-		basePipelineIndex = -1,
-	}
-	vk_must(
-		vk.CreateGraphicsPipelines(
-			app.device,
-			0,
-			1,
-			&pipeline_info,
-			nil,
-			pipeline,
-		),
-		"creating the padding glow source graphics pipeline",
+	_, pipeline^ = create_fullscreen_pipeline(
+		app,
+		{
+			name = "padding glow source",
+			fragment_shader = fragment_shader,
+			render_pass = app.padding_glow_source_render_pass,
+			pipeline_layout = app.pipeline_layout,
+		},
 	)
 }
 
 create_padding_glow_pipeline :: proc(app: ^Vulkan_App) {
-	vertex_module := create_shader_module(app.device, PADDING_GLOW_VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, PADDING_GLOW_FRAGMENT_SHADER)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-	stages := [2]vk.PipelineShaderStageCreateInfo {
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
-	}
-	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
-	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = .TRIANGLE_STRIP}
-	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
-	raster := vk.PipelineRasterizationStateCreateInfo{sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO, polygonMode = .FILL, lineWidth = 1, frontFace = .CLOCKWISE}
-	multisample := vk.PipelineMultisampleStateCreateInfo{sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, rasterizationSamples = {._1}}
-	colour_attachment := vk.PipelineColorBlendAttachmentState{colorWriteMask = {.R, .G, .B, .A}}
-	colour_blend := vk.PipelineColorBlendStateCreateInfo {
-		sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		attachmentCount = 1,
-		pAttachments = &colour_attachment,
-	}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_info := vk.PipelineDynamicStateCreateInfo {
-		sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		dynamicStateCount = u32(len(dynamic_states)),
-		pDynamicStates = &dynamic_states[0],
-	}
-	push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = u32(size_of(Padding_Glow_Push))}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts = &app.padding_glow_descriptor_layout,
-		pushConstantRangeCount = 1,
-		pPushConstantRanges = &push_range,
-	}
-	vk_must(
-		vk.CreatePipelineLayout(app.device, &layout_info, nil, &app.padding_glow_pipeline_layout),
-		"creating the padding glow pipeline layout",
-	)
-	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount = u32(len(stages)),
-		pStages = &stages[0],
-		pVertexInputState = &vertex_input,
-		pInputAssemblyState = &assembly,
-		pViewportState = &viewport,
-		pRasterizationState = &raster,
-		pMultisampleState = &multisample,
-		pColorBlendState = &colour_blend,
-		pDynamicState = &dynamic_info,
-		layout = app.padding_glow_pipeline_layout,
-		renderPass = app.render_pass,
-		subpass = 0,
-		basePipelineIndex = -1,
-	}
-	vk_must(
-		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &app.padding_glow_pipeline),
-		"creating the padding glow graphics pipeline",
+	app.padding_glow_pipeline_layout, app.padding_glow_pipeline = create_fullscreen_pipeline(
+		app,
+		{
+			name = "padding glow",
+			fragment_shader = PADDING_GLOW_FRAGMENT_SHADER,
+			render_pass = app.render_pass,
+			descriptor_layout = app.padding_glow_descriptor_layout,
+			push_constant_size = u32(size_of(Padding_Glow_Push)),
+		},
 	)
 }
 
 create_osd_pipeline :: proc(app: ^Vulkan_App) {
-	vertex_module := create_shader_module(app.device, OSD_VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, OSD_FRAGMENT_SHADER)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-	stages := [2]vk.PipelineShaderStageCreateInfo {
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
-	}
-	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
-	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = .TRIANGLE_STRIP}
-	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
-	raster := vk.PipelineRasterizationStateCreateInfo{sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO, polygonMode = .FILL, lineWidth = 1, frontFace = .CLOCKWISE}
-	multisample := vk.PipelineMultisampleStateCreateInfo{sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, rasterizationSamples = {._1}}
-	blend_attachment := vk.PipelineColorBlendAttachmentState {
-		blendEnable = true,
-		srcColorBlendFactor = .ONE,
-		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		colorBlendOp = .ADD,
-		srcAlphaBlendFactor = .ONE,
-		dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		alphaBlendOp = .ADD,
-		colorWriteMask = {.R, .G, .B, .A},
-	}
-	blend := vk.PipelineColorBlendStateCreateInfo{sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, attachmentCount = 1, pAttachments = &blend_attachment}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_info := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = 2, pDynamicStates = &dynamic_states[0]}
-	push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = u32(size_of(Osd_Push))}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts = &app.descriptor_layout,
-		pushConstantRangeCount = 1,
-		pPushConstantRanges = &push_range,
-	}
-	vk_must(vk.CreatePipelineLayout(app.device, &layout_info, nil, &app.osd_pipeline_layout), "creating the OSD pipeline layout")
-	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount = 2, pStages = &stages[0],
-		pVertexInputState = &vertex_input, pInputAssemblyState = &assembly,
-		pViewportState = &viewport, pRasterizationState = &raster,
-		pMultisampleState = &multisample, pColorBlendState = &blend,
-		pDynamicState = &dynamic_info, layout = app.osd_pipeline_layout,
-		renderPass = app.render_pass, subpass = 0, basePipelineIndex = -1,
-	}
-	vk_must(vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &app.osd_pipeline), "creating the OSD graphics pipeline")
+	app.osd_pipeline_layout, app.osd_pipeline = create_fullscreen_pipeline(
+		app,
+		{
+			name = "OSD",
+			fragment_shader = OSD_FRAGMENT_SHADER,
+			render_pass = app.render_pass,
+			descriptor_layout = app.descriptor_layout,
+			push_constant_size = u32(size_of(Osd_Push)),
+			blend = true,
+		},
+	)
 }
 
 create_selection_pipeline :: proc(app: ^Vulkan_App) {
-	vertex_module := create_shader_module(app.device, SELECTION_VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, SELECTION_FRAGMENT_SHADER)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-	stages := [2]vk.PipelineShaderStageCreateInfo {
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
-	}
-	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
-	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = .TRIANGLE_STRIP}
-	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
-	raster := vk.PipelineRasterizationStateCreateInfo{sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO, polygonMode = .FILL, lineWidth = 1, frontFace = .CLOCKWISE}
-	multisample := vk.PipelineMultisampleStateCreateInfo{sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, rasterizationSamples = {._1}}
-	blend_attachment := vk.PipelineColorBlendAttachmentState {
-		blendEnable = true,
-		srcColorBlendFactor = .ONE,
-		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		colorBlendOp = .ADD,
-		srcAlphaBlendFactor = .ONE,
-		dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		alphaBlendOp = .ADD,
-		colorWriteMask = {.R, .G, .B, .A},
-	}
-	blend := vk.PipelineColorBlendStateCreateInfo{sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, attachmentCount = 1, pAttachments = &blend_attachment}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_info := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = 2, pDynamicStates = &dynamic_states[0]}
-	push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = u32(size_of(Selection_Push))}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts = &app.descriptor_layout,
-		pushConstantRangeCount = 1,
-		pPushConstantRanges = &push_range,
-	}
-	vk_must(
-		vk.CreatePipelineLayout(app.device, &layout_info, nil, &app.selection_pipeline_layout),
-		"creating the selection pipeline layout",
-	)
-	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount = 2,
-		pStages = &stages[0],
-		pVertexInputState = &vertex_input,
-		pInputAssemblyState = &assembly,
-		pViewportState = &viewport,
-		pRasterizationState = &raster,
-		pMultisampleState = &multisample,
-		pColorBlendState = &blend,
-		pDynamicState = &dynamic_info,
-		layout = app.selection_pipeline_layout,
-		renderPass = app.render_pass,
-		subpass = 0,
-		basePipelineIndex = -1,
-	}
-	vk_must(
-		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &app.selection_pipeline),
-		"creating the selection graphics pipeline",
+	app.selection_pipeline_layout, app.selection_pipeline = create_fullscreen_pipeline(
+		app,
+		{
+			name = "selection",
+			fragment_shader = SELECTION_FRAGMENT_SHADER,
+			render_pass = app.render_pass,
+			descriptor_layout = app.descriptor_layout,
+			push_constant_size = u32(size_of(Selection_Push)),
+			blend = true,
+		},
 	)
 }
 
 create_scroll_indicator_pipeline :: proc(app: ^Vulkan_App) {
-	vertex_module := create_shader_module(app.device, OSD_VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, SCROLL_INDICATOR_FRAGMENT_SHADER)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
-	stages := [2]vk.PipelineShaderStageCreateInfo {
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
-		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
-	}
-	vertex_input := vk.PipelineVertexInputStateCreateInfo{sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}
-	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = .TRIANGLE_STRIP}
-	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
-	raster := vk.PipelineRasterizationStateCreateInfo{sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO, polygonMode = .FILL, lineWidth = 1, frontFace = .CLOCKWISE}
-	multisample := vk.PipelineMultisampleStateCreateInfo{sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, rasterizationSamples = {._1}}
-	blend_attachment := vk.PipelineColorBlendAttachmentState {
-		blendEnable = true,
-		srcColorBlendFactor = .ONE,
-		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		colorBlendOp = .ADD,
-		srcAlphaBlendFactor = .ONE,
-		dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
-		alphaBlendOp = .ADD,
-		colorWriteMask = {.R, .G, .B, .A},
-	}
-	blend := vk.PipelineColorBlendStateCreateInfo{sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, attachmentCount = 1, pAttachments = &blend_attachment}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamic_info := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = 2, pDynamicStates = &dynamic_states[0]}
-	push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = u32(size_of(Scroll_Indicator_Push))}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
-		pushConstantRangeCount = 1,
-		pPushConstantRanges = &push_range,
-	}
-	vk_must(
-		vk.CreatePipelineLayout(app.device, &layout_info, nil, &app.scroll_indicator_pipeline_layout),
-		"creating the scroll indicator pipeline layout",
-	)
-	pipeline_info := vk.GraphicsPipelineCreateInfo {
-		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount = 2,
-		pStages = &stages[0],
-		pVertexInputState = &vertex_input,
-		pInputAssemblyState = &assembly,
-		pViewportState = &viewport,
-		pRasterizationState = &raster,
-		pMultisampleState = &multisample,
-		pColorBlendState = &blend,
-		pDynamicState = &dynamic_info,
-		layout = app.scroll_indicator_pipeline_layout,
-		renderPass = app.render_pass,
-		subpass = 0,
-		basePipelineIndex = -1,
-	}
-	vk_must(
-		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &app.scroll_indicator_pipeline),
-		"creating the scroll indicator graphics pipeline",
+	app.scroll_indicator_pipeline_layout, app.scroll_indicator_pipeline = create_fullscreen_pipeline(
+		app,
+		{
+			name = "scroll indicator",
+			fragment_shader = SCROLL_INDICATOR_FRAGMENT_SHADER,
+			render_pass = app.render_pass,
+			push_constant_size = u32(size_of(Scroll_Indicator_Push)),
+			blend = true,
+		},
 	)
 }
 
@@ -3256,13 +2915,18 @@ create_framebuffers :: proc(app: ^Vulkan_App) {
 	}
 }
 
+destroy_offscreen_target :: proc(device: vk.Device, target: ^Offscreen_Target) {
+	if target.framebuffer != 0 do vk.DestroyFramebuffer(device, target.framebuffer, nil)
+	if target.attachment_view != 0 do vk.DestroyImageView(device, target.attachment_view, nil)
+	if target.sampled_view != 0 do vk.DestroyImageView(device, target.sampled_view, nil)
+	if target.image != 0 do vk.DestroyImage(device, target.image, nil)
+	if target.memory != 0 do vk.FreeMemory(device, target.memory, nil)
+	target^ = {}
+}
+
 create_padding_glow_source_target :: proc(
 	app: ^Vulkan_App,
-	image: ^vk.Image,
-	memory: ^vk.DeviceMemory,
-	sampled_view: ^vk.ImageView,
-	attachment_view: ^vk.ImageView,
-	framebuffer: ^vk.Framebuffer,
+	target: ^Offscreen_Target,
 ) {
 	image_info := vk.ImageCreateInfo {
 		sType = .IMAGE_CREATE_INFO,
@@ -3277,44 +2941,44 @@ create_padding_glow_source_target :: proc(
 		sharingMode = .EXCLUSIVE,
 		initialLayout = .UNDEFINED,
 	}
-	vk_must(vk.CreateImage(app.device, &image_info, nil, image), "creating a padding glow source image")
+	vk_must(vk.CreateImage(app.device, &image_info, nil, &target.image), "creating a padding glow source image")
 	requirements: vk.MemoryRequirements
-	vk.GetImageMemoryRequirements(app.device, image^, &requirements)
+	vk.GetImageMemoryRequirements(app.device, target.image, &requirements)
 	allocate_info := vk.MemoryAllocateInfo {
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = requirements.size,
 		memoryTypeIndex = find_memory_type(app, requirements.memoryTypeBits, {.DEVICE_LOCAL}),
 	}
-	vk_must(vk.AllocateMemory(app.device, &allocate_info, nil, memory), "allocating padding glow source memory")
-	vk_must(vk.BindImageMemory(app.device, image^, memory^, 0), "binding padding glow source memory")
+	vk_must(vk.AllocateMemory(app.device, &allocate_info, nil, &target.memory), "allocating padding glow source memory")
+	vk_must(vk.BindImageMemory(app.device, target.image, target.memory, 0), "binding padding glow source memory")
 	attachment_view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
-		image = image^,
+		image = target.image,
 		viewType = .D2,
 		format = PADDING_GLOW_SOURCE_FORMAT,
 		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
 	}
 	vk_must(
-		vk.CreateImageView(app.device, &attachment_view_info, nil, attachment_view),
+		vk.CreateImageView(app.device, &attachment_view_info, nil, &target.attachment_view),
 		"creating a padding glow source attachment view",
 	)
 	sampled_view_info := attachment_view_info
 	sampled_view_info.subresourceRange.levelCount = 1
 	vk_must(
-		vk.CreateImageView(app.device, &sampled_view_info, nil, sampled_view),
+		vk.CreateImageView(app.device, &sampled_view_info, nil, &target.sampled_view),
 		"creating a padding glow source sampled view",
 	)
 	framebuffer_info := vk.FramebufferCreateInfo {
 		sType = .FRAMEBUFFER_CREATE_INFO,
 		renderPass = app.padding_glow_source_render_pass,
 		attachmentCount = 1,
-		pAttachments = attachment_view,
+		pAttachments = &target.attachment_view,
 		width = app.extent.width,
 		height = app.extent.height,
 		layers = 1,
 	}
 	vk_must(
-		vk.CreateFramebuffer(app.device, &framebuffer_info, nil, framebuffer),
+		vk.CreateFramebuffer(app.device, &framebuffer_info, nil, &target.framebuffer),
 		"creating a padding glow source framebuffer",
 	)
 }
@@ -3354,22 +3018,8 @@ create_padding_glow_source_resources :: proc(app: ^Vulkan_App) {
 	)
 
 	for &frame in app.frames {
-		create_padding_glow_source_target(
-			app,
-			&frame.padding_glow_source_image,
-			&frame.padding_glow_source_memory,
-			&frame.padding_glow_source_view,
-			&frame.padding_glow_source_attachment_view,
-			&frame.padding_glow_source_framebuffer,
-		)
-		create_padding_glow_source_target(
-			app,
-			&frame.padding_glow_background_image,
-			&frame.padding_glow_background_memory,
-			&frame.padding_glow_background_view,
-			&frame.padding_glow_background_attachment_view,
-			&frame.padding_glow_background_framebuffer,
-		)
+		create_padding_glow_source_target(app, &frame.padding_glow_source)
+		create_padding_glow_source_target(app, &frame.padding_glow_background)
 	}
 
 	pool_size := vk.DescriptorPoolSize {
@@ -3409,12 +3059,12 @@ create_padding_glow_source_resources :: proc(app: ^Vulkan_App) {
 		image_infos := [2]vk.DescriptorImageInfo {
 			{
 			sampler = app.padding_glow_sampler,
-			imageView = frame.padding_glow_source_view,
+			imageView = frame.padding_glow_source.sampled_view,
 			imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 			},
 			{
 				sampler = app.padding_glow_sampler,
-				imageView = frame.padding_glow_background_view,
+				imageView = frame.padding_glow_background.sampled_view,
 				imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 			},
 		}
@@ -3930,124 +3580,124 @@ update_text_descriptors :: proc(app: ^Vulkan_App, frame: ^Frame_Context) {
 	update_selection_descriptor_set(app, frame)
 }
 
-ensure_visual_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
-	required := len(app.demo.resources.visuals.records)
-	if required <= frame.visual_capacity {
-		return false
+ensure_mapped_buffer_capacity :: proc(
+	app: ^Vulkan_App,
+	buffer: ^Gpu_Buffer,
+	capacity: ^int,
+	required, minimum, element_size: int,
+	usage: vk.BufferUsageFlags,
+) -> bool {
+	if element_size <= 0 do fmt.panicf("mapped Vulkan buffer element size must be positive")
+	current := int(buffer.size) / element_size
+	if capacity != nil do current = capacity^
+	if required <= current do return false
+
+	next := max(minimum, max(1, current))
+	for next < required {
+		if next > max(int) / 2 {
+			next = required
+			break
+		}
+		next *= 2
 	}
-	capacity := max(256, frame.visual_capacity)
-	for capacity < required {
-		capacity *= 2
-	}
-	if frame.visual_buffer.handle != 0 {
-		destroy_buffer(app.device, &frame.visual_buffer)
-	}
-	frame.visual_capacity = capacity
-	frame.visuals_uploaded = 0
-	frame.visual_buffer = create_buffer(
+	if next > max(int) / element_size do fmt.panicf("mapped Vulkan buffer size overflow")
+	destroy_buffer(app.device, buffer)
+	buffer^ = create_buffer(
 		app,
-		vk.DeviceSize(capacity * size_of(Gpu_Visual_Record)),
-		{.STORAGE_BUFFER},
+		vk.DeviceSize(next * element_size),
+		usage,
 		{.HOST_VISIBLE, .HOST_COHERENT},
 		true,
 	)
-	if frame.descriptor_set != 0 {
-		update_text_descriptors(app, frame)
-	}
+	if capacity != nil do capacity^ = next
+	return true
+}
+
+ensure_visual_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+	recreated := ensure_mapped_buffer_capacity(
+		app,
+		&frame.visual_buffer,
+		&frame.visual_capacity,
+		len(app.demo.resources.visuals.records),
+		256,
+		size_of(Gpu_Visual_Record),
+		{.STORAGE_BUFFER},
+	)
+	if !recreated do return false
+	frame.visuals_uploaded = 0
+	if frame.descriptor_set != 0 do update_text_descriptors(app, frame)
 	return true
 }
 
 ensure_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
-	required := len(app.demo.grid.cells)
-	if required <= frame.cell_capacity do return false
-	capacity := max(GRID_CELL_COUNT, frame.cell_capacity)
-	for capacity < required do capacity *= 2
-	if frame.cell_buffer.handle != 0 {
-		destroy_buffer(app.device, &frame.cell_buffer)
-	}
-	frame.cell_capacity = capacity
-	frame.cell_buffer = create_buffer(
+	recreated := ensure_mapped_buffer_capacity(
 		app,
-		vk.DeviceSize(capacity * size_of(Gpu_Cell)),
+		&frame.cell_buffer,
+		&frame.cell_capacity,
+		len(app.demo.grid.cells),
+		GRID_CELL_COUNT,
+		size_of(Gpu_Cell),
 		{.STORAGE_BUFFER},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-		true,
 	)
+	if !recreated do return false
 	if frame.descriptor_set != 0 do update_text_descriptors(app, frame)
 	return true
 }
 
 ensure_decoration_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
-	required := max(1, len(app.demo.grid.decorations))
-	if required <= frame.decoration_capacity do return false
-	capacity := max(GRID_CELL_COUNT, frame.decoration_capacity)
-	for capacity < required do capacity *= 2
-	if frame.decoration_buffer.handle != 0 {
-		destroy_buffer(app.device, &frame.decoration_buffer)
-	}
-	frame.decoration_capacity = capacity
-	frame.decoration_buffer = create_buffer(
+	recreated := ensure_mapped_buffer_capacity(
 		app,
-		vk.DeviceSize(capacity * size_of(u32)),
+		&frame.decoration_buffer,
+		&frame.decoration_capacity,
+		max(1, len(app.demo.grid.decorations)),
+		GRID_CELL_COUNT,
+		size_of(u32),
 		{.STORAGE_BUFFER},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-		true,
 	)
+	if !recreated do return false
 	if frame.descriptor_set != 0 do update_text_descriptors(app, frame)
 	return true
 }
 
 ensure_osd_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
-	required := max(1, len(app.osd.cells))
-	if required <= frame.osd_cell_capacity do return false
-	capacity := max(512, frame.osd_cell_capacity)
-	for capacity < required do capacity *= 2
-	if frame.osd_cell_buffer.handle != 0 {
-		destroy_buffer(app.device, &frame.osd_cell_buffer)
-	}
-	frame.osd_cell_capacity = capacity
-	frame.osd_cell_buffer = create_buffer(app, vk.DeviceSize(capacity * size_of(Gpu_Cell)), {.STORAGE_BUFFER}, {.HOST_VISIBLE, .HOST_COHERENT}, true)
+	recreated := ensure_mapped_buffer_capacity(
+		app,
+		&frame.osd_cell_buffer,
+		&frame.osd_cell_capacity,
+		max(1, len(app.osd.cells)),
+		512,
+		size_of(Gpu_Cell),
+		{.STORAGE_BUFFER},
+	)
+	if !recreated do return false
 	if frame.osd_descriptor_set != 0 do update_text_descriptors(app, frame)
 	return true
 }
 
 ensure_selection_mask_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
-	required := max(1, len(app.selection.mask))
-	if required <= frame.selection_mask_capacity do return false
-	capacity := max(256, frame.selection_mask_capacity)
-	for capacity < required do capacity *= 2
-	if frame.selection_mask_buffer.handle != 0 {
-		destroy_buffer(app.device, &frame.selection_mask_buffer)
-	}
-	frame.selection_mask_capacity = capacity
-	frame.selection_mask_buffer = create_buffer(
+	recreated := ensure_mapped_buffer_capacity(
 		app,
-		vk.DeviceSize(capacity * size_of(u32)),
+		&frame.selection_mask_buffer,
+		&frame.selection_mask_capacity,
+		max(1, len(app.selection.mask)),
+		256,
+		size_of(u32),
 		{.STORAGE_BUFFER},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-		true,
 	)
+	if !recreated do return false
 	if frame.selection_descriptor_set != 0 do update_selection_descriptor_set(app, frame)
 	return true
 }
 
 ensure_staging_buffer :: proc(app: ^Vulkan_App, required_size: int) {
-	if required_size <= int(app.staging_buffer.size) {
-		return
-	}
-	capacity := max(4096, int(app.staging_buffer.size))
-	for capacity < required_size {
-		capacity *= 2
-	}
-	if app.staging_buffer.handle != 0 {
-		destroy_buffer(app.device, &app.staging_buffer)
-	}
-	app.staging_buffer = create_buffer(
+	_ = ensure_mapped_buffer_capacity(
 		app,
-		vk.DeviceSize(capacity),
+		&app.staging_buffer,
+		nil,
+		required_size,
+		4096,
+		1,
 		{.TRANSFER_SRC},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-		true,
 	)
 }
 
@@ -4797,7 +4447,7 @@ record_command_buffer :: proc(
 			command_buffer,
 			text_area,
 				app.padding_glow_source_pipeline,
-				frame.padding_glow_source_framebuffer,
+				frame.padding_glow_source.framebuffer,
 			)
 		record_padding_glow_source(
 			app,
@@ -4805,7 +4455,7 @@ record_command_buffer :: proc(
 			command_buffer,
 			text_area,
 				app.padding_glow_background_pipeline,
-				frame.padding_glow_background_framebuffer,
+				frame.padding_glow_background.framebuffer,
 			)
 	}
 
@@ -4867,7 +4517,7 @@ record_command_buffer :: proc(
 					u32(app.demo.grid.cols),
 					u32(app.demo.grid.rows),
 				},
-				style = {PADDING_CLEAR_COLOUR, 0, 0, 0},
+				style = {pack_rgba8(6, 9, 18, 255), 0, 0, 0},
 			}
 			vk.CmdPushConstants(
 				command_buffer,

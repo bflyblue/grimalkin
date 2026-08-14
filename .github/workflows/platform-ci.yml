@@ -24,10 +24,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  linux:
-    name: Linux native tests and flake checks
-    runs-on: ${{ inputs.trusted && 'grimalkin-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 45
+  linux-trusted:
+    name: Linux native tests (trusted)
+    if: inputs.trusted
+    runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    container:
+      image: localhost:5000/grimalkin-linux-ci:ubuntu-22.04
+      volumes:
+        - grimalkin-linux-vcpkg:/var/cache/grimalkin-vcpkg
+    timeout-minutes: 60
+    env:
+      GRIMALKIN_LINUX_BUILD_DIR: ${{ github.workspace }}/build/linux-native-ci
+      GRIMALKIN_LINUX_CACHE_DIR: ${{ github.workspace }}/build/linux-native-cache
+      VCPKG_DEFAULT_BINARY_CACHE: /var/cache/grimalkin-vcpkg/ubuntu-22.04
+      GRIMALKIN_LINUX_TEST_FONT_PATH: /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
+      GRIMALKIN_LINUX_TEST_CJK_FONT_PATH: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+
+    steps:
+      - name: Check out exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.checkout_repository }}
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+          clean: false
+
+      - name: Run native checks, tests, build, and software-GPU coverage
+        shell: bash
+        run: scripts/build-linux-native.sh check test build test-gpu
+
+  linux-untrusted:
+    name: Linux native tests (isolated contributor)
+    if: ${{ !inputs.trusted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      GRIMALKIN_LINUX_BUILD_DIR: ${{ github.workspace }}/build/linux-native-ci
+      GRIMALKIN_LINUX_CACHE_DIR: ${{ github.workspace }}/build/linux-native-cache
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/build/linux-native-cache/vcpkg-cache
 
     steps:
       - name: Check out exact source commit
@@ -37,17 +71,48 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
-      - name: Install Nix on the GitHub-hosted runner
-        if: ${{ !inputs.trusted }}
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+      - name: Install native host prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf autoconf-archive automake build-essential ca-certificates \
+            clang cmake curl fonts-dejavu-core fonts-noto-cjk git glslc \
+            libtool libvulkan1 libx11-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev mesa-vulkan-drivers ninja-build \
+            pkg-config python3 unzip xauth xvfb xz-utils zip
+
+      - name: Restore isolated native dependency cache
+        id: native-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          path: |
+            build/linux-native-cache/downloads
+            build/linux-native-cache/toolchains
+            build/linux-native-cache/ghostty
+            build/linux-native-cache/zig-cache
+            build/linux-native-cache/vcpkg-cache
+            build/linux-native-ci/vcpkg_installed
+          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl') }}
+          restore-keys: |
+            grimalkin-untrusted-linux-x64-
 
-      - name: Run native and Odin tests
-        run: nix develop path:. -c make test
+      - name: Run native checks, tests, build, and software-GPU coverage
+        shell: bash
+        run: scripts/build-linux-native.sh check test build test-gpu
 
-      - name: Build package and run flake checks
-        run: nix flake check path:. --print-build-logs
+      - name: Save isolated native dependency cache
+        if: ${{ success() && steps.native-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/linux-native-cache/downloads
+            build/linux-native-cache/toolchains
+            build/linux-native-cache/ghostty
+            build/linux-native-cache/zig-cache
+            build/linux-native-cache/vcpkg-cache
+            build/linux-native-ci/vcpkg_installed
+          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl') }}
 
   macos:
     name: macOS Apple Silicon native build
@@ -74,7 +139,7 @@ jobs:
             ~/Library/Caches/grimalkin-macos-native/ghostty
             ~/Library/Caches/grimalkin-macos-native/zig-cache
             ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
-          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'scripts/macos-toolchain.env', 'scripts/build-macos-release.sh') }}
+          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/build-macos-native.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
           restore-keys: |
             grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-
 
@@ -87,7 +152,7 @@ jobs:
           PATH="$cmake_bin:$PATH" \
           GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
           VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
-            scripts/build-macos-release.sh build/macos-native-ci/Grimalkin.app
+            scripts/build-macos-native.sh build/macos-native-ci/Grimalkin.app check test build
 
   start-windows-runner:
     name: Start trusted Windows runner VM
@@ -169,13 +234,9 @@ jobs:
         shell: pwsh
         run: .\scripts\setup-windows-release.ps1
 
-      - name: Run native Windows tests
+      - name: Run native Windows tests and build the application
         shell: pwsh
-        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_tests
-
-      - name: Build native Windows application
-        shell: pwsh
-        run: .\build-windows.ps1 -Configuration Release -Target grimalkin
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_ci
 
       - name: Save isolated native dependency cache
         if: ${{ success() && !inputs.trusted && steps.native-cache.outputs.cache-hit != 'true' }}

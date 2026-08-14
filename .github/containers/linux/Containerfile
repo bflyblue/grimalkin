@@ -18,8 +18,9 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
         file \
         fonts-dejavu-core \
         fonts-noto-cjk \
+        gh \
         git \
-        glslang-tools \
+        glslc \
         libvulkan1 \
         libxcursor-dev \
         libxi-dev \
@@ -49,8 +50,8 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
         cmake \
         curl \
         file \
+        github-cli \
         git \
-        glslang \
         libglvnd \
         libxcursor \
         libxi \
@@ -64,6 +65,7 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
         pkgconf \
         python \
         shadow \
+        shaderc \
         ttf-dejavu \
         unzip \
         vulkan-icd-loader \

@@ -6,9 +6,8 @@ build_root=${GRIMALKIN_LINUX_BUILD_DIR:-"$project_root/build/linux-release"}
 dist_dir=${1:-"$project_root/dist"}
 formats=${2:-appimage}
 distro_label=${3:-linux}
-architecture=$(uname -m)
 
-if [[ "$architecture" != x86_64 ]]; then
+if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
   echo "The native Linux release build currently supports x86_64 only" >&2
   exit 1
 fi
@@ -25,7 +24,7 @@ if [[ ! "$distro_label" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then
   exit 1
 fi
 
-required_commands=(cc clang cmake curl git install make pkg-config readelf sha256sum tar unzip zip)
+required_commands=(cmake curl install readelf sha256sum unzip zip)
 if [[ "$formats" == deb || "$formats" == all ]]; then
   required_commands+=(dpkg-deb dpkg-shlibdeps)
 fi
@@ -40,46 +39,17 @@ for command in "${required_commands[@]}"; do
 done
 
 version=$(tr -d '\r\n' < "$project_root/VERSION")
-vcpkg_baseline=$(sed -n 's/.*"builtin-baseline": "\([^"]*\)".*/\1/p' "$project_root/vcpkg.json")
-ghostty_revision=$(tr -d '\r\n' < "$project_root/ghostty-revision.txt")
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ||
-      ! "$vcpkg_baseline" =~ ^[0-9a-f]{40}$ ||
-      ! "$ghostty_revision" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Could not read the pinned release inputs" >&2
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  echo "Could not read the pinned release version" >&2
   exit 1
 fi
 
+# shellcheck disable=SC1091
 source "$project_root/scripts/linux-toolchain.env"
 
-odin_version=$ODIN_VERSION
-odin_url="https://github.com/odin-lang/Odin/releases/download/$odin_version/odin-linux-amd64-$odin_version.tar.gz"
-odin_sha256=$ODIN_SHA256
-zig_version=$ZIG_VERSION
-zig_url="https://ziglang.org/download/$zig_version/zig-x86_64-linux-$zig_version.tar.xz"
-zig_sha256=$ZIG_SHA256
-linuxdeploy_version=$LINUXDEPLOY_VERSION
-linuxdeploy_url="https://github.com/linuxdeploy/linuxdeploy/releases/download/$linuxdeploy_version/linuxdeploy-x86_64.AppImage"
-linuxdeploy_sha256=$LINUXDEPLOY_SHA256
-
-downloads="$build_root/downloads"
-toolchains="$build_root/toolchains"
-mkdir -p "$downloads" "$toolchains" "$dist_dir"
+downloads="${GRIMALKIN_LINUX_CACHE_DIR:-$build_root}/downloads"
+mkdir -p "$downloads" "$dist_dir"
 dist_dir=$(cd "$dist_dir" && pwd)
-if [[ -n ${VCPKG_DEFAULT_BINARY_CACHE:-} ]]; then
-  mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-fi
-
-shader_tools="$build_root/shader-tools"
-mkdir -p "$shader_tools"
-if command -v glslc >/dev/null; then
-  ln -sfn "$(command -v glslc)" "$shader_tools/glslc"
-elif command -v glslangValidator >/dev/null; then
-  printf '#!/bin/sh\nexec glslangValidator -V "$@"\n' > "$shader_tools/glslc"
-  chmod 755 "$shader_tools/glslc"
-else
-  echo "Either glslc or glslangValidator is required" >&2
-  exit 1
-fi
 
 download() {
   local url=$1
@@ -91,155 +61,12 @@ download() {
   printf '%s  %s\n' "$expected_sha256" "$destination" | sha256sum --check --status
 }
 
-odin_root=${GRIMALKIN_ODIN_ROOT:-"$toolchains/odin-$odin_version"}
-odin_archive="$downloads/odin-linux-amd64-$odin_version.tar.gz"
-if [[ -z ${GRIMALKIN_ODIN_ROOT:-} ]]; then
-  download "$odin_url" "$odin_archive" "$odin_sha256"
-  if [[ ! -x "$odin_root/odin" ]]; then
-    cmake -E remove_directory "$odin_root"
-    mkdir -p "$odin_root"
-    tar -xzf "$odin_archive" --strip-components=1 -C "$odin_root"
-  fi
-elif [[ ! -x "$odin_root/odin" ]]; then
-  echo "Preinstalled Odin is missing: $odin_root/odin" >&2
-  exit 1
-fi
-
-zig_root=${GRIMALKIN_ZIG_ROOT:-"$toolchains/zig-x86_64-linux-$zig_version"}
-zig_archive="$downloads/zig-x86_64-linux-$zig_version.tar.xz"
-if [[ -z ${GRIMALKIN_ZIG_ROOT:-} ]]; then
-  download "$zig_url" "$zig_archive" "$zig_sha256"
-  if [[ ! -x "$zig_root/zig" ]]; then
-    cmake -E remove_directory "$zig_root"
-    mkdir -p "$zig_root"
-    tar -xJf "$zig_archive" --strip-components=1 -C "$zig_root"
-  fi
-elif [[ ! -x "$zig_root/zig" ]]; then
-  echo "Preinstalled Zig is missing: $zig_root/zig" >&2
-  exit 1
-fi
-
-vcpkg_root=${VCPKG_ROOT:-"$toolchains/vcpkg"}
-if [[ ! -d "$vcpkg_root/.git" ]]; then
-  cmake -E remove_directory "$vcpkg_root"
-  git init --quiet "$vcpkg_root"
-  git -C "$vcpkg_root" remote add origin https://github.com/microsoft/vcpkg.git
-fi
-git -C "$vcpkg_root" fetch --depth 1 origin "$vcpkg_baseline"
-git -C "$vcpkg_root" checkout --quiet --detach FETCH_HEAD
-"$vcpkg_root/bootstrap-vcpkg.sh" -disableMetrics
-
-vcpkg_installed="$build_root/vcpkg_installed"
-"$vcpkg_root/vcpkg" install \
-  --x-manifest-root="$project_root" \
-  --x-install-root="$vcpkg_installed" \
-  --triplet=x64-linux
-
-ghostty_source="$build_root/ghostty"
-if [[ ! -d "$ghostty_source/.git" ]]; then
-  cmake -E remove_directory "$ghostty_source"
-  git init --quiet "$ghostty_source"
-  git -C "$ghostty_source" remote add origin https://github.com/ghostty-org/ghostty.git
-fi
-git -C "$ghostty_source" fetch --depth 1 origin "$ghostty_revision"
-git -C "$ghostty_source" checkout --quiet --detach FETCH_HEAD
-(
-  cd "$ghostty_source"
-  ZIG_GLOBAL_CACHE_DIR="$build_root/zig-cache" \
-    "$zig_root/zig" build \
-      -Demit-lib-vt=true \
-      -Dapp-runtime=none \
-      -Doptimize=ReleaseFast \
-      -Dcpu=baseline \
-      -Dsimd=true
-)
-
-ghostty_library="$ghostty_source/zig-out/lib/libghostty-vt.a"
-if [[ ! -f "$ghostty_library" ]]; then
-  echo "Ghostty did not produce $ghostty_library" >&2
-  exit 1
-fi
-
-ghostty_pkgconfig="$build_root/ghostty-pkgconfig"
-mkdir -p "$ghostty_pkgconfig"
-sed \
-  -e "s|@INCLUDEDIR@|$ghostty_source/include|g" \
-  -e "s|@LIBDIR@|$ghostty_source/zig-out/lib|g" \
-  "$project_root/scripts/libghostty-vt.pc.in" \
-  > "$ghostty_pkgconfig/libghostty-vt.pc"
-
-triplet_root="$vcpkg_installed/x64-linux"
-pkg_config_path="$ghostty_pkgconfig:$triplet_root/lib/pkgconfig:$triplet_root/share/pkgconfig"
-
-install_vcpkg_licenses() {
-  local package_root=$1
-  local destination="$package_root/usr/share/licenses/grimalkin/vcpkg"
-  local copyright_file port_name
-  local installed=0
-
-  mkdir -p "$destination"
-  for copyright_file in "$triplet_root"/share/*/copyright; do
-    [[ -f "$copyright_file" ]] || continue
-    port_name=$(basename -- "$(dirname -- "$copyright_file")")
-    install -m 644 "$copyright_file" "$destination/$port_name.txt"
-    cmp "$copyright_file" "$destination/$port_name.txt"
-    installed=$((installed + 1))
-  done
-  if ((installed == 0)); then
-    echo "vcpkg installed no dependency license files under $triplet_root/share" >&2
-    exit 1
-  fi
-
-  local packaged
-  packaged=$(find "$destination" -maxdepth 1 -type f -name '*.txt' | wc -l)
-  if ((packaged != installed)); then
-    echo "Packaged $packaged of $installed installed vcpkg license files" >&2
-    exit 1
-  fi
-}
-
-PKG_CONFIG_PATH="$pkg_config_path" pkg-config --exists \
-  freetype2 harfbuzz fontconfig glfw3 libpng libghostty-vt
-read -r -a freetype_cflags <<< \
-  "$(PKG_CONFIG_PATH="$pkg_config_path" pkg-config --cflags freetype2)"
-PKG_CONFIG_PATH="$pkg_config_path" cc \
-  "${freetype_cflags[@]}" \
-  -c "$project_root/scripts/check-freetype-harmony.c" \
-  -o "$build_root/check-freetype-harmony.o"
-
-work_tree="$build_root/work"
-cmake -E remove_directory "$work_tree"
-mkdir -p "$work_tree"
-cp -R "$project_root/src" "$work_tree/src"
-cp "$project_root/Makefile" "$work_tree/Makefile"
-cp "$project_root/VERSION" "$work_tree/VERSION"
-
-static_link_flags=$(PKG_CONFIG_PATH="$pkg_config_path" pkg-config --static --libs \
-  freetype2 harfbuzz fontconfig glfw3 libpng)
-static_link_flags=${static_link_flags//-lstdc++/-Wl,-Bstatic -lstdc++ -Wl,-Bdynamic}
-test_font_path=${GRIMALKIN_LINUX_TEST_FONT_PATH:-/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf}
-test_cjk_font_path=${GRIMALKIN_LINUX_TEST_CJK_FONT_PATH:-/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc}
-test_nerd_font_path="$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf"
-for test_font in "$test_font_path" "$test_cjk_font_path" "$test_nerd_font_path"; do
-  if [[ ! -f "$test_font" ]]; then
-    echo "Native Linux tests require font fixture: $test_font" >&2
-    exit 1
-  fi
-done
-link_compat="$build_root/link-compat"
-mkdir -p "$link_compat"
-ln -sfn "$triplet_root/lib/libglfw3.a" "$link_compat/libglfw.a"
-ln -sfn "$ghostty_library" "$link_compat/libghostty-vt.a"
-PATH="$shader_tools:$odin_root:$zig_root:$PATH" \
-PKG_CONFIG_PATH="$pkg_config_path" \
-GRIMALKIN_TEST_FONT_PATH="$test_font_path" \
-GRIMALKIN_TEST_FONT_BOLD_PATH="$test_font_path" \
-GRIMALKIN_TEST_FONT_ITALIC_PATH="$test_font_path" \
-GRIMALKIN_TEST_FONT_BOLD_ITALIC_PATH="$test_font_path" \
-GRIMALKIN_TEST_CJK_FONT_PATH="$test_cjk_font_path" \
-GRIMALKIN_NERD_FONT_PATH="$test_nerd_font_path" \
-ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib $static_link_flags" \
-  make -C "$work_tree" test build
+GRIMALKIN_LINUX_BUILD_DIR="$build_root" \
+  "$project_root/scripts/build-linux-native.sh" test build
+# shellcheck disable=SC1091
+source "$build_root/native-build.env"
+work_tree=$GRIMALKIN_NATIVE_WORK_TREE
+toolchains=$GRIMALKIN_NATIVE_TOOLCHAINS
 
 while IFS= read -r dependency; do
   case "$dependency" in
@@ -253,32 +80,19 @@ done < <(readelf -d "$work_tree/grimalkin" | sed -n 's/.*Shared library: \[\([^]
 
 appdir="$build_root/Grimalkin.AppDir"
 cmake -E remove_directory "$appdir"
-mkdir -p \
-  "$appdir/usr/bin" \
-  "$appdir/usr/share/grimalkin/fontconfig" \
-  "$appdir/usr/share/grimalkin/fonts" \
-  "$appdir/usr/share/licenses/grimalkin"
+mkdir -p "$appdir/usr/bin"
 install -m 755 "$work_tree/grimalkin" "$appdir/usr/bin/grimalkin"
-install -m 644 "$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
-  "$appdir/usr/share/grimalkin/fonts/SymbolsNerdFontMono-Regular.ttf"
-install -m 644 "$project_root/assets/fonts/NerdFonts-LICENSE.txt" \
-  "$appdir/usr/share/grimalkin/fonts/NerdFonts-LICENSE.txt"
-install -m 644 "$project_root/assets/linux/fonts.conf" \
-  "$appdir/usr/share/grimalkin/fonts.conf"
-cp -R "$triplet_root/etc/fonts/conf.d" \
-  "$appdir/usr/share/grimalkin/fontconfig/conf.d"
-install -m 644 "$project_root/LICENSE" "$appdir/usr/share/licenses/grimalkin/LICENSE"
-install -m 644 "$project_root/THIRD_PARTY_NOTICES.md" \
-  "$appdir/usr/share/licenses/grimalkin/THIRD_PARTY_NOTICES.md"
-cp -R "$project_root/third_party/licenses" \
-  "$appdir/usr/share/licenses/grimalkin/third-party"
-install_vcpkg_licenses "$appdir"
+GRIMALKIN_NATIVE_TRIPLET_ROOT=$GRIMALKIN_NATIVE_TRIPLET_ROOT \
+  "$project_root/scripts/stage-linux-payload.sh" "$appdir"
 
 outputs=()
 if [[ "$formats" == appimage || "$formats" == all ]]; then
-  linuxdeploy=${GRIMALKIN_LINUXDEPLOY:-"$toolchains/linuxdeploy-$linuxdeploy_version-x86_64.AppImage"}
+  linuxdeploy=${GRIMALKIN_LINUXDEPLOY:-"$toolchains/linuxdeploy-$LINUXDEPLOY_VERSION-x86_64.AppImage"}
   if [[ -z ${GRIMALKIN_LINUXDEPLOY:-} ]]; then
-    download "$linuxdeploy_url" "$linuxdeploy" "$linuxdeploy_sha256"
+    download \
+      "https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_VERSION/linuxdeploy-x86_64.AppImage" \
+      "$linuxdeploy" \
+      "$LINUXDEPLOY_SHA256"
     chmod 755 "$linuxdeploy"
   elif [[ ! -x "$linuxdeploy" ]]; then
     echo "Preinstalled linuxdeploy is missing: $linuxdeploy" >&2
@@ -304,30 +118,15 @@ if [[ "$formats" == deb || "$formats" == arch || "$formats" == all ]]; then
     "$system_root/usr/bin" \
     "$system_root/usr/lib/grimalkin" \
     "$system_root/usr/share/applications" \
-    "$system_root/usr/share/grimalkin/fontconfig" \
-    "$system_root/usr/share/grimalkin/fonts" \
-    "$system_root/usr/share/icons/hicolor/512x512/apps" \
-    "$system_root/usr/share/licenses/grimalkin"
+    "$system_root/usr/share/icons/hicolor/512x512/apps"
   install -m 755 "$work_tree/grimalkin" "$system_root/usr/lib/grimalkin/grimalkin"
   install -m 755 "$project_root/assets/linux/grimalkin" "$system_root/usr/bin/grimalkin"
   install -m 644 "$project_root/assets/linux/dev.grimalkin.Grimalkin.desktop" \
     "$system_root/usr/share/applications/dev.grimalkin.Grimalkin.desktop"
   install -m 644 "$project_root/assets/linux/dev.grimalkin.Grimalkin.png" \
     "$system_root/usr/share/icons/hicolor/512x512/apps/dev.grimalkin.Grimalkin.png"
-  install -m 644 "$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
-    "$system_root/usr/share/grimalkin/fonts/SymbolsNerdFontMono-Regular.ttf"
-  install -m 644 "$project_root/assets/fonts/NerdFonts-LICENSE.txt" \
-    "$system_root/usr/share/grimalkin/fonts/NerdFonts-LICENSE.txt"
-  install -m 644 "$project_root/assets/linux/fonts.conf" \
-    "$system_root/usr/share/grimalkin/fonts.conf"
-  cp -R "$triplet_root/etc/fonts/conf.d" \
-    "$system_root/usr/share/grimalkin/fontconfig/conf.d"
-  install -m 644 "$project_root/LICENSE" "$system_root/usr/share/licenses/grimalkin/LICENSE"
-  install -m 644 "$project_root/THIRD_PARTY_NOTICES.md" \
-    "$system_root/usr/share/licenses/grimalkin/THIRD_PARTY_NOTICES.md"
-  cp -R "$project_root/third_party/licenses" \
-    "$system_root/usr/share/licenses/grimalkin/third-party"
-  install_vcpkg_licenses "$system_root"
+  GRIMALKIN_NATIVE_TRIPLET_ROOT=$GRIMALKIN_NATIVE_TRIPLET_ROOT \
+    "$project_root/scripts/stage-linux-payload.sh" "$system_root"
 fi
 
 if [[ "$formats" == deb || "$formats" == all ]]; then

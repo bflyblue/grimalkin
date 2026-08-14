@@ -45,7 +45,7 @@ jobs:
       checkout_ref: ${{ github.event.pull_request.head.sha }}
 
   required-checks:
-    name: PR CI / Required checks
+    name: Required checks
     if: ${{ always() }}
     needs:
       - trusted-platforms

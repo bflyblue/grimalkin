@@ -2,8 +2,6 @@ package main
 
 import vk "vendor:vulkan"
 
-PADDING_CLEAR_COLOUR :: u32(0xff120906)
-
 Padding_Glow_Push :: struct {
 	frame: [4]u32, // width, height, manual sRGB output, glow profile
 	text:  [4]i32, // x, y, width, height in framebuffer pixels

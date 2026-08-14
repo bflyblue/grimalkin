@@ -158,80 +158,6 @@ application_settings_default :: proc() -> Application_Settings {
 	}
 }
 
-application_settings_validate :: proc(settings: Application_Settings) -> (Application_Settings, bool) {
-	result := settings
-	defaults := application_settings_default()
-	valid := true
-	if int(result.text_smoothing) < 0 || int(result.text_smoothing) > int(Text_Smoothing.Monochrome) {
-		result.text_smoothing = defaults.text_smoothing
-		valid = false
-	}
-	if int(result.text_contrast) < 0 || int(result.text_contrast) > int(Text_Contrast.Very_Sharp) {
-		result.text_contrast = defaults.text_contrast
-		valid = false
-	}
-	if int(result.font_hinting) < 0 || int(result.font_hinting) > int(Font_Hinting.None) {
-		result.font_hinting = defaults.font_hinting
-		valid = false
-	}
-	if int(result.subpixel_layout) < 0 || int(result.subpixel_layout) > int(Subpixel_Layout.QD_OLED_Diamond) {
-		result.subpixel_layout = defaults.subpixel_layout
-		valid = false
-	}
-	if int(result.subpixel_rotation) < 0 || int(result.subpixel_rotation) > int(Subpixel_Rotation.Degrees_270) {
-		result.subpixel_rotation = defaults.subpixel_rotation
-		valid = false
-	}
-	if result.font_size < SETTINGS_FONT_SIZE_MIN || result.font_size > SETTINGS_FONT_SIZE_MAX {
-		result.font_size = defaults.font_size
-		valid = false
-	}
-	if result.font_family.length == 0 || result.font_family.length >= SETTINGS_FONT_FAMILY_CAPACITY {
-		result.font_family = defaults.font_family
-		valid = false
-	}
-	if int(result.cursor_animation) < 0 || int(result.cursor_animation) > int(Cursor_Animation_Policy.Steady) {
-		result.cursor_animation = defaults.cursor_animation
-		valid = false
-	}
-	if result.padding > SETTINGS_PADDING_MAX {
-		result.padding = defaults.padding
-		valid = false
-	}
-	if int(result.padding_glow) < 0 || int(result.padding_glow) > int(Padding_Glow.Tint) {
-		result.padding_glow = defaults.padding_glow
-		valid = false
-	}
-	if int(result.window_style) < 0 || int(result.window_style) > int(Window_Style.Frameless) {
-		result.window_style = defaults.window_style
-		valid = false
-	}
-	if int(result.scroll_page_modifier) < 0 ||
-	   int(result.scroll_page_modifier) > int(Scroll_Modifier.Ctrl_Shift) {
-		result.scroll_page_modifier = defaults.scroll_page_modifier
-		valid = false
-	}
-	if result.scroll_line_modifier != .Off && result.scroll_line_modifier != .Ctrl_Shift {
-		result.scroll_line_modifier = defaults.scroll_line_modifier
-		valid = false
-	}
-	if int(result.terminal_clipboard) < 0 ||
-	   int(result.terminal_clipboard) > int(Terminal_Clipboard_Policy.Read_Write) {
-		result.terminal_clipboard = defaults.terminal_clipboard
-		valid = false
-	}
-	if int(result.block_selection_whitespace) < 0 ||
-	   int(result.block_selection_whitespace) > int(Block_Selection_Whitespace.Preserve) {
-		result.block_selection_whitespace = defaults.block_selection_whitespace
-		valid = false
-	}
-	if int(result.selection_style) < 0 || int(result.selection_style) > int(Selection_Style.Solid) {
-		result.selection_style = defaults.selection_style
-		valid = false
-	}
-	return result, valid
-}
-
 settings_effective_display_rotation :: proc(
 	settings: Application_Settings,
 	detected := Display_Rotation.Degrees_0,
@@ -424,7 +350,33 @@ settings_scroll_modifier_name :: proc(value: Scroll_Modifier) -> string {
 	return "Off"
 }
 
-Settings_Disk :: struct {
+Settings_Disk_Current :: struct {
+	version:          int    `json:"version"`,
+	text_smoothing:   string `json:"text_smoothing"`,
+	text_contrast:    string `json:"text_contrast"`,
+	font_hinting:     string `json:"font_hinting"`,
+	subpixel_layout:  string `json:"subpixel_layout"`,
+	subpixel_rotation: string `json:"subpixel_rotation"`,
+	font_size:        int    `json:"font_size"`,
+	font_family:      string `json:"font_family"`,
+	cursor_animation: string `json:"cursor_animation"`,
+	padding:          int    `json:"padding"`,
+	padding_glow:     string `json:"padding_glow"`,
+	nerd_font_symbols: bool  `json:"nerd_font_symbols"`,
+	window_style:     string `json:"window_style"`,
+	scroll_page_modifier: string `json:"scroll_page_modifier"`,
+	scroll_line_modifier: string `json:"scroll_line_modifier"`,
+	font_size_shortcuts: bool `json:"font_size_shortcuts"`,
+	clipboard_insert_shortcuts: bool `json:"clipboard_insert_shortcuts"`,
+	copy_on_select: bool `json:"copy_on_select"`,
+	right_click_paste: bool `json:"right_click_paste"`,
+	paste_protection: bool `json:"paste_protection"`,
+	terminal_clipboard: string `json:"terminal_clipboard"`,
+	block_selection_whitespace: string `json:"block_selection_whitespace"`,
+	selection_style: string `json:"selection_style"`,
+}
+
+Settings_Disk_Decode :: struct {
 	version:          int    `json:"version"`,
 	text_clarity:     string `json:"text_clarity"`,
 	text_smoothing:   string `json:"text_smoothing"`,
@@ -451,116 +403,61 @@ Settings_Disk :: struct {
 	selection_style: string `json:"selection_style"`,
 }
 
-settings_scroll_modifier_disk_name :: proc(value: Scroll_Modifier) -> string {
-	switch value {
-	case .Off:        return "off"
-	case .Shift:      return "shift"
-	case .Ctrl:       return "ctrl"
-	case .Ctrl_Shift: return "ctrl_shift"
-	}
-	return "off"
+SETTINGS_TEXT_SMOOTHING_WIRE := [3]string{"grayscale", "subpixel", "monochrome"}
+SETTINGS_TEXT_CONTRAST_WIRE := [4]string{"balanced", "crisp", "sharp", "very_sharp"}
+SETTINGS_FONT_HINTING_WIRE := [3]string{"normal", "light", "none"}
+SETTINGS_SUBPIXEL_LAYOUT_WIRE := [4]string{"rgb", "bgr", "qd_oled_square", "qd_oled_diamond"}
+SETTINGS_SUBPIXEL_ROTATION_WIRE := [5]string{"auto", "0", "90", "180", "270"}
+SETTINGS_CURSOR_ANIMATION_WIRE := [3]string{"blink", "pulse", "steady"}
+SETTINGS_PADDING_GLOW_WIRE := [3]string{"off", "background", "tint"}
+SETTINGS_WINDOW_STYLE_WIRE := [2]string{"system", "frameless"}
+SETTINGS_SCROLL_MODIFIER_WIRE := [4]string{"off", "shift", "ctrl", "ctrl_shift"}
+SETTINGS_TERMINAL_CLIPBOARD_WIRE := [3]string{"blocked", "write_only", "read_write"}
+SETTINGS_BLOCK_WHITESPACE_WIRE := [2]string{"trim", "preserve"}
+SETTINGS_SELECTION_STYLE_WIRE := [3]string{"glass", "outline", "solid"}
+
+settings_wire_encode :: proc(value: int, names: []string) -> string {
+	if value >= 0 && value < len(names) do return names[value]
+	return names[0]
 }
 
-settings_scroll_modifier_from_disk :: proc(value: string) -> (Scroll_Modifier, bool) {
-	switch value {
-	case "off":        return .Off, true
-	case "shift":      return .Shift, true
-	case "ctrl":       return .Ctrl, true
-	case "ctrl_shift": return .Ctrl_Shift, true
+settings_wire_decode :: proc(value: string, names: []string) -> (int, bool) {
+	for name, index in names {
+		if value == name do return index, true
 	}
-	return .Off, false
+	return 0, false
 }
 
-settings_to_disk :: proc(settings: Application_Settings) -> Settings_Disk {
+settings_to_disk :: proc(settings: Application_Settings) -> Settings_Disk_Current {
 	font_family := settings.font_family
-	clarity := "grayscale"
-	if settings.text_smoothing == .Subpixel {
-		switch settings.subpixel_layout {
-		case .RGB:              clarity = "rgb"
-		case .BGR:              clarity = "bgr"
-		case .QD_OLED_Square:   clarity = "qd_oled_square"
-		case .QD_OLED_Diamond:  clarity = "qd_oled_diamond"
-		}
-	} else if settings.text_smoothing == .Monochrome {
-		clarity = "monochrome"
-	}
-	smoothing := "grayscale"
-	switch settings.text_smoothing {
-	case .Grayscale:  smoothing = "grayscale"
-	case .Subpixel:   smoothing = "subpixel"
-	case .Monochrome: smoothing = "monochrome"
-	}
-	hinting := "normal"
-	switch settings.font_hinting {
-	case .Normal: hinting = "normal"
-	case .Light:  hinting = "light"
-	case .None:   hinting = "none"
-	}
-	contrast := "balanced"
-	switch settings.text_contrast {
-	case .Balanced: contrast = "balanced"
-	case .Crisp:    contrast = "crisp"
-	case .Sharp:    contrast = "sharp"
-	case .Very_Sharp: contrast = "very_sharp"
-	}
-	layout := "rgb"
-	switch settings.subpixel_layout {
-	case .RGB:              layout = "rgb"
-	case .BGR:              layout = "bgr"
-	case .QD_OLED_Square:   layout = "qd_oled_square"
-	case .QD_OLED_Diamond:  layout = "qd_oled_diamond"
-	}
-	rotation := "auto"
-	switch settings.subpixel_rotation {
-	case .Auto:        rotation = "auto"
-	case .Degrees_0:   rotation = "0"
-	case .Degrees_90:  rotation = "90"
-	case .Degrees_180: rotation = "180"
-	case .Degrees_270: rotation = "270"
-	}
-	animation := "blink"
-	switch settings.cursor_animation {
-	case .Pulse:  animation = "pulse"
-	case .Blink:  animation = "blink"
-	case .Steady: animation = "steady"
-	}
-	glow := "off"
-	switch settings.padding_glow {
-	case .Off:        glow = "off"
-	case .Background: glow = "background"
-	case .Tint:       glow = "tint"
-	}
 	return {
 		version          = SETTINGS_VERSION,
-		text_clarity     = clarity,
-		text_smoothing   = smoothing,
-		text_contrast    = contrast,
-		font_hinting     = hinting,
-		subpixel_layout  = layout,
-		subpixel_rotation = rotation,
+		text_smoothing   = settings_wire_encode(int(settings.text_smoothing), SETTINGS_TEXT_SMOOTHING_WIRE[:]),
+		text_contrast    = settings_wire_encode(int(settings.text_contrast), SETTINGS_TEXT_CONTRAST_WIRE[:]),
+		font_hinting     = settings_wire_encode(int(settings.font_hinting), SETTINGS_FONT_HINTING_WIRE[:]),
+		subpixel_layout  = settings_wire_encode(int(settings.subpixel_layout), SETTINGS_SUBPIXEL_LAYOUT_WIRE[:]),
+		subpixel_rotation = settings_wire_encode(int(settings.subpixel_rotation), SETTINGS_SUBPIXEL_ROTATION_WIRE[:]),
 		font_size        = int(settings.font_size),
 		font_family      = strings.clone(font_family_setting_name(&font_family), context.temp_allocator),
-		cursor_animation = animation,
+		cursor_animation = settings_wire_encode(int(settings.cursor_animation), SETTINGS_CURSOR_ANIMATION_WIRE[:]),
 		padding          = int(settings.padding),
-		padding_glow     = glow,
+		padding_glow     = settings_wire_encode(int(settings.padding_glow), SETTINGS_PADDING_GLOW_WIRE[:]),
 		nerd_font_symbols = settings.nerd_font_symbols,
-		window_style     = settings.window_style == .Frameless ? "frameless" : "system",
-		scroll_page_modifier = settings_scroll_modifier_disk_name(settings.scroll_page_modifier),
-		scroll_line_modifier = settings_scroll_modifier_disk_name(settings.scroll_line_modifier),
+		window_style     = settings_wire_encode(int(settings.window_style), SETTINGS_WINDOW_STYLE_WIRE[:]),
+		scroll_page_modifier = settings_wire_encode(int(settings.scroll_page_modifier), SETTINGS_SCROLL_MODIFIER_WIRE[:]),
+		scroll_line_modifier = settings_wire_encode(int(settings.scroll_line_modifier), SETTINGS_SCROLL_MODIFIER_WIRE[:]),
 		font_size_shortcuts = settings.font_size_shortcuts,
 		clipboard_insert_shortcuts = settings.clipboard_insert_shortcuts,
 		copy_on_select = settings.copy_on_select,
 		right_click_paste = settings.right_click_paste,
 		paste_protection = settings.paste_protection,
-		terminal_clipboard = settings.terminal_clipboard == .Blocked ? "blocked" :
-			settings.terminal_clipboard == .Write_Only ? "write_only" : "read_write",
-		block_selection_whitespace = settings.block_selection_whitespace == .Preserve ? "preserve" : "trim",
-		selection_style = settings.selection_style == .Glass ? "glass" :
-			settings.selection_style == .Outline ? "outline" : "solid",
+		terminal_clipboard = settings_wire_encode(int(settings.terminal_clipboard), SETTINGS_TERMINAL_CLIPBOARD_WIRE[:]),
+		block_selection_whitespace = settings_wire_encode(int(settings.block_selection_whitespace), SETTINGS_BLOCK_WHITESPACE_WIRE[:]),
+		selection_style = settings_wire_encode(int(settings.selection_style), SETTINGS_SELECTION_STYLE_WIRE[:]),
 	}
 }
 
-settings_from_disk :: proc(disk: Settings_Disk) -> (Application_Settings, bool) {
+settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings, bool) {
 	settings := application_settings_default()
 	valid := disk.version == SETTINGS_VERSION
 	if parsed, ok := font_family_setting_make(disk.font_family); ok {
@@ -591,54 +488,46 @@ settings_from_disk :: proc(disk: Settings_Disk) -> (Application_Settings, bool) 
 		case: valid = false
 		}
 	} else {
-		switch disk.text_smoothing {
-		case "grayscale":  settings.text_smoothing = .Grayscale
-		case "subpixel":   settings.text_smoothing = .Subpixel
-		case "monochrome": settings.text_smoothing = .Monochrome
-		case: valid = false
+		if value, ok := settings_wire_decode(disk.text_smoothing, SETTINGS_TEXT_SMOOTHING_WIRE[:]); ok {
+			settings.text_smoothing = Text_Smoothing(value)
+		} else {
+			valid = false
 		}
 	}
 	if disk.text_contrast != "" {
-		switch disk.text_contrast {
-		case "balanced": settings.text_contrast = .Balanced
-		case "crisp":    settings.text_contrast = .Crisp
-		case "sharp":    settings.text_contrast = .Sharp
-		case "very_sharp": settings.text_contrast = .Very_Sharp
-		case: valid = false
+		if value, ok := settings_wire_decode(disk.text_contrast, SETTINGS_TEXT_CONTRAST_WIRE[:]); ok {
+			settings.text_contrast = Text_Contrast(value)
+		} else {
+			valid = false
 		}
 	}
 	if disk.font_hinting != "" {
-		switch disk.font_hinting {
-		case "normal": settings.font_hinting = .Normal
-		case "light":  settings.font_hinting = .Light
-		case "none":   settings.font_hinting = .None
-		case: valid = false
+		if value, ok := settings_wire_decode(disk.font_hinting, SETTINGS_FONT_HINTING_WIRE[:]); ok {
+			settings.font_hinting = Font_Hinting(value)
+		} else {
+			valid = false
 		}
 	}
 	if disk.subpixel_layout != "" {
-		switch disk.subpixel_layout {
-		case "rgb":                         settings.subpixel_layout = .RGB
-		case "bgr":                         settings.subpixel_layout = .BGR
-		case "qd_oled", "qd_oled_square": settings.subpixel_layout = .QD_OLED_Square
-		case "qd_oled_diamond":             settings.subpixel_layout = .QD_OLED_Diamond
-		case: valid = false
+		layout := disk.subpixel_layout
+		if layout == "qd_oled" do layout = "qd_oled_square"
+		if value, ok := settings_wire_decode(layout, SETTINGS_SUBPIXEL_LAYOUT_WIRE[:]); ok {
+			settings.subpixel_layout = Subpixel_Layout(value)
+		} else {
+			valid = false
 		}
 	}
 	if disk.subpixel_rotation != "" {
-		switch disk.subpixel_rotation {
-		case "auto": settings.subpixel_rotation = .Auto
-		case "0":    settings.subpixel_rotation = .Degrees_0
-		case "90":   settings.subpixel_rotation = .Degrees_90
-		case "180":  settings.subpixel_rotation = .Degrees_180
-		case "270":  settings.subpixel_rotation = .Degrees_270
-		case: valid = false
+		if value, ok := settings_wire_decode(disk.subpixel_rotation, SETTINGS_SUBPIXEL_ROTATION_WIRE[:]); ok {
+			settings.subpixel_rotation = Subpixel_Rotation(value)
+		} else {
+			valid = false
 		}
 	}
-	switch disk.cursor_animation {
-	case "pulse":  settings.cursor_animation = .Pulse
-	case "blink":  settings.cursor_animation = .Blink
-	case "steady": settings.cursor_animation = .Steady
-	case: valid = false
+	if value, ok := settings_wire_decode(disk.cursor_animation, SETTINGS_CURSOR_ANIMATION_WIRE[:]); ok {
+		settings.cursor_animation = Cursor_Animation_Policy(value)
+	} else {
+		valid = false
 	}
 	if disk.font_size >= int(SETTINGS_FONT_SIZE_MIN) && disk.font_size <= int(SETTINGS_FONT_SIZE_MAX) {
 		settings.font_size = u16(disk.font_size)
@@ -650,26 +539,28 @@ settings_from_disk :: proc(disk: Settings_Disk) -> (Application_Settings, bool) 
 	} else {
 		valid = false
 	}
-	switch disk.padding_glow {
-	case "off":                 settings.padding_glow = .Off
-	case "background", "soft": settings.padding_glow = .Background
-	case "tint", "vivid":      settings.padding_glow = .Tint
-	case: valid = false
-	}
-	settings.nerd_font_symbols = disk.nerd_font_symbols
-	switch disk.window_style {
-	case "system":    settings.window_style = .System
-	case "frameless": settings.window_style = .Frameless
-	case: valid = false
-	}
-	if value, ok := settings_scroll_modifier_from_disk(disk.scroll_page_modifier); ok {
-		settings.scroll_page_modifier = value
+	glow := disk.padding_glow
+	if glow == "soft" do glow = "background"
+	if glow == "vivid" do glow = "tint"
+	if value, ok := settings_wire_decode(glow, SETTINGS_PADDING_GLOW_WIRE[:]); ok {
+		settings.padding_glow = Padding_Glow(value)
 	} else {
 		valid = false
 	}
-	if value, ok := settings_scroll_modifier_from_disk(disk.scroll_line_modifier); ok &&
-	   (value == .Off || value == .Ctrl_Shift) {
-		settings.scroll_line_modifier = value
+	settings.nerd_font_symbols = disk.nerd_font_symbols
+	if value, ok := settings_wire_decode(disk.window_style, SETTINGS_WINDOW_STYLE_WIRE[:]); ok {
+		settings.window_style = Window_Style(value)
+	} else {
+		valid = false
+	}
+	if value, ok := settings_wire_decode(disk.scroll_page_modifier, SETTINGS_SCROLL_MODIFIER_WIRE[:]); ok {
+		settings.scroll_page_modifier = Scroll_Modifier(value)
+	} else {
+		valid = false
+	}
+	if value, ok := settings_wire_decode(disk.scroll_line_modifier, SETTINGS_SCROLL_MODIFIER_WIRE[:]); ok &&
+	   (Scroll_Modifier(value) == .Off || Scroll_Modifier(value) == .Ctrl_Shift) {
+		settings.scroll_line_modifier = Scroll_Modifier(value)
 	} else {
 		valid = false
 	}
@@ -678,28 +569,26 @@ settings_from_disk :: proc(disk: Settings_Disk) -> (Application_Settings, bool) 
 	settings.copy_on_select = disk.copy_on_select
 	settings.right_click_paste = disk.right_click_paste
 	settings.paste_protection = disk.paste_protection
-	switch disk.terminal_clipboard {
-	case "blocked":    settings.terminal_clipboard = .Blocked
-	case "write_only": settings.terminal_clipboard = .Write_Only
-	case "read_write": settings.terminal_clipboard = .Read_Write
-	case: valid = false
+	if value, ok := settings_wire_decode(disk.terminal_clipboard, SETTINGS_TERMINAL_CLIPBOARD_WIRE[:]); ok {
+		settings.terminal_clipboard = Terminal_Clipboard_Policy(value)
+	} else {
+		valid = false
 	}
-	switch disk.block_selection_whitespace {
-	case "trim":     settings.block_selection_whitespace = .Trim
-	case "preserve": settings.block_selection_whitespace = .Preserve
-	case: valid = false
+	if value, ok := settings_wire_decode(disk.block_selection_whitespace, SETTINGS_BLOCK_WHITESPACE_WIRE[:]); ok {
+		settings.block_selection_whitespace = Block_Selection_Whitespace(value)
+	} else {
+		valid = false
 	}
-	switch disk.selection_style {
-	case "glass":   settings.selection_style = .Glass
-	case "outline": settings.selection_style = .Outline
-	case "solid":   settings.selection_style = .Solid
-	case: valid = false
+	if value, ok := settings_wire_decode(disk.selection_style, SETTINGS_SELECTION_STYLE_WIRE[:]); ok {
+		settings.selection_style = Selection_Style(value)
+	} else {
+		valid = false
 	}
 	return settings, valid
 }
 
 settings_decode :: proc(data: []byte) -> (Application_Settings, bool) {
-	disk := Settings_Disk {
+	disk := Settings_Disk_Decode {
 		version          = SETTINGS_VERSION,
 		text_clarity     = "",
 		text_smoothing   = "",

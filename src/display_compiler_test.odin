@@ -2,6 +2,15 @@ package main
 
 import "core:testing"
 
+test_texture_registry_clear_pending :: proc(registry: ^Texture_Registry) {
+	for resource in registry.resources {
+		if resource == nil do continue
+		resource.full_upload = false
+		resource.grew_from_layers = 0
+		clear(&resource.pending_uploads)
+	}
+}
+
 @(test)
 display_grid_coalesces_pending_dirty_rows :: proc(t: ^testing.T) {
 	grid := display_grid_init(8, 6)
@@ -90,7 +99,7 @@ apple_colour_emoji_use_two_cell_colour_visuals_and_text_selector_stays_text :: p
 	}
 	testing.expect_value(t, snapshot.cells[5 * int(snapshot.cols)].wide, Terminal_Wide.Narrow)
 
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	grid := display_grid_init(snapshot.cols, snapshot.rows)
 	defer display_grid_destroy(&grid)
@@ -200,7 +209,7 @@ unsafe_programming_ligature_clusters_are_grouped_across_their_cells :: proc(t: ^
 
 @(test)
 shaped_groups_are_anchored_independently_of_prior_font_advances :: proc(t: ^testing.T) {
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	face := resources.font_faces[int(Font_Style.Regular)]
 	codepoints := []u32{'0', '1'}
@@ -251,7 +260,7 @@ display_compiler_preserves_leading_ink_for_two_and_three_cell_ligatures :: proc(
 	snapshot := Terminal_Snapshot{}
 	defer terminal_snapshot_destroy(&snapshot)
 	terminal_core_snapshot(&terminal, &snapshot)
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	grid := display_grid_init(20, 8)
 	defer display_grid_destroy(&grid)
@@ -289,7 +298,7 @@ display_compiler_resizes_a_stale_grid_and_forces_a_full_compile :: proc(t: ^test
 	snapshot := Terminal_Snapshot{}
 	defer terminal_snapshot_destroy(&snapshot)
 	terminal_core_snapshot(&terminal, &snapshot)
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	grid := display_grid_init(10, 2)
 	defer display_grid_destroy(&grid)
@@ -330,7 +339,7 @@ display_compiler_emits_all_decorations_and_hides_invisible_content :: proc(t: ^t
 	snapshot := Terminal_Snapshot{}
 	defer terminal_snapshot_destroy(&snapshot)
 	_ = terminal_core_snapshot(&terminal, &snapshot)
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	grid := display_grid_init(snapshot.cols, snapshot.rows)
 	defer display_grid_destroy(&grid)
@@ -360,7 +369,7 @@ display_compiler_uses_styled_faces_cjk_fallback_and_row_revisions :: proc(t: ^te
 	snapshot := Terminal_Snapshot{}
 	defer terminal_snapshot_destroy(&snapshot)
 	terminal_core_snapshot(&terminal, &snapshot)
-	resources := renderer_resources_init(FONT_PIXEL_HEIGHT)
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
 	defer renderer_resources_destroy(&resources)
 	grid := display_grid_init(40, 5)
 	defer display_grid_destroy(&grid)
@@ -743,7 +752,7 @@ atlas_growth_keeps_visual_ids_and_coordinates_stable :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, first_added)
 	first_record := visuals.records[first_id]
-	texture_registry_clear_pending(&registry) // simulate the first layer reaching the GPU
+	test_texture_registry_clear_pending(&registry) // simulate the first layer reaching the GPU
 	for index := 2; index < 950; index += 1 {
 		_, added := visual_cache_add_atlas(
 			&visuals,

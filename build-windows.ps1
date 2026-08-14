@@ -3,7 +3,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
 
-    [ValidateSet('grimalkin', 'grimalkin_tests', 'grimalkin_environment')]
+    [ValidateSet('grimalkin', 'grimalkin_tests', 'grimalkin_ci', 'grimalkin_environment')]
     [string] $Target = 'grimalkin'
 )
 
@@ -145,6 +145,8 @@ if ($Target -eq 'grimalkin_environment') {
     Write-Host 'Prepared native Windows build environment.'
 } elseif ($Target -eq 'grimalkin_tests') {
     Write-Host 'All Grimalkin tests passed.'
+} elseif ($Target -eq 'grimalkin_ci') {
+    Write-Host 'All Grimalkin tests passed and the native application was built.'
 } else {
     Write-Host "Built $buildDirectory\bin\grimalkin.exe"
 }

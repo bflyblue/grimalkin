@@ -37,7 +37,10 @@ The main terminal pass draws one terminal-sized quad. Its fragment shader maps
 screen coordinates to terminal cells and composites each cell's background,
 glyph mask, decorations, cursor, and supported Kitty image content. Overlays
 such as selection, the scroll indicator, and settings have separate small
-pipelines so they do not change the terminal cell layout.
+pipelines so they do not change the terminal cell layout. Those fullscreen
+passes share `src/shaders/fullscreen.vert`, fixed pipeline construction, and
+the shader inventory in `src/shaders/manifest.txt`; fragment-specific resource
+access and blending remain explicit.
 
 Shader resource indices vary by fragment. `nonuniformEXT` must be applied
 directly to every `resources[...]` access; placing it on an intermediate value

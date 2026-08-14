@@ -182,25 +182,27 @@ add_custom_command(
 add_executable(grimalkin_session_test_child src/session_test_child.c)
 set_property(TARGET grimalkin_session_test_child PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-set(GRIMALKIN_SHADER_SOURCES
-  src/shaders/text.vert
-  src/shaders/text.frag
-  src/shaders/osd.vert
-  src/shaders/osd.frag
-  src/shaders/padding_glow.vert
-  src/shaders/padding_glow.frag
-  src/shaders/padding_glow_background.frag
-  src/shaders/scroll_indicator.frag
-  src/shaders/selection.vert
-  src/shaders/selection.frag
-)
+set(GRIMALKIN_SHADER_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/manifest.txt")
+set(GRIMALKIN_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/colour.glsl")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRIMALKIN_SHADER_MANIFEST}")
+file(STRINGS "${GRIMALKIN_SHADER_MANIFEST}" GRIMALKIN_SHADER_NAMES)
 set(GRIMALKIN_SHADER_OUTPUTS)
-foreach(shader IN LISTS GRIMALKIN_SHADER_SOURCES)
+foreach(shader_name IN LISTS GRIMALKIN_SHADER_NAMES)
+  if(shader_name STREQUAL "" OR shader_name MATCHES "^#")
+    continue()
+  endif()
+  set(shader "src/shaders/${shader_name}")
   set(output "${CMAKE_CURRENT_SOURCE_DIR}/${shader}.spv")
   add_custom_command(
     OUTPUT "${output}"
-    COMMAND Vulkan::glslc "${CMAKE_CURRENT_SOURCE_DIR}/${shader}" -o "${output}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${shader}"
+    COMMAND Vulkan::glslc
+            "-I${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
+            "${CMAKE_CURRENT_SOURCE_DIR}/${shader}"
+            -o "${output}"
+    DEPENDS
+      "${CMAKE_CURRENT_SOURCE_DIR}/${shader}"
+      "${GRIMALKIN_SHADER_MANIFEST}"
+      "${GRIMALKIN_SHADER_INCLUDE}"
     COMMENT "Compiling ${shader}"
     VERBATIM
   )
@@ -327,6 +329,8 @@ add_custom_target(
   COMMENT "Running Grimalkin's Odin tests"
   VERBATIM
 )
+
+add_custom_target(grimalkin_ci DEPENDS grimalkin_tests grimalkin)
 
 # Keep release packages deliberately narrower than the development bin folder,
 # which contains every vcpkg runtime DLL (and may also contain test binaries).

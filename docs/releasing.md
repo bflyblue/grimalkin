@@ -16,8 +16,11 @@ Its second argument is `appimage`, `deb`, `arch`, or `all`; the third labels
 distro-specific Debian output. The GitHub release workflow runs it in Ubuntu
 22.04, Debian 12, and Arch Linux environments.
 
-The script downloads checksum-pinned Odin, Zig, and linuxdeploy tools and uses
-the pinned `vcpkg.json` manifest. `libghostty-vt`, FreeType, HarfBuzz,
+The package script calls `scripts/build-linux-native.sh test build`, then stages
+the resulting executable and shared fonts, Fontconfig data, notices, and
+licences through one payload helper. The builder downloads checksum-pinned Odin
+and Zig tools and uses the pinned `vcpkg.json` manifest; packaging downloads
+the pinned linuxdeploy tool when needed. `libghostty-vt`, FreeType, HarfBuzz,
 Fontconfig, GLFW, libpng, their vcpkg dependencies, and the C++ runtime are
 linked statically. glibc and the target system's Vulkan loader and driver remain
 dynamic.
@@ -31,12 +34,14 @@ package outside the development shell.
 Build the local application bundle with:
 
 ```sh
-nix build .#grimalkin
-open result/Applications/Grimalkin.app
+scripts/build-macos-native.sh build/macos-native/Grimalkin.app test build
+open build/macos-native/Grimalkin.app
 ```
 
-The Nix build is ad-hoc signed for local use. Public artifacts are signed with a
-Developer ID identity and notarized by the release workflow.
+The native builder performs an ad-hoc signature for local verification. Public
+artifacts are signed with a Developer ID identity and notarized by the release
+workflow. `nix build path:.#grimalkin` remains an optional local package build
+using the same tracked `Info.plist`, Fontconfig, and shader-manifest inputs.
 
 ## Windows packages
 
@@ -115,8 +120,9 @@ have been verified.
 
 ### Native build environment caches
 
-macOS and Windows cannot share Linux's OCI build environments, so their pinned
-userland toolchains and compiled dependencies are cached instead. macOS caches
+GitHub-hosted Linux and macOS jobs cache their repo-local pinned userland
+toolchains and compiled dependencies. Linux caches Odin, Zig, vcpkg,
+`libghostty-vt`, and downloaded archives. macOS caches
 CMake, pkgconf, autotools, Odin, Zig, MoltenVK, dylibbundler, compiled vcpkg
 binary packages, and `libghostty-vt`. Windows caches Odin, NSIS, Zig,
 vcpkg, CMake FetchContent sources, vcpkg binary packages, and `libghostty-vt`;
@@ -125,9 +131,9 @@ vcpkg installed trees are recreated from its ABI-aware binary cache rather than
 archived directly.
 
 `.github/workflows/native-ci-environments.yml` automatically prepares the
-GitHub-hosted cache namespace when a pinned tool or dependency definition
-changes on `main`. Untrusted macOS CI restores that cache onto a fresh hosted
-runner. Trusted macOS CI and releases use a persistent native cache directly;
+GitHub-hosted cache namespaces when a pinned tool or dependency definition
+changes on `main`. Untrusted Linux and macOS CI restore those caches onto fresh
+hosted runners. Trusted macOS CI and releases use a persistent native cache directly;
 restoring a remote archive over that live cache can corrupt signed application
 bundles such as CMake. Versioned tool directories, checksummed downloads,
 pinned revisions, and vcpkg's ABI-aware binary cache make tooling updates

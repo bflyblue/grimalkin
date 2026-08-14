@@ -1,0 +1,7 @@
+fullscreen.vert
+text.frag
+osd.frag
+padding_glow.frag
+padding_glow_background.frag
+scroll_indicator.frag
+selection.frag

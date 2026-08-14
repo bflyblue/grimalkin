@@ -48,8 +48,6 @@ font_render_configs_cover_stripes_qd_oled_and_grayscale :: proc(t: ^testing.T) {
 	testing.expect_value(t, diamond.geometry[1], Font_Subpixel_Vector{0, 20})
 	testing.expect_value(t, diamond.geometry[2], Font_Subpixel_Vector{17, -10})
 	testing.expect(t, Font_Instance_Key{render_config = square} != Font_Instance_Key{render_config = diamond})
-	testing.expect_value(t, font_render_config_default(), font_render_config_grayscale())
-
 	grayscale := font_render_config_grayscale()
 	testing.expect_value(t, grayscale.render_mode, Font_Render_Mode.Grayscale)
 	testing.expect_value(t, grayscale.geometry, [3]Font_Subpixel_Vector{})
@@ -158,8 +156,6 @@ harmony_raster_is_tightly_packed_logical_rgba_and_reverses_rgb_bgr :: proc(t: ^t
 	testing.expect_value(t, bgr.pitch, rgb.pitch)
 	testing.expect_value(t, bgr.bearing_x, rgb.bearing_x)
 	testing.expect_value(t, bgr.bitmap_top, rgb.bitmap_top)
-	testing.expect_value(t, bgr.advance_x, rgb.advance_x)
-
 	has_coverage := false
 	has_component_difference := false
 	for pixel := 0; pixel < len(rgb_bytes); pixel += 4 {

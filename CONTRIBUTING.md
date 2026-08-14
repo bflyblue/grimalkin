@@ -18,14 +18,28 @@ Security reports follow [SECURITY.md](SECURITY.md), not the public issue tracker
 
 ### Linux and macOS
 
-The supported development environment is defined by `flake.nix`:
+The supported Linux entry point downloads checksum-pinned Odin and Zig tools,
+prepares vcpkg and `libghostty-vt` under `build/`, then executes Make:
 
 ```sh
-nix develop
-make test
-make build
-./grimalkin
+scripts/build-linux-native.sh check test build test-gpu
+./build/linux-native/work/grimalkin
 ```
+
+Set `GRIMALKIN_LINUX_BUILD_DIR` and `GRIMALKIN_LINUX_CACHE_DIR` to relocate
+derived build state and reusable downloads. `--prepare-only` populates the
+pinned toolchain and dependency environment without compiling Grimalkin.
+
+On Apple Silicon macOS, the corresponding interface creates a verified bundle:
+
+```sh
+scripts/build-macos-native.sh build/macos-native/Grimalkin.app check test build
+open build/macos-native/Grimalkin.app
+```
+
+It accepts `--prepare-only`, and `GRIMALKIN_MACOS_BUILD_DIR` /
+`GRIMALKIN_MACOS_CACHE_DIR` relocate its output and cache. With dependencies
+already configured, both scripts use the Make targets below directly.
 
 Common targets are:
 
@@ -38,11 +52,14 @@ Common targets are:
 | `make run` | Build and launch Grimalkin |
 | `make benchmark` | Run the deterministic renderer benchmark |
 | `make clean` | Remove generated local build products |
-| `nix flake check` | Build the package and run flake checks |
 
 On Linux, `make test-gpu` uses Xvfb when available and can run against
 llvmpipe. Visual renderer changes must also be exercised on a hardware Vulkan
 device with validation layers enabled.
+
+The Nix flake is optional. `nix develop`, `nix flake check path:.`, and
+`nix build path:.#grimalkin` provide local development and packaging
+alternatives, but are not required by the native scripts or CI.
 
 ### Windows
 
@@ -52,8 +69,12 @@ the Vulkan SDK, and Odin on `PATH`. From PowerShell:
 ```powershell
 .\build-windows.ps1 -Configuration Release -Target grimalkin_tests
 .\build-windows.ps1 -Configuration Release -Target grimalkin
+.\build-windows.ps1 -Configuration Release -Target grimalkin_ci
 .\build\windows\bin\grimalkin.exe
 ```
+
+`grimalkin_ci` is the normal verification target: it runs the native session
+and Odin tests and builds the executable in one CMake build.
 
 Do not apply a Linux or macOS dependency workaround to the Windows CMake/vcpkg
 path, or vice versa. Platform packaging is described in
@@ -83,7 +104,9 @@ Run tests in proportion to the change:
 - Input, terminal, settings, or CPU rendering: `make test` and `make build`.
 - Shader or Vulkan resource changes: `make test`, `make test-gpu`, and
   `make build`, with validation layers where possible.
-- Nix or Unix packaging: `nix flake check` and the affected package build.
+- Unix build or packaging: the relevant native builder targets and affected
+  release package script; optionally run `nix flake check path:.` as a separate
+  flake validation.
 - Windows session/build changes: the native Windows test and build targets.
 
 Rendering changes need deterministic test coverage and a real, rapidly updating

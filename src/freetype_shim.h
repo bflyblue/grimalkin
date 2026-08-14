@@ -26,8 +26,6 @@ typedef struct {
   uint32_t cell_width;
   uint32_t cell_height;
   int32_t baseline;
-  int32_t ascender;
-  int32_t descender;
 } GrimalkinFontMetrics;
 
 typedef struct {
@@ -37,7 +35,6 @@ typedef struct {
   uint32_t height;
   int32_t bearing_x;
   int32_t bitmap_top;
-  int32_t advance_x;
   uint32_t pitch;
   const uint8_t *buffer;
 } GrimalkinGlyphBitmap;

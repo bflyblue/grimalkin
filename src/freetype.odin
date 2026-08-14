@@ -37,8 +37,6 @@ Font_Metrics :: struct {
 	cell_width:  u32,
 	cell_height: u32,
 	baseline:    i32,
-	ascender:    i32,
-	descender:   i32,
 }
 
 Glyph_Bitmap :: struct {
@@ -48,7 +46,6 @@ Glyph_Bitmap :: struct {
 	height:      u32,
 	bearing_x:   i32,
 	bitmap_top:  i32,
-	advance_x:   i32,
 	pitch:       u32,
 	buffer:      [^]u8,
 }
@@ -265,14 +262,6 @@ font_catalog_resolve_saved_preference :: proc(
 	return index, false, false
 }
 
-font_catalog_automatic_family :: proc(catalog: ^Font_Catalog) -> ^Font_Family {
-	if catalog == nil || catalog.automatic_index < 0 ||
-	   catalog.automatic_index >= len(catalog.families) {
-		return nil
-	}
-	return &catalog.families[catalog.automatic_index]
-}
-
 font_family_validate_configured :: proc(
 	family: ^Font_Family,
 	pixel_height: u16,
@@ -332,8 +321,6 @@ font_open_error_kind :: proc(result: int) -> Font_Open_Error_Kind {
 
 #assert(size_of(Font_Render_Config) == 32)
 
-FONT_RENDER_MODE_DEFAULT :: Font_Render_Mode.Grayscale
-
 font_render_config_grayscale :: proc(hinting := Font_Hinting.Normal) -> Font_Render_Config {
 	return {render_mode = .Grayscale, hinting = hinting}
 }
@@ -392,21 +379,8 @@ font_render_config_monochrome :: proc() -> Font_Render_Config {
 	return {render_mode = .Monochrome, hinting = .Normal}
 }
 
-font_render_config_default :: proc() -> Font_Render_Config {
-	switch FONT_RENDER_MODE_DEFAULT {
-	case .Grayscale:
-		return font_render_config_grayscale()
-	case .Harmony:
-		return font_render_config_qd_oled_square()
-	case .Monochrome:
-		return font_render_config_monochrome()
-	}
-	return font_render_config_grayscale()
-}
-
 Font_Instance_Key :: struct {
 	source:         string,
-	variation_hash: u64,
 	face_index:     i32,
 	pixel_height:   u16,
 	style:          Font_Style,
@@ -606,27 +580,6 @@ font_instance_try_open_configured :: proc(
 		require_colour = require_colour,
 	}
 	return font, GRIMALKIN_FONT_OK
-}
-
-font_instance_open_ex :: proc(
-	path: string,
-	face_index: i32,
-	pixel_height: u16,
-	style: Font_Style,
-	require_fixed_width := true,
-) -> Font_Instance {
-	return font_instance_open_configured(
-		path,
-		face_index,
-		pixel_height,
-		style,
-		font_render_config_default(),
-		require_fixed_width,
-	)
-}
-
-font_instance_open :: proc(path: string, pixel_height: u16) -> Font_Instance {
-	return font_instance_open_ex(path, 0, pixel_height, .Regular)
 }
 
 font_instance_close :: proc(font: ^Font_Instance) {
