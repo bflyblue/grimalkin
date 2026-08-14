@@ -12,12 +12,22 @@ on:
       - ".github/workflows/platform-ci.yml"
       - ".github/workflows/release.yml"
       - "CMakeLists.txt"
+      - "Makefile"
       - "build-windows.ps1"
       - "cmake/BootstrapZig.cmake"
       - "ghostty-revision.txt"
-      - "scripts/build-macos-release.sh"
+      - "assets/macos/Info.plist.in"
+      - "assets/macos/fonts.conf"
+      - "scripts/build-linux-native.sh"
+      - "scripts/build-macos-native.sh"
+      - "scripts/check-freetype-harmony.c"
+      - "scripts/glslc-from-glslang.sh"
+      - "scripts/libghostty-vt.pc.in"
+      - "scripts/linux-toolchain.env"
       - "scripts/macos-toolchain.env"
       - "scripts/setup-windows-release.ps1"
+      - "src/shaders/colour.glsl"
+      - "src/shaders/manifest.txt"
       - "vcpkg.json"
   workflow_dispatch:
 
@@ -29,6 +39,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  linux-hosted:
+    name: Prepare GitHub-hosted Linux environment
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      GRIMALKIN_LINUX_BUILD_DIR: ${{ github.workspace }}/build/linux-native-ci
+      GRIMALKIN_LINUX_CACHE_DIR: ${{ github.workspace }}/build/linux-native-cache
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/build/linux-native-cache/vcpkg-cache
+
+    steps:
+      - name: Check out trusted environment definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install native host prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf autoconf-archive automake build-essential ca-certificates \
+            clang cmake curl fonts-dejavu-core fonts-noto-cjk git glslc \
+            libtool libvulkan1 libx11-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev mesa-vulkan-drivers ninja-build \
+            pkg-config python3 unzip xauth xvfb xz-utils zip
+
+      - name: Restore prepared native environment
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/linux-native-cache/downloads
+            build/linux-native-cache/toolchains
+            build/linux-native-cache/ghostty
+            build/linux-native-cache/zig-cache
+            build/linux-native-cache/vcpkg-cache
+            build/linux-native-ci/vcpkg_installed
+          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl') }}
+          restore-keys: |
+            grimalkin-untrusted-linux-x64-
+
+      - name: Prepare pinned toolchain and native dependencies
+        shell: bash
+        run: scripts/build-linux-native.sh --prepare-only
+
   macos-hosted:
     name: Prepare GitHub-hosted macOS environment
     if: github.ref == 'refs/heads/main'
@@ -52,7 +107,7 @@ jobs:
             ~/Library/Caches/grimalkin-macos-native/ghostty
             ~/Library/Caches/grimalkin-macos-native/zig-cache
             ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
-          key: grimalkin-untrusted-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'scripts/macos-toolchain.env', 'scripts/build-macos-release.sh') }}
+          key: grimalkin-untrusted-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/build-macos-native.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
           restore-keys: |
             grimalkin-untrusted-macos-arm64-
 
@@ -62,7 +117,7 @@ jobs:
           cache_root="$HOME/Library/Caches/grimalkin-macos-native"
           GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
           VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
-            scripts/build-macos-release.sh --prepare-only
+            scripts/build-macos-native.sh --prepare-only
 
   windows-hosted:
     name: Prepare GitHub-hosted Windows environment

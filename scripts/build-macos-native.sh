@@ -2,18 +2,24 @@
 set -euo pipefail
 
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-build_root=${GRIMALKIN_MACOS_BUILD_DIR:-"$project_root/build/macos-release"}
+build_root=${GRIMALKIN_MACOS_BUILD_DIR:-"$project_root/build/macos-native"}
 cache_root=${GRIMALKIN_MACOS_CACHE_DIR:-"$build_root"}
 prepare_only=false
 if [[ ${1:-} == --prepare-only ]]; then
   prepare_only=true
-  app="$build_root/Grimalkin.app"
-else
-  app=${1:-"$build_root/Grimalkin.app"}
+  shift
+fi
+app=${1:-"$build_root/Grimalkin.app"}
+if (($# > 0)); then
+  shift
+fi
+make_targets=("$@")
+if ((${#make_targets[@]} == 0)); then
+  make_targets=(build)
 fi
 
 if [[ $(uname -s) != Darwin || $(uname -m) != arm64 ]]; then
-  echo "The native macOS release build requires an Apple Silicon Mac" >&2
+	echo "The native macOS build requires an Apple Silicon Mac" >&2
   exit 1
 fi
 if [[ "$prepare_only" == false && $(basename -- "$app") != Grimalkin.app ]]; then
@@ -36,7 +42,7 @@ ghostty_revision=$(tr -d '\r\n' < "$project_root/ghostty-revision.txt")
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ||
       ! "$vcpkg_baseline" =~ ^[0-9a-f]{40}$ ||
       ! "$ghostty_revision" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Could not read the pinned release inputs" >&2
+  echo "Could not read the pinned native build inputs" >&2
   exit 1
 fi
 
@@ -340,7 +346,7 @@ GRIMALKIN_NERD_FONT_PATH="$project_root/assets/fonts/SymbolsNerdFontMono-Regular
 ODIN_ROOT="$odin_root" \
 ODIN_FLAGS="-o:speed" \
 ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib ${static_link_flags[*]} $vulkan_link_flags" \
-  make -C "$work_tree" test build
+  make -C "$work_tree" "${make_targets[@]}"
 
 if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' | \
     grep -E -q '^(/opt/homebrew|/usr/local)/'; then
@@ -357,38 +363,13 @@ mkdir -p \
   "$app/Contents/Resources/licenses" \
   "$app/Contents/Resources/vulkan/icd.d"
 
-cat > "$app/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleExecutable</key><string>grimalkin</string>
-  <key>CFBundleIdentifier</key><string>dev.grimalkin.Grimalkin</string>
-  <key>CFBundleIconFile</key><string>Grimalkin.icns</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>Grimalkin</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$version</string>
-  <key>CFBundleVersion</key><string>$bundle_version</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-EOF
-
-cat > "$app/Contents/Resources/fonts.conf" <<'EOF'
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
-<fontconfig>
-  <dir prefix="relative">fonts</dir>
-  <dir>/System/Library/Fonts</dir>
-  <dir>/Library/Fonts</dir>
-  <dir prefix="xdg">fonts</dir>
-  <dir>~/Library/Fonts</dir>
-  <cachedir prefix="xdg">fontconfig</cachedir>
-</fontconfig>
-EOF
+sed \
+  -e "s|@GRIMALKIN_VERSION@|$version|g" \
+  -e "s|@GRIMALKIN_BUNDLE_VERSION@|$bundle_version|g" \
+  "$project_root/assets/macos/Info.plist.in" \
+  > "$app/Contents/Info.plist"
+install -m 644 "$project_root/assets/macos/fonts.conf" \
+  "$app/Contents/Resources/fonts.conf"
 
 install -m 644 "$project_root/assets/macos/Grimalkin.icns" \
   "$app/Contents/Resources/Grimalkin.icns"

@@ -27,6 +27,8 @@ jobs:
       github.actor == github.repository_owner &&
       (github.event_name == 'push' || github.ref == 'refs/heads/main')
     runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    container:
+      image: localhost:5000/grimalkin-linux-ci:ubuntu-22.04
     timeout-minutes: 5
     outputs:
       release_tag: ${{ steps.release_source.outputs.release_tag }}
@@ -34,14 +36,6 @@ jobs:
       version: ${{ steps.release_source.outputs.version }}
 
     steps:
-      - name: Expose release utilities
-        shell: bash
-        run: |
-          set -euo pipefail
-          nix shell nixpkgs#git nixpkgs#gh -c sh -c \
-            "dirname \"\$(command -v git)\"; dirname \"\$(command -v gh)\"" \
-            >> "$GITHUB_PATH"
-
       - name: Check out complete source history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,7 +161,7 @@ jobs:
           PATH="$cmake_bin:$PATH" \
           GRIMALKIN_MACOS_CACHE_DIR="$cache_root" \
           VCPKG_DEFAULT_BINARY_CACHE="$cache_root/vcpkg-cache" \
-            scripts/build-macos-release.sh build/macos-release/Grimalkin.app
+            scripts/build-macos-native.sh build/macos-release/Grimalkin.app test build
 
       - name: Install signing certificate
         id: signing
@@ -529,9 +523,9 @@ jobs:
         shell: pwsh
         run: .\scripts\setup-windows-release.ps1
 
-      - name: Run native Windows tests
+      - name: Run native Windows tests and build the application
         shell: pwsh
-        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_tests
+        run: .\build-windows.ps1 -Configuration Release -Target grimalkin_ci
 
       - name: Build NSIS installer
         shell: pwsh
@@ -559,18 +553,12 @@ jobs:
       - linux-x86-64
       - windows-x64
     runs-on: [self-hosted, linux, x64, grimalkin-linux]
+    container:
+      image: localhost:5000/grimalkin-linux-ci:ubuntu-22.04
     environment: release
     timeout-minutes: 15
 
     steps:
-      - name: Expose release utilities
-        shell: bash
-        run: |
-          set -euo pipefail
-          nix shell nixpkgs#git nixpkgs#gh -c sh -c \
-            "dirname \"\$(command -v git)\"; dirname \"\$(command -v gh)\"" \
-            >> "$GITHUB_PATH"
-
       - name: Check out release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -86,14 +86,32 @@ application involved.
 
 ## Development
 
-The reproducible Linux and macOS workflow is:
+Linux uses the pinned native builder and Make targets:
 
 ```sh
-nix develop
-make test
-make build
-./grimalkin
+scripts/build-linux-native.sh check test build test-gpu
+./build/linux-native/work/grimalkin
 ```
+
+On Apple Silicon macOS, build and verify an application bundle with:
+
+```sh
+scripts/build-macos-native.sh build/macos-native/Grimalkin.app check test build
+open build/macos-native/Grimalkin.app
+```
+
+Windows uses Visual Studio, CMake/Ninja, vcpkg, Odin, and the Vulkan SDK:
+
+```powershell
+.\build-windows.ps1 -Configuration Release -Target grimalkin_ci
+.\build\windows\bin\grimalkin.exe
+```
+
+If the native dependencies are already available, the Unix builders ultimately
+run the ordinary `make check`, `make test`, `make build`, and `make test-gpu`
+targets. `nix develop`, `nix flake check`, and `nix build` remain optional local
+development and packaging conveniences; GitHub Actions uses only the native
+build paths.
 
 Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md). The
 [architecture guide](docs/architecture.md) explains the PTY-to-GPU data flow
