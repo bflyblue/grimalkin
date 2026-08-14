@@ -38,10 +38,12 @@ scripts/build-macos-native.sh build/macos-native/Grimalkin.app test build
 open build/macos-native/Grimalkin.app
 ```
 
-The native builder performs an ad-hoc signature for local verification. Public
-artifacts are signed with a Developer ID identity and notarized by the release
-workflow. `nix build path:.#grimalkin` remains an optional local package build
-using the same tracked `Info.plist`, Fontconfig, and shader-manifest inputs.
+The native builder stages the tracked `Info.plist`, Fontconfig configuration,
+fonts, and notices through one bundle-assets helper, then performs an ad-hoc
+signature for local verification. Public artifacts are signed with a Developer
+ID identity and notarized by the release workflow. The optional
+`nix build path:.#grimalkin` package now uses the same Makefile and shader
+manifest as the native Unix builders.
 
 ## Windows packages
 

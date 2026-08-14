@@ -108,55 +108,66 @@ add_custom_target(ghostty_vt DEPENDS "${GRIMALKIN_GHOSTTY_LIB}")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
-add_library(grimalkin_freetype STATIC src/freetype_shim.c)
-target_include_directories(grimalkin_freetype PRIVATE src)
-target_link_libraries(grimalkin_freetype PRIVATE Freetype::Freetype harfbuzz::harfbuzz Fontconfig::Fontconfig)
-set_property(TARGET grimalkin_freetype PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_custom_command(
-  TARGET grimalkin_freetype POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "$<TARGET_FILE:grimalkin_freetype>"
-          "${CMAKE_BINARY_DIR}/lib/grimalkin_freetype.obj"
-  COMMENT "Packaging grimalkin_freetype for Odin"
-)
+function(grimalkin_add_odin_shim target)
+  cmake_parse_arguments(
+    SHIM
+    ""
+    ""
+    "SOURCES;INCLUDES;DEFINITIONS;LIBRARIES;DEPENDENCIES"
+    ${ARGN}
+  )
+  add_library(${target} STATIC ${SHIM_SOURCES})
+  if(SHIM_INCLUDES)
+    target_include_directories(${target} PRIVATE ${SHIM_INCLUDES})
+  endif()
+  if(SHIM_DEFINITIONS)
+    target_compile_definitions(${target} PRIVATE ${SHIM_DEFINITIONS})
+  endif()
+  if(SHIM_LIBRARIES)
+    target_link_libraries(${target} PRIVATE ${SHIM_LIBRARIES})
+  endif()
+  if(SHIM_DEPENDENCIES)
+    add_dependencies(${target} ${SHIM_DEPENDENCIES})
+  endif()
+  set_property(
+    TARGET ${target}
+    PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+  )
+  add_custom_command(
+    TARGET ${target} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:${target}>"
+            "${CMAKE_BINARY_DIR}/lib/${target}.obj"
+    COMMENT "Packaging ${target} for Odin"
+  )
+endfunction()
 
-add_library(grimalkin_ghostty STATIC src/ghostty_shim.c)
-target_include_directories(grimalkin_ghostty PRIVATE src "${ghostty_SOURCE_DIR}/include")
-target_compile_definitions(grimalkin_ghostty PRIVATE GHOSTTY_STATIC)
-target_link_libraries(grimalkin_ghostty PRIVATE glfw)
-set_property(TARGET grimalkin_ghostty PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_dependencies(grimalkin_ghostty ghostty_vt)
-add_custom_command(
-  TARGET grimalkin_ghostty POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "$<TARGET_FILE:grimalkin_ghostty>"
-          "${CMAKE_BINARY_DIR}/lib/grimalkin_ghostty.obj"
-  COMMENT "Packaging grimalkin_ghostty for Odin"
+grimalkin_add_odin_shim(
+  grimalkin_freetype
+  SOURCES src/freetype_shim.c
+  INCLUDES src
+  LIBRARIES Freetype::Freetype harfbuzz::harfbuzz Fontconfig::Fontconfig
 )
-
-add_library(grimalkin_png STATIC src/png_shim.c)
-target_include_directories(grimalkin_png PRIVATE src)
-target_link_libraries(grimalkin_png PRIVATE PNG::PNG)
-set_property(TARGET grimalkin_png PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_custom_command(
-  TARGET grimalkin_png POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "$<TARGET_FILE:grimalkin_png>"
-          "${CMAKE_BINARY_DIR}/lib/grimalkin_png.obj"
-  COMMENT "Packaging grimalkin_png for Odin"
+grimalkin_add_odin_shim(
+  grimalkin_ghostty
+  SOURCES src/ghostty_shim.c
+  INCLUDES src "${ghostty_SOURCE_DIR}/include"
+  DEFINITIONS GHOSTTY_STATIC
+  LIBRARIES glfw
+  DEPENDENCIES ghostty_vt
 )
-
-add_library(grimalkin_session STATIC src/session_shim.c)
-target_include_directories(grimalkin_session PRIVATE src "${GRIMALKIN_CONPTY_INCLUDE_DIR}")
-target_compile_definitions(grimalkin_session PRIVATE GRIMALKIN_VERSION="${PROJECT_VERSION}")
-target_link_libraries(grimalkin_session PRIVATE glfw "${GRIMALKIN_CONPTY_LIBRARY}" shell32 ole32)
-set_property(TARGET grimalkin_session PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_custom_command(
-  TARGET grimalkin_session POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-          "$<TARGET_FILE:grimalkin_session>"
-          "${CMAKE_BINARY_DIR}/lib/grimalkin_session.obj"
-  COMMENT "Packaging grimalkin_session for Odin"
+grimalkin_add_odin_shim(
+  grimalkin_png
+  SOURCES src/png_shim.c
+  INCLUDES src
+  LIBRARIES PNG::PNG
+)
+grimalkin_add_odin_shim(
+  grimalkin_session
+  SOURCES src/session_shim.c
+  INCLUDES src "${GRIMALKIN_CONPTY_INCLUDE_DIR}"
+  DEFINITIONS GRIMALKIN_VERSION="${PROJECT_VERSION}"
+  LIBRARIES glfw "${GRIMALKIN_CONPTY_LIBRARY}" shell32 ole32
 )
 
 add_executable(grimalkin_session_test src/session_shim.c src/session_shim_test.c)

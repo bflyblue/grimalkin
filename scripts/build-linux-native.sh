@@ -2,6 +2,8 @@
 set -euo pipefail
 
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$project_root/scripts/native-build-common.sh"
 build_root=${GRIMALKIN_LINUX_BUILD_DIR:-"$project_root/build/linux-native"}
 cache_root=${GRIMALKIN_LINUX_CACHE_DIR:-"$build_root"}
 prepare_only=false
@@ -31,13 +33,9 @@ for command in "${required_commands[@]}"; do
   }
 done
 
-vcpkg_baseline=$(sed -n 's/.*"builtin-baseline": "\([^"]*\)".*/\1/p' "$project_root/vcpkg.json")
-ghostty_revision=$(tr -d '\r\n' < "$project_root/ghostty-revision.txt")
-if [[ ! "$vcpkg_baseline" =~ ^[0-9a-f]{40}$ ||
-      ! "$ghostty_revision" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Could not read the pinned native build inputs" >&2
-  exit 1
-fi
+grimalkin_read_pinned_inputs "$project_root"
+vcpkg_baseline=$GRIMALKIN_VCPKG_BASELINE
+ghostty_revision=$GRIMALKIN_GHOSTTY_REVISION
 
 # shellcheck disable=SC1091
 source "$project_root/scripts/linux-toolchain.env"
@@ -102,13 +100,9 @@ elif [[ ! -x "$zig_root/zig" ]]; then
 fi
 
 vcpkg_root=${VCPKG_ROOT:-"$toolchains/vcpkg"}
-if [[ ! -d "$vcpkg_root/.git" ]]; then
-  cmake -E remove_directory "$vcpkg_root"
-  git init --quiet "$vcpkg_root"
-  git -C "$vcpkg_root" remote add origin https://github.com/microsoft/vcpkg.git
-fi
-git -C "$vcpkg_root" fetch --depth 1 origin "$vcpkg_baseline"
-git -C "$vcpkg_root" checkout --quiet --detach FETCH_HEAD
+grimalkin_prepare_git_checkout \
+  "$vcpkg_root" https://github.com/microsoft/vcpkg.git \
+  "$vcpkg_baseline" cmake
 "$vcpkg_root/bootstrap-vcpkg.sh" -disableMetrics
 
 vcpkg_installed="$build_root/vcpkg_installed"
@@ -118,14 +112,9 @@ vcpkg_installed="$build_root/vcpkg_installed"
   --triplet=x64-linux
 
 ghostty_source="$cache_root/ghostty/$ghostty_revision-zig-$ZIG_VERSION/source"
-if [[ ! -d "$ghostty_source/.git" ]]; then
-  cmake -E remove_directory "$ghostty_source"
-  mkdir -p "$(dirname -- "$ghostty_source")"
-  git init --quiet "$ghostty_source"
-  git -C "$ghostty_source" remote add origin https://github.com/ghostty-org/ghostty.git
-fi
-git -C "$ghostty_source" fetch --depth 1 origin "$ghostty_revision"
-git -C "$ghostty_source" checkout --quiet --detach FETCH_HEAD
+grimalkin_prepare_git_checkout \
+  "$ghostty_source" https://github.com/ghostty-org/ghostty.git \
+  "$ghostty_revision" cmake
 (
   cd "$ghostty_source"
   ZIG_GLOBAL_CACHE_DIR="$cache_root/zig-cache/$ZIG_VERSION" \
@@ -144,12 +133,8 @@ if [[ ! -f "$ghostty_library" ]]; then
 fi
 
 ghostty_pkgconfig="$build_root/ghostty-pkgconfig"
-mkdir -p "$ghostty_pkgconfig"
-sed \
-  -e "s|@INCLUDEDIR@|$ghostty_source/include|g" \
-  -e "s|@LIBDIR@|$ghostty_source/zig-out/lib|g" \
-  "$project_root/scripts/libghostty-vt.pc.in" \
-  > "$ghostty_pkgconfig/libghostty-vt.pc"
+grimalkin_write_ghostty_pkgconfig \
+  "$project_root" "$ghostty_source" "$ghostty_pkgconfig"
 
 triplet_root="$vcpkg_installed/x64-linux"
 pkg_config_path="$ghostty_pkgconfig:$triplet_root/lib/pkgconfig:$triplet_root/share/pkgconfig"
@@ -173,11 +158,7 @@ if [[ "$prepare_only" == true ]]; then
 fi
 
 work_tree="$build_root/work"
-cmake -E remove_directory "$work_tree"
-mkdir -p "$work_tree"
-cp -R "$project_root/src" "$work_tree/src"
-cp "$project_root/Makefile" "$work_tree/Makefile"
-cp "$project_root/VERSION" "$work_tree/VERSION"
+grimalkin_stage_make_work_tree "$project_root" "$work_tree" cmake
 
 static_link_flags=$(PKG_CONFIG_PATH="$pkg_config_path" pkg-config --static --libs \
   freetype2 harfbuzz fontconfig glfw3 libpng)
