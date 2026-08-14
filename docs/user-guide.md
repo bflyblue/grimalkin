@@ -55,22 +55,6 @@ Grimalkin retains up to 10,000 lines of normal-screen scrollback. Alternate
 screen applications manage their own visible history and do not expose that
 buffer.
 
-## Window movement
-
-On Windows, macOS, and X11, drag with the middle mouse button anywhere in the
-client area to move a framed or frameless window. Starting the drag within the
-eight-pixel edge zone resizes that edge or corner instead, and a middle-button
-double-click toggles the native zoom or maximized state. The gesture remains
-available while settings or paste confirmation is open and takes precedence
-over terminal mouse reporting.
-
-In frameless mode, `Alt+left-drag` provides the same move, edge-resize, and
-double-click behavior, including over the settings overlay. On native Wayland,
-an existing compositor-level `Alt+left-drag` shortcut can continue to move the
-window, but GLFW does not expose the pointer serial needed for Grimalkin to
-request the same operation for another button. Middle-button events therefore
-retain their normal terminal behavior on that backend.
-
 ## Selection and paste
 
 Drag with the left mouse button to select text. Hold `Ctrl` while dragging for
@@ -81,6 +65,10 @@ When an application such as nvim or `htop` enables mouse reporting, hold
 `Shift` to give the mouse to Grimalkin temporarily. Use `Ctrl+Shift` for a
 rectangular selection in that situation. Right-click pastes; use
 `Shift+right-click` in a mouse-aware application.
+
+Window movement, resizing, and maximizing use the operating system's standard
+window controls. Grimalkin does not assign those operations to `Alt` or the
+middle mouse button inside the terminal area.
 
 The **Copy & paste** settings control automatic copy on mouse release,
 right-click paste, Insert shortcuts, multiline paste confirmation, rectangular

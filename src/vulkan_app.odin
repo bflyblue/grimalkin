@@ -246,10 +246,6 @@ Vulkan_App :: struct {
 	paste_confirmation: bool,
 	selection_text_cursor:  glfw.CursorHandle,
 	selection_block_cursor: glfw.CursorHandle,
-	window_interactive: bool,
-	window_dragging:    bool,
-	window_interactive_temporary_style: bool,
-	window_mouse_suppressed: u16,
 }
 
 benchmark_samples_destroy :: proc(samples: ^Benchmark_Samples) {
@@ -595,43 +591,6 @@ flush_pending_key :: proc(app: ^Vulkan_App) {
 	app.pending_valid = false
 }
 
-window_interaction_finish :: proc(app: ^Vulkan_App) {
-	if app == nil || app.window == nil do return
-	app.window_dragging = false
-	app.window_interactive = false
-	if app.window_interactive_temporary_style {
-		_ = grimalkin_set_window_interactive_style(rawptr(app.window), 0)
-	}
-	app.window_interactive_temporary_style = false
-	_ = grimalkin_update_window_interaction_cursor(rawptr(app.window), 0)
-}
-
-window_alt_interaction_key_event :: proc(
-	app: ^Vulkan_App,
-	key, action: i32,
-) {
-	if app == nil || app.window == nil || app.settings.window_style != .Frameless ||
-	   (key != glfw.KEY_LEFT_ALT && key != glfw.KEY_RIGHT_ALT) {
-		return
-	}
-	other_alt := i32(key == glfw.KEY_LEFT_ALT ? glfw.KEY_RIGHT_ALT : glfw.KEY_LEFT_ALT)
-	if action != glfw.RELEASE || glfw.GetKey(app.window, other_alt) == glfw.PRESS {
-		if grimalkin_set_window_interactive_style(rawptr(app.window), 1) != 0 {
-			app.window_interactive = true
-			app.window_interactive_temporary_style = true
-			_ = grimalkin_update_window_interaction_cursor(rawptr(app.window), 1)
-		}
-		return
-	}
-	if !app.window_dragging {
-		window_interaction_finish(app)
-		return
-	}
-	cursor_result := grimalkin_update_window_interaction_cursor(rawptr(app.window), 2)
-	if cursor_result != 2 do app.window_dragging = false
-	if cursor_result == 0 do window_interaction_finish(app)
-}
-
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)
@@ -669,7 +628,6 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		}
 		return
 	}
-	window_alt_interaction_key_event(app, i32(key), i32(action))
 	if app.osd.visible {
 		app.pending_valid = false
 		if action == glfw.PRESS || action == glfw.REPEAT do osd_handle_key(app, i32(key), i32(mods))
@@ -766,7 +724,7 @@ current_mouse_modifiers :: proc(app: ^Vulkan_App) -> i32 {
 }
 
 selection_update_mouse_cursor :: proc(app: ^Vulkan_App) {
-	if app == nil || app.window == nil || app.window_interactive do return
+	if app == nil || app.window == nil do return
 	if app.paste_confirmation || app.osd.visible {
 		glfw.SetCursor(app.window, nil)
 		return
@@ -875,82 +833,20 @@ selection_set_autoscroll :: proc(app: ^Vulkan_App, framebuffer_y: f64) {
 	}
 }
 
-window_mouse_begin_interaction :: proc(app: ^Vulkan_App, button: i32) -> bool {
-	if app == nil || app.window == nil do return false
-	temporary_style := app.settings.window_style == .Frameless
-	if temporary_style && !app.window_interactive_temporary_style {
-		if grimalkin_set_window_interactive_style(rawptr(app.window), 1) == 0 do return false
-		app.window_interactive_temporary_style = true
-	}
-	app.window_interactive = true
-	_ = grimalkin_update_window_interaction_cursor(rawptr(app.window), 1)
-	if grimalkin_window_click_count(rawptr(app.window), button) == 2 {
-		_ = grimalkin_toggle_window_zoom(rawptr(app.window))
-		if button == glfw.MOUSE_BUTTON_MIDDLE {
-			window_interaction_finish(app)
-		}
-		return true
-	}
-	app.window_dragging = true
-	if grimalkin_begin_window_interaction(rawptr(app.window), button) == 0 {
-		window_interaction_finish(app)
-		return false
-	}
-	cursor_result := grimalkin_update_window_interaction_cursor(rawptr(app.window), 2)
-	if cursor_result != 2 {
-		app.window_dragging = false
-		if button == glfw.MOUSE_BUTTON_MIDDLE || cursor_result == 0 {
-			window_interaction_finish(app)
-		}
-	}
-	return true
-}
-
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
+	if app.osd.visible || app.paste_confirmation do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
-	button_bit, valid_button := window_mouse_button_bit(i32(button))
-	button_suppressed := valid_button && app.window_mouse_suppressed & button_bit != 0
-	if action == glfw.PRESS && button_suppressed {
-		app.window_mouse_suppressed &~= button_bit
-		window_interaction_finish(app)
-		button_suppressed = false
-	}
-	native_supported := grimalkin_window_interaction_supported(rawptr(window)) != 0
-	route := window_mouse_route(
-		app.settings.window_style,
-		i32(button),
-		i32(action),
-		i32(mods),
-		native_supported,
-		app.osd.visible,
-		app.paste_confirmation,
-		button_suppressed,
-		mouse_tracking,
-	)
-	switch route {
-	case .Blocked:
-		return
-	case .Consume_Interaction:
-		if action == glfw.RELEASE && button_suppressed {
-			app.window_mouse_suppressed &~= button_bit
-			window_interaction_finish(app)
+	if button >= 0 && button < 16 {
+		bit := u16(1) << u16(button)
+		if action == glfw.PRESS {
+			app.mouse_buttons |= bit
+		} else if action == glfw.RELEASE {
+			app.mouse_buttons &~= bit
 		}
-		return
-	case .Begin_Interaction:
-		if valid_button do app.window_mouse_suppressed |= button_bit
-		_ = window_mouse_begin_interaction(app, i32(button))
-		return
-	case .Normal:
 	}
-	app.mouse_buttons = window_mouse_buttons_after_route(
-		app.mouse_buttons,
-		i32(button),
-		i32(action),
-		route,
-	)
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
 	x, y := glfw.GetCursorPos(window)
 
@@ -987,15 +883,6 @@ cursor_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
-	if app.window_interactive {
-		cursor_mode: c.int = app.window_dragging ? 2 : 1
-		cursor_result := grimalkin_update_window_interaction_cursor(rawptr(window), cursor_mode)
-		if cursor_result != 2 do app.window_dragging = false
-		if cursor_result == 0 {
-			window_interaction_finish(app)
-		}
-		return
-	}
 	selection_update_mouse_cursor(app)
 	if app.paste_confirmation || app.osd.visible do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
@@ -1065,7 +952,6 @@ window_focus_callback :: proc "c" (window: glfw.WindowHandle, focused: c.int) {
 	app.focused = focused != 0
 	if !app.focused {
 		font_size_shortcut_clear(&app.font_size_shortcut)
-		window_interaction_finish(app)
 	}
 	selection_update_mouse_cursor(app)
 	app.redraw = true
@@ -1142,9 +1028,6 @@ window_outer_geometry :: proc(window: glfw.WindowHandle) -> [4]i32 {
 apply_window_style :: proc(app: ^Vulkan_App) {
 	if app.window == nil do return
 	frameless := app.settings.window_style == .Frameless
-	if !frameless {
-		window_interaction_finish(app)
-	}
 	outer := window_outer_geometry(app.window)
 	maximized := glfw.GetWindowAttrib(app.window, glfw.MAXIMIZED) != 0
 	glfw.SetWindowAttrib(app.window, glfw.DECORATED, frameless ? glfw.FALSE : glfw.TRUE)

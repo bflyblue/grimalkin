@@ -29,26 +29,6 @@ static int drain_until_exit(GrimalkinSession *session,
 }
 
 int main(void) {
-  if (grimalkin_window_interaction_supported(NULL) != 0 ||
-      grimalkin_begin_window_interaction(NULL, 0) != 0 ||
-      grimalkin_begin_window_interaction(NULL, 2) != 0 ||
-      grimalkin_window_click_count(NULL, 0) != 1 ||
-      grimalkin_window_click_count(NULL, 2) != 1) {
-    fprintf(stderr, "test shim exposed native window interaction\n");
-    return 1;
-  }
-  if (grimalkin_test_window_click_count(0, 1.0, 10.0, 10.0) != 1 ||
-      grimalkin_test_window_click_count(2, 1.1, 10.0, 10.0) != 1 ||
-      grimalkin_test_window_click_count(0, 1.2, 10.0, 10.0) != 2 ||
-      grimalkin_test_window_click_count(2, 1.3, 10.0, 10.0) != 2) {
-    fprintf(stderr, "left and middle click streams were not independent\n");
-    return 1;
-  }
-  if (!grimalkin_test_window_drag_rectangles()) {
-    fprintf(stderr, "window drag rectangle calculation failed\n");
-    return 1;
-  }
-
   if (setenv("SHELL", "/bin/sh", 1) != 0 ||
       setenv("HOME", "/", 1) != 0 ||
       setenv("LANG", "C", 1) != 0 ||
@@ -194,26 +174,6 @@ int main(void) {
 #define TEST_QUEUE_CAPACITY (1024u * 1024u)
 
 int main(int argc, char **argv) {
-  if (grimalkin_window_interaction_supported(NULL) != 0 ||
-      grimalkin_begin_window_interaction(NULL, 0) != 0 ||
-      grimalkin_begin_window_interaction(NULL, 2) != 0 ||
-      grimalkin_window_click_count(NULL, 0) != 1 ||
-      grimalkin_window_click_count(NULL, 2) != 1) {
-    fprintf(stderr, "test shim exposed native window interaction\n");
-    return 1;
-  }
-  if (grimalkin_test_window_click_count(0, 1.0, 10.0, 10.0) != 1 ||
-      grimalkin_test_window_click_count(2, 1.1, 10.0, 10.0) != 1 ||
-      grimalkin_test_window_click_count(0, 1.2, 10.0, 10.0) != 2 ||
-      grimalkin_test_window_click_count(2, 1.3, 10.0, 10.0) != 2) {
-    fprintf(stderr, "left and middle click streams were not independent\n");
-    return 1;
-  }
-  if (!grimalkin_test_window_drag_rectangles()) {
-    fprintf(stderr, "window drag rectangle calculation failed\n");
-    return 1;
-  }
-
   if (argc != 2 || !SetEnvironmentVariableA("GRIMALKIN_SHELL", argv[1])) {
     fprintf(stderr, "expected the ConPTY test-child executable path\n");
     return 1;

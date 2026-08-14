@@ -11,19 +11,6 @@ extern "C" {
 typedef struct GrimalkinSession GrimalkinSession;
 
 const char *grimalkin_version(void);
-int grimalkin_window_interaction_supported(void *glfw_window);
-int grimalkin_begin_window_interaction(void *glfw_window, int button);
-int grimalkin_toggle_window_zoom(void *glfw_window);
-int grimalkin_window_click_count(void *glfw_window, int button);
-int grimalkin_set_window_interactive_style(void *glfw_window, int enabled);
-int grimalkin_update_window_interaction_cursor(void *glfw_window, int enabled);
-#ifdef GRIMALKIN_SESSION_TEST
-int grimalkin_test_window_click_count(int button,
-                                      double time,
-                                      double x,
-                                      double y);
-int grimalkin_test_window_drag_rectangles(void);
-#endif
 /* Returns clockwise rotation in degrees, or -1 when it cannot be determined. */
 int grimalkin_display_rotation(void *glfw_window);
 

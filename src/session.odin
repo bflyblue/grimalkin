@@ -32,12 +32,6 @@ Grimalkin_Session_Status :: struct {
 foreign session_shim {
 	grimalkin_version :: proc() -> cstring ---
 	grimalkin_atomic_replace_file :: proc(temporary, destination: cstring) -> c.int ---
-	grimalkin_window_interaction_supported :: proc(glfw_window: rawptr) -> c.int ---
-	grimalkin_begin_window_interaction :: proc(glfw_window: rawptr, button: c.int) -> c.int ---
-	grimalkin_toggle_window_zoom :: proc(glfw_window: rawptr) -> c.int ---
-	grimalkin_window_click_count :: proc(glfw_window: rawptr, button: c.int) -> c.int ---
-	grimalkin_set_window_interactive_style :: proc(glfw_window: rawptr, enabled: c.int) -> c.int ---
-	grimalkin_update_window_interaction_cursor :: proc(glfw_window: rawptr, enabled: c.int) -> c.int ---
 	grimalkin_display_rotation :: proc(glfw_window: rawptr) -> c.int ---
 	when ODIN_OS == .Darwin {
 		grimalkin_macos_configure_window :: proc(glfw_window: rawptr, frameless: c.int) -> c.int ---
