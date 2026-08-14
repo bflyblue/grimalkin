@@ -29,7 +29,7 @@ SHADER_MANIFEST := src/shaders/manifest.txt
 # comment marker here; Apple's GNU Make 3.81 parses that marker as Make syntax.
 SHADER_SOURCES := $(addprefix src/shaders/,$(shell awk 'NF && $$1 ~ /^[[:alnum:]_.-]/ { print $$1 }' $(SHADER_MANIFEST)))
 SHADER_OUTPUTS := $(addsuffix .spv,$(SHADER_SOURCES))
-SHADER_INCLUDES := src/shaders/colour.glsl
+SHADER_INCLUDES := src/shaders/colour.glsl src/shaders/text_visual.glsl
 
 .PHONY: benchmark build capture check clean debug run shaders test test-gpu
 

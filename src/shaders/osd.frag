@@ -3,15 +3,10 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "colour.glsl"
+#include "text_visual.glsl"
 
 layout(set = 0, binding = 0, std430) readonly buffer CellBuffer {
 	uvec4 cells[];
-};
-
-struct VisualRecord {
-	uvec4 source_rect;
-	ivec4 destination_rect;
-	uvec4 texture;
 };
 
 layout(set = 0, binding = 1, std430) readonly buffer VisualBuffer {
@@ -29,28 +24,11 @@ layout(push_constant) uniform OsdLayout {
 
 layout(location = 0) out vec4 output_colour;
 
-const uint VISUAL_MASK = 1u;
-const uint VISUAL_SUBPIXEL_MASK = 4u;
-
 void write_output(vec4 linear_premultiplied) {
 	if (layout_data.frame.z != 0u) {
 		linear_premultiplied.rgb = linear_to_srgb(linear_premultiplied.rgb);
 	}
 	output_colour = linear_premultiplied;
-}
-
-float adjust_coverage(float coverage) {
-	if (layout_data.frame.w == 0u) return coverage;
-	float exponent = layout_data.frame.w == 1u ? 1.40 :
-		layout_data.frame.w == 2u ? 1.80 : 2.20;
-	return pow(coverage, exponent);
-}
-
-vec3 adjust_coverage(vec3 coverage) {
-	if (layout_data.frame.w == 0u) return coverage;
-	float exponent = layout_data.frame.w == 1u ? 1.40 :
-		layout_data.frame.w == 2u ? 1.80 : 2.20;
-	return pow(coverage, vec3(exponent));
 }
 
 void main() {
@@ -100,14 +78,14 @@ void main() {
 				resources[nonuniformEXT(texture_index)],
 				ivec3(source_pixel, int(visual.texture.y)), 0
 			).r;
-			coverage = adjust_coverage(coverage) * foreground.a;
+			coverage = adjust_coverage(coverage, layout_data.frame.w) * foreground.a;
 			colour.rgb = foreground.rgb * coverage + colour.rgb * (1.0 - coverage);
 		} else if (visual_kind == VISUAL_SUBPIXEL_MASK) {
 			vec4 coverage = texelFetch(
 				resources[nonuniformEXT(texture_index)],
 				ivec3(source_pixel, int(visual.texture.y)), 0
 			);
-			vec3 component_alpha = adjust_coverage(coverage.rgb) * foreground.a;
+			vec3 component_alpha = adjust_coverage(coverage.rgb, layout_data.frame.w) * foreground.a;
 			colour.rgb = foreground.rgb * component_alpha +
 				colour.rgb * (vec3(1.0) - component_alpha);
 		}

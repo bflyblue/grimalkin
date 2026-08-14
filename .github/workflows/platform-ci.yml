@@ -93,7 +93,7 @@ jobs:
             build/linux-native-cache/zig-cache
             build/linux-native-cache/vcpkg-cache
             build/linux-native-ci/vcpkg_installed
-          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl') }}
+          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl') }}
           restore-keys: |
             grimalkin-untrusted-linux-x64-
 
@@ -112,7 +112,7 @@ jobs:
             build/linux-native-cache/zig-cache
             build/linux-native-cache/vcpkg-cache
             build/linux-native-ci/vcpkg_installed
-          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl') }}
+          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl') }}
 
   macos:
     name: macOS Apple Silicon native build
@@ -139,7 +139,7 @@ jobs:
             ~/Library/Caches/grimalkin-macos-native/ghostty
             ~/Library/Caches/grimalkin-macos-native/zig-cache
             ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
-          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/build-macos-native.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
+          key: grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/build-macos-native.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
           restore-keys: |
             grimalkin-${{ inputs.trusted && 'trusted' || 'untrusted' }}-macos-arm64-
 

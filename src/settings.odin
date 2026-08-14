@@ -131,6 +131,12 @@ SETTINGS_FONT_SIZE_MIN :: u16(8)
 SETTINGS_FONT_SIZE_MAX :: u16(48)
 SETTINGS_PADDING_MAX :: u16(32)
 
+settings_cycle_index :: proc(value, count, direction: int) -> int {
+	if count <= 0 do return 0
+	step := direction < 0 ? -1 : 1
+	return (value + step + count) % count
+}
+
 application_settings_default :: proc() -> Application_Settings {
 	return {
 		text_smoothing  = .Grayscale,
@@ -415,6 +421,19 @@ SETTINGS_SCROLL_MODIFIER_WIRE := [4]string{"off", "shift", "ctrl", "ctrl_shift"}
 SETTINGS_TERMINAL_CLIPBOARD_WIRE := [3]string{"blocked", "write_only", "read_write"}
 SETTINGS_BLOCK_WHITESPACE_WIRE := [2]string{"trim", "preserve"}
 SETTINGS_SELECTION_STYLE_WIRE := [3]string{"glass", "outline", "solid"}
+
+#assert(len(SETTINGS_TEXT_SMOOTHING_WIRE) == int(Text_Smoothing.Monochrome) + 1)
+#assert(len(SETTINGS_TEXT_CONTRAST_WIRE) == int(Text_Contrast.Very_Sharp) + 1)
+#assert(len(SETTINGS_FONT_HINTING_WIRE) == int(Font_Hinting.None) + 1)
+#assert(len(SETTINGS_SUBPIXEL_LAYOUT_WIRE) == int(Subpixel_Layout.QD_OLED_Diamond) + 1)
+#assert(len(SETTINGS_SUBPIXEL_ROTATION_WIRE) == int(Subpixel_Rotation.Degrees_270) + 1)
+#assert(len(SETTINGS_CURSOR_ANIMATION_WIRE) == int(Cursor_Animation_Policy.Steady) + 1)
+#assert(len(SETTINGS_PADDING_GLOW_WIRE) == int(Padding_Glow.Tint) + 1)
+#assert(len(SETTINGS_WINDOW_STYLE_WIRE) == int(Window_Style.Frameless) + 1)
+#assert(len(SETTINGS_SCROLL_MODIFIER_WIRE) == int(Scroll_Modifier.Ctrl_Shift) + 1)
+#assert(len(SETTINGS_TERMINAL_CLIPBOARD_WIRE) == int(Terminal_Clipboard_Policy.Read_Write) + 1)
+#assert(len(SETTINGS_BLOCK_WHITESPACE_WIRE) == int(Block_Selection_Whitespace.Preserve) + 1)
+#assert(len(SETTINGS_SELECTION_STYLE_WIRE) == int(Selection_Style.Solid) + 1)
 
 settings_wire_encode :: proc(value: int, names: []string) -> string {
 	if value >= 0 && value < len(names) do return names[value]
