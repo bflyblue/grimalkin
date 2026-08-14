@@ -320,9 +320,15 @@ fi
 # executable. Leaving fallback overrides unset ensures Fontconfig selects
 # fonts supplied by macOS.
 fontconfig_test="$app/Contents/MacOS/grimalkin-fontconfig-test"
+test_runtime_links=("$app/Contents/MacOS/libghostty-vt.dylib")
+ln -sfn "$ghostty_library" "${test_runtime_links[0]}"
+for runtime_library in "$triplet_root"/lib/libvulkan*.dylib; do
+  test_runtime_link="$app/Contents/MacOS/$(basename -- "$runtime_library")"
+  ln -sfn "$runtime_library" "$test_runtime_link"
+  test_runtime_links+=("$test_runtime_link")
+done
 PATH="$pkgconf_root/bin:$triplet_root/tools/shaderc:$odin_root:$zig_root:$PATH" \
 PKG_CONFIG_PATH="$pkg_config_path" \
-DYLD_LIBRARY_PATH="$work_tree:$triplet_root/lib:$ghostty_source/zig-out/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
 GRIMALKIN_TEST_FONT_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_ITALIC_PATH="$test_font" \
@@ -335,6 +341,9 @@ ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib ${static_link_
   make -C "$work_tree" "${make_targets[@]}"
 "$cmake" -E rm -f "$fontconfig_test"
 "$cmake" -E remove_directory "$fontconfig_test.dSYM"
+for test_runtime_link in "${test_runtime_links[@]}"; do
+  "$cmake" -E rm -f "$test_runtime_link"
+done
 
 if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' | \
     grep -E -q '^(/opt/homebrew|/usr/local)/'; then
