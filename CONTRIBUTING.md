@@ -91,7 +91,9 @@ path, or vice versa. Platform packaging is described in
 - `src/shaders/`: terminal, overlay, selection, scroll indicator, and padding
   shaders.
 - `src/settings.odin` and `src/osd.odin`: persistent settings and live UI.
-- `assets/`, `scripts/`, `nix/`, and `cmake/`: platform resources and builds.
+- `assets/`, `scripts/`, `nix/`, and `cmake/`: platform resources and builds;
+  the native Unix builders share pinned checkout/work-tree preparation, while
+  platform-specific scripts retain dependency and packaging policy.
 
 Read [docs/architecture.md](docs/architecture.md) before changing the display
 compiler, font stack, renderer, allocator ownership, or terminal shim.

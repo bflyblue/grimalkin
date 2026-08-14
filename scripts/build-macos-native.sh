@@ -2,6 +2,8 @@
 set -euo pipefail
 
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$project_root/scripts/native-build-common.sh"
 build_root=${GRIMALKIN_MACOS_BUILD_DIR:-"$project_root/build/macos-native"}
 cache_root=${GRIMALKIN_MACOS_CACHE_DIR:-"$build_root"}
 prepare_only=false
@@ -37,11 +39,10 @@ done
 
 version=$(tr -d '\r\n' < "$project_root/VERSION")
 bundle_version=${version%%-*}
-vcpkg_baseline=$(sed -n 's/.*"builtin-baseline": "\([^"]*\)".*/\1/p' "$project_root/vcpkg.json")
-ghostty_revision=$(tr -d '\r\n' < "$project_root/ghostty-revision.txt")
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ||
-      ! "$vcpkg_baseline" =~ ^[0-9a-f]{40}$ ||
-      ! "$ghostty_revision" =~ ^[0-9a-f]{40}$ ]]; then
+grimalkin_read_pinned_inputs "$project_root"
+vcpkg_baseline=$GRIMALKIN_VCPKG_BASELINE
+ghostty_revision=$GRIMALKIN_GHOSTTY_REVISION
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
   echo "Could not read the pinned native build inputs" >&2
   exit 1
 fi
@@ -222,13 +223,9 @@ download \
 cmp "$noto_license" "$project_root/third_party/licenses/Noto-Sans-CJK.txt"
 
 vcpkg_root=${VCPKG_ROOT:-"$toolchains/vcpkg"}
-if [[ ! -d "$vcpkg_root/.git" ]]; then
-  "$cmake" -E remove_directory "$vcpkg_root"
-  git init --quiet "$vcpkg_root"
-  git -C "$vcpkg_root" remote add origin https://github.com/microsoft/vcpkg.git
-fi
-git -C "$vcpkg_root" fetch --depth 1 origin "$vcpkg_baseline"
-git -C "$vcpkg_root" checkout --quiet --detach FETCH_HEAD
+grimalkin_prepare_git_checkout \
+  "$vcpkg_root" https://github.com/microsoft/vcpkg.git \
+  "$vcpkg_baseline" "$cmake"
 "$vcpkg_root/bootstrap-vcpkg.sh" -disableMetrics
 
 vcpkg_installed="$build_root/vcpkg_installed"
@@ -241,14 +238,9 @@ ACLOCAL_PATH="$autotools_aclocal_path" \
 
 ghostty_root="$cache_root/ghostty/$ghostty_revision-zig-$ZIG_VERSION"
 ghostty_source="$ghostty_root/source"
-if [[ ! -d "$ghostty_source/.git" ]]; then
-  "$cmake" -E remove_directory "$ghostty_source"
-  mkdir -p "$ghostty_root"
-  git init --quiet "$ghostty_source"
-  git -C "$ghostty_source" remote add origin https://github.com/ghostty-org/ghostty.git
-fi
-git -C "$ghostty_source" fetch --depth 1 origin "$ghostty_revision"
-git -C "$ghostty_source" checkout --quiet --detach FETCH_HEAD
+grimalkin_prepare_git_checkout \
+  "$ghostty_source" https://github.com/ghostty-org/ghostty.git \
+  "$ghostty_revision" "$cmake"
 (
   cd "$ghostty_source"
   ZIG_GLOBAL_CACHE_DIR="$cache_root/zig-cache/$ZIG_VERSION" \
@@ -268,12 +260,8 @@ if [[ ! -f "$ghostty_library" ]]; then
 fi
 
 ghostty_pkgconfig="$build_root/ghostty-pkgconfig"
-mkdir -p "$ghostty_pkgconfig"
-sed \
-  -e "s|@INCLUDEDIR@|$ghostty_source/include|g" \
-  -e "s|@LIBDIR@|$ghostty_source/zig-out/lib|g" \
-  "$project_root/scripts/libghostty-vt.pc.in" \
-  > "$ghostty_pkgconfig/libghostty-vt.pc"
+grimalkin_write_ghostty_pkgconfig \
+  "$project_root" "$ghostty_source" "$ghostty_pkgconfig"
 
 triplet_root="$vcpkg_installed/arm64-osx"
 pkg_config_path="$ghostty_pkgconfig:$triplet_root/lib/pkgconfig:$triplet_root/share/pkgconfig"
@@ -305,11 +293,7 @@ if [[ "$prepare_only" == true ]]; then
 fi
 
 work_tree="$build_root/work"
-"$cmake" -E remove_directory "$work_tree"
-mkdir -p "$work_tree"
-cp -R "$project_root/src" "$work_tree/src"
-cp "$project_root/Makefile" "$work_tree/Makefile"
-cp "$project_root/VERSION" "$work_tree/VERSION"
+grimalkin_stage_make_work_tree "$project_root" "$work_tree" "$cmake"
 
 link_compat="$build_root/link-compat"
 mkdir -p "$link_compat"
@@ -356,67 +340,13 @@ if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' 
 fi
 
 "$cmake" -E remove_directory "$app"
-mkdir -p \
-  "$app/Contents/MacOS" \
-  "$app/Contents/Frameworks" \
-  "$app/Contents/Resources/fonts" \
-  "$app/Contents/Resources/licenses" \
-  "$app/Contents/Resources/vulkan/icd.d"
-
-sed \
-  -e "s|@GRIMALKIN_VERSION@|$version|g" \
-  -e "s|@GRIMALKIN_BUNDLE_VERSION@|$bundle_version|g" \
-  "$project_root/assets/macos/Info.plist.in" \
-  > "$app/Contents/Info.plist"
-install -m 644 "$project_root/assets/macos/fonts.conf" \
-  "$app/Contents/Resources/fonts.conf"
-
-install -m 644 "$project_root/assets/macos/Grimalkin.icns" \
-  "$app/Contents/Resources/Grimalkin.icns"
-install -m 644 "$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
-  "$app/Contents/Resources/fonts/SymbolsNerdFontMono-Regular.ttf"
-install -m 644 "$project_root/assets/fonts/NerdFonts-LICENSE.txt" \
-  "$app/Contents/Resources/fonts/NerdFonts-LICENSE.txt"
-install -m 644 "$noto_font" "$app/Contents/Resources/fonts/NotoSansCJK-Regular.ttc"
-install -m 644 "$noto_license" "$app/Contents/Resources/fonts/NotoSansCJK-LICENSE.txt"
-install -m 644 "$moltenvk_license" "$app/Contents/Resources/licenses/MoltenVK-LICENSE.txt"
-install -m 644 "$project_root/LICENSE" "$app/Contents/Resources/licenses/Grimalkin-LICENSE.txt"
-install -m 644 "$project_root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/licenses/THIRD_PARTY_NOTICES.md"
-cp -R "$project_root/third_party/licenses" "$app/Contents/Resources/licenses/third-party"
-mkdir -p "$app/Contents/Resources/licenses/vcpkg"
-vcpkg_license_count=0
-for copyright_file in "$triplet_root"/share/*/copyright; do
-  [[ -f "$copyright_file" ]] || continue
-  port_name=$(basename -- "$(dirname -- "$copyright_file")")
-  install -m 644 "$copyright_file" "$app/Contents/Resources/licenses/vcpkg/$port_name.txt"
-  cmp "$copyright_file" "$app/Contents/Resources/licenses/vcpkg/$port_name.txt"
-  vcpkg_license_count=$((vcpkg_license_count + 1))
-done
-if ((vcpkg_license_count == 0)); then
-  echo "vcpkg installed no dependency license files under $triplet_root/share" >&2
-  exit 1
-fi
-
-required_license_files=(
-  "$app/Contents/Resources/fonts/NerdFonts-LICENSE.txt"
-  "$app/Contents/Resources/fonts/NotoSansCJK-LICENSE.txt"
-  "$app/Contents/Resources/licenses/Grimalkin-LICENSE.txt"
-  "$app/Contents/Resources/licenses/THIRD_PARTY_NOTICES.md"
-  "$app/Contents/Resources/licenses/MoltenVK-LICENSE.txt"
-  "$app/Contents/Resources/licenses/third-party/Ghostty.txt"
-  "$app/Contents/Resources/licenses/third-party/Noto-Sans-CJK.txt"
-)
-for required_license in "${required_license_files[@]}"; do
-  [[ -s "$required_license" ]] || {
-    echo "Native macOS bundle omitted required notice: $required_license" >&2
-    exit 1
-  }
-done
-for copyright_file in "$triplet_root"/share/*/copyright; do
-  [[ -f "$copyright_file" ]] || continue
-  port_name=$(basename -- "$(dirname -- "$copyright_file")")
-  cmp "$copyright_file" "$app/Contents/Resources/licenses/vcpkg/$port_name.txt"
-done
+GRIMALKIN_APP_VERSION=$version \
+GRIMALKIN_BUNDLE_VERSION=$bundle_version \
+GRIMALKIN_NOTO_FONT=$noto_font \
+GRIMALKIN_NOTO_LICENSE=$noto_license \
+GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
+GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
+  "$project_root/scripts/stage-macos-assets.sh" "$app"
 
 bundle_inputs="$build_root/bundle-inputs"
 "$cmake" -E remove_directory "$bundle_inputs"

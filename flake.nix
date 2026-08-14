@@ -135,9 +135,10 @@
           grimalkin = pkgs.stdenv.mkDerivation {
             pname = "grimalkin";
             version = appVersion;
-            src = ./src;
+            src = pkgs.lib.cleanSource ./.;
 
             nativeBuildInputs = with pkgs; [
+              gnumake
               makeWrapper
               odinCompiler
               pkg-config
@@ -164,28 +165,10 @@
 
             buildPhase = ''
               runHook preBuild
-              cc $(pkg-config --cflags freetype2 harfbuzz fontconfig) -c freetype_shim.c -o freetype_shim.o
-              cc $(pkg-config --cflags libghostty-vt glfw3) -c ghostty_shim.c -o ghostty_shim.o
-              cc $(pkg-config --cflags libpng) -c png_shim.c -o png_shim.o
-              cc $(pkg-config --cflags glfw3) -DGRIMALKIN_VERSION='"${appVersion}"' \
-                -pthread -c session_shim.c -o session_shim.o
-              ${pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-                cc $(pkg-config --cflags glfw3) -c window_shim_macos.m -o window_shim_macos.o
-              ''}
-              ar rcs libgrimalkin_freetype.a freetype_shim.o
-              ar rcs libgrimalkin_ghostty.a ghostty_shim.o
-              ar rcs libgrimalkin_png.a png_shim.o
-              ar rcs libgrimalkin_session.a session_shim.o \
-                ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "window_shim_macos.o"}
-              while IFS= read -r shader; do
-                case "$shader" in
-                  ""|\#*) continue ;;
-                esac
-                glslc -I shaders "shaders/$shader" -o "shaders/$shader.spv"
-              done < shaders/manifest.txt
-              odin build . -out:grimalkin -o:speed \
-                -extra-linker-flags:'-L. ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-Wl,-rpath,${pkgs.vulkan-loader}/lib -framework AppKit"}' \
-                ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-define:GLFW_SHARED=true"}
+              make build \
+                ODIN_FLAGS=-o:speed \
+                ODIN_GLFW_FLAGS='${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-define:GLFW_SHARED=true"}' \
+                ODIN_EXTRA_LINKER_FLAGS='-Lsrc ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-Wl,-rpath,${pkgs.vulkan-loader}/lib -framework AppKit"}'
               runHook postBuild
             '';
 
