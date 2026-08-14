@@ -84,6 +84,10 @@ ligature coverage in `src/display_compiler_test.odin`.
 FreeType rasterizes glyphs, HarfBuzz shapes text, and Fontconfig discovers
 primary and fallback faces. The renderer supports grayscale masks, one-bit
 monochrome masks, Harmony subpixel coverage, and full-colour glyph images.
+Loaded fallback faces are indexed by their complete font-instance key: source
+path, face index, pixel height, style, render configuration, and colour
+requirement. The map borrows the durable path owned by each face and is
+destroyed before those faces.
 
 Grimalkin uses FreeType's Harmony LCD renderer, not its ClearType-style
 renderer. FreeType must be built with `FT_CONFIG_OPTION_SUBPIXEL_RENDERING`
@@ -110,6 +114,12 @@ placements are compiled into cells and rendered. Direct Kitty placements are
 parsed and retained by `libghostty-vt`, but the display compiler does not yet
 render them. Cursor-reserved blank space from a direct placement is therefore
 not evidence of a shaping failure.
+
+When graphics generation changes, the durable terminal snapshot rebuilds image
+and virtual-placement indexes alongside its owned slices. Placement indexes
+retain iterator order: an omitted placement ID (`0`) selects the first virtual
+placement for that image, and duplicate exact IDs also retain the first match.
+Synthetic snapshots without indexes retain the equivalent linear lookup path.
 
 ## Allocator lifetimes
 

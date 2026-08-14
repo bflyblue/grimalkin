@@ -392,6 +392,7 @@ display_compiler_uses_styled_faces_cjk_fallback_and_row_revisions :: proc(t: ^te
 	// CJK, Arabic, and symbols must be matched by glyph coverage rather than all
 	// being forced through the first CJK fallback face.
 	testing.expect(t, len(resources.font_faces) >= 6)
+	testing.expect_value(t, len(resources.font_face_lookup), len(resources.font_faces) - 4)
 	testing.expect_value(t, len(resources.textures.resources), 1)
 	testing.expect(t, grid.cells[2 * 40 + 39].visual_id != 0)
 	testing.expect(t, grid.cells[3 * 40].visual_id != 0)
@@ -523,6 +524,31 @@ kitty_placeholder_decoder_handles_explicit_and_inherited_coordinates :: proc(t: 
 		{},
 	)
 	testing.expect_value(t, rgb.image_id, u32(0x123456))
+}
+
+@(test)
+kitty_virtual_placement_index_preserves_first_match_and_zero_id_semantics :: proc(t: ^testing.T) {
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	snapshot.placements = make([]Terminal_Placement, 5)
+	snapshot.placements[0] = {image_id = 42, placement_id = 1, is_virtual = false}
+	snapshot.placements[1] = {image_id = 42, placement_id = 7, is_virtual = true}
+	snapshot.placements[2] = {image_id = 42, placement_id = 8, is_virtual = true}
+	snapshot.placements[3] = {image_id = 42, placement_id = 7, is_virtual = true}
+	snapshot.placements[4] = {image_id = 43, placement_id = 1, is_virtual = true}
+	terminal_snapshot_index_virtual_placements(&snapshot)
+
+	placement, found := terminal_snapshot_virtual_placement(&snapshot, 42, 0)
+	testing.expect(t, found)
+	testing.expect_value(t, placement, &snapshot.placements[1])
+	placement, found = terminal_snapshot_virtual_placement(&snapshot, 42, 7)
+	testing.expect(t, found)
+	testing.expect_value(t, placement, &snapshot.placements[1])
+	placement, found = terminal_snapshot_virtual_placement(&snapshot, 42, 8)
+	testing.expect(t, found)
+	testing.expect_value(t, placement, &snapshot.placements[2])
+	_, found = terminal_snapshot_virtual_placement(&snapshot, 42, 9)
+	testing.expect(t, !found)
 }
 
 @(test)

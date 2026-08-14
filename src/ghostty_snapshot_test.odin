@@ -459,6 +459,7 @@ ghostty_direct_kitty_rgba_survives_multiple_protocol_chunks :: proc(t: ^testing.
 	defer terminal_snapshot_destroy(&snapshot)
 	initial_update := terminal_core_snapshot(&terminal, &snapshot)
 	testing.expect_value(t, len(snapshot.images), 1)
+	testing.expect_value(t, snapshot.image_indices[77], 0)
 	testing.expect_value(t, snapshot.images[0].image_id, u32(77))
 	testing.expect_value(t, snapshot.images[0].width, u32(64))
 	testing.expect_value(t, snapshot.images[0].height, u32(32))

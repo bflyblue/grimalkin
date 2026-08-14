@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "core:unicode"
 
 font_style_from_flags :: proc(flags: u16) -> Font_Style {
@@ -176,6 +177,34 @@ fallback_miss_store :: proc(resources: ^Renderer_Resources, key: u64) -> bool {
 	return true
 }
 
+fallback_face_lookup :: proc(
+	resources: ^Renderer_Resources,
+	path: string,
+	face_index: i32,
+	pixel_height: u16,
+	style: Font_Style,
+	render_config: Font_Render_Config,
+	require_colour := false,
+) -> ^Font_Face {
+	key := font_instance_key(
+		path,
+		face_index,
+		pixel_height,
+		style,
+		render_config,
+		require_colour,
+	)
+	if face := resources.font_face_lookup[key]; face != nil do return face
+	canonical_path, path_error := os.get_absolute_path(path, context.temp_allocator)
+	if path_error != nil || canonical_path == path do return nil
+	key.source = canonical_path
+	return resources.font_face_lookup[key]
+}
+
+fallback_face_register :: proc(resources: ^Renderer_Resources, face: ^Font_Face) {
+	resources.font_face_lookup[face.font.key] = face
+}
+
 font_selection_for_cell :: proc(
 	resources: ^Renderer_Resources,
 	snapshot: ^Terminal_Snapshot,
@@ -199,15 +228,16 @@ font_selection_for_cell :: proc(
 				true,
 			)
 			if !found do break
-			existing: ^Font_Face
-			for face in resources.font_faces[4:] {
-				if face.is_colour &&
-				   face.font.key.face_index == face_index &&
-				   face.font.path == path {
-					existing = face
-					break
-				}
-			}
+			colour_config := font_render_config_grayscale()
+			existing := fallback_face_lookup(
+				resources,
+				path,
+				face_index,
+				u16(resources.cell_metrics.cell_height),
+				.Regular,
+				colour_config,
+				true,
+			)
 			if existing != nil {
 				delete(path)
 				if font_face_renders_colour_grapheme(existing, graphemes) {
@@ -227,7 +257,7 @@ font_selection_for_cell :: proc(
 				face_index,
 				u16(resources.cell_metrics.cell_height),
 				.Regular,
-				font_render_config_grayscale(),
+				colour_config,
 				false,
 				true,
 			)
@@ -245,6 +275,7 @@ font_selection_for_cell :: proc(
 			}
 			face.is_fallback = true
 			append(&resources.font_faces, face)
+			fallback_face_register(resources, face)
 			selection := Font_Selection{face = face}
 			_ = fallback_cache_store(resources, key, selection)
 			return selection
@@ -277,15 +308,14 @@ font_selection_for_cell :: proc(
 		if nerd_font_symbol_grapheme(graphemes) do preferred = resources.nerd_symbols_path
 		path, face_index, found := font_match_fallback_candidate(style, graphemes, candidate_index, preferred)
 		if !found do break
-		existing: ^Font_Face
-		for face in resources.font_faces[4:] {
-			if face.font.key.style == style &&
-			   face.font.key.face_index == face_index &&
-			   face.font.path == path {
-				existing = face
-				break
-			}
-		}
+		existing := fallback_face_lookup(
+			resources,
+			path,
+			face_index,
+			primary.font.key.pixel_height,
+			style,
+			resources.render_config,
+		)
 		if existing != nil {
 			delete(path)
 			if font_face_shapes_grapheme(existing, graphemes) {
@@ -315,6 +345,7 @@ font_selection_for_cell :: proc(
 		}
 		face.is_fallback = true
 		append(&resources.font_faces, face)
+		fallback_face_register(resources, face)
 		selection := Font_Selection{face = face}
 		_ = fallback_cache_store(resources, key, selection)
 		return selection

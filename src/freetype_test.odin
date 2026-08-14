@@ -4,6 +4,26 @@ import c "core:c"
 import "core:testing"
 
 @(test)
+font_instance_keys_cover_every_face_input :: proc(t: ^testing.T) {
+	path := font_path()
+	config := font_render_config_grayscale()
+	regular := font_instance_key(path, 0, 16, .Regular, config)
+	same := font_instance_key(path, 0, 16, .Regular, config)
+	bold := font_instance_key(path, 0, 16, .Bold, config)
+	second_face := font_instance_key(path, 1, 16, .Regular, config)
+	larger := font_instance_key(path, 0, 18, .Regular, config)
+	subpixel := font_instance_key(path, 0, 16, .Regular, font_render_config_rgb())
+	colour := font_instance_key(path, 0, 16, .Regular, config, true)
+
+	testing.expect_value(t, regular, same)
+	testing.expect(t, regular != bold)
+	testing.expect(t, regular != second_face)
+	testing.expect(t, regular != larger)
+	testing.expect(t, regular != subpixel)
+	testing.expect(t, regular != colour)
+}
+
+@(test)
 freetype_bgra_colour_bitmaps_are_swizzled_and_unpremultiplied :: proc(t: ^testing.T) {
 	source := [12]u8 {
 		25, 50, 100, 128,
