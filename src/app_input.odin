@@ -7,8 +7,8 @@ import "core:strings"
 import "core:unicode/utf8"
 import "vendor:glfw"
 
-app_from_window :: proc(window: glfw.WindowHandle) -> ^Vulkan_App {
-	return cast(^Vulkan_App)glfw.GetWindowUserPointer(window)
+app_from_window :: proc(window: glfw.WindowHandle) -> ^Grimalkin_App {
+	return cast(^Grimalkin_App)glfw.GetWindowUserPointer(window)
 }
 
 glfw_key_is_printable :: proc(key: i32) -> bool {
@@ -22,7 +22,7 @@ glfw_key_is_printable :: proc(key: i32) -> bool {
 	)
 }
 
-glfw_key_modifiers :: proc(app: ^Vulkan_App, mods: i32) -> u16 {
+glfw_key_modifiers :: proc(app: ^Grimalkin_App, mods: i32) -> u16 {
 	result := u16(mods & 0x3f)
 	if glfw.GetKey(app.window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS do result |= 1 << 6
 	if glfw.GetKey(app.window, glfw.KEY_RIGHT_CONTROL) == glfw.PRESS do result |= 1 << 7
@@ -37,7 +37,7 @@ unshifted_codepoint_for_key :: proc(key, scancode: i32) -> u32 {
 	return 0
 }
 
-send_key_event :: proc(app: ^Vulkan_App, key, scancode, action, mods: i32, text: []u8 = nil) {
+send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, text: []u8 = nil) {
 	if app.demo.demo_mode || app.demo.session.handle == nil do return
 	buffer: [256]u8
 	encoded, ok := terminal_core_encode_glfw_key(
@@ -70,7 +70,7 @@ send_key_event :: proc(app: ^Vulkan_App, key, scancode, action, mods: i32, text:
 	}
 }
 
-selection_snapshot_updated :: proc(app: ^Vulkan_App) {
+selection_snapshot_updated :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil do return
 	if !selection_sync_tracked_endpoints(&app.selection) ||
 	   selection_should_clear_for_snapshot(&app.selection, &app.demo.snapshot) {
@@ -81,7 +81,7 @@ selection_snapshot_updated :: proc(app: ^Vulkan_App) {
 	app.redraw = true
 }
 
-selection_copy_to_clipboard :: proc(app: ^Vulkan_App) -> bool {
+selection_copy_to_clipboard :: proc(app: ^Grimalkin_App) -> bool {
 	if app == nil || !app.selection.active || app.demo.terminal.handle == nil do return false
 	trim := app.settings.block_selection_whitespace == .Trim
 	text, ok := terminal_core_selection_text(
@@ -110,7 +110,7 @@ selection_copy_to_clipboard :: proc(app: ^Vulkan_App) -> bool {
 	return true
 }
 
-clipboard_text :: proc(app: ^Vulkan_App) -> []u8 {
+clipboard_text :: proc(app: ^Grimalkin_App) -> []u8 {
 	if app == nil || app.window == nil do return nil
 	value := glfw.GetClipboardString(app.window)
 	if value == "" do return nil
@@ -124,7 +124,7 @@ paste_line_count :: proc(data: []u8) -> int {
 	return count
 }
 
-paste_commit :: proc(app: ^Vulkan_App, data: []u8) -> bool {
+paste_commit :: proc(app: ^Grimalkin_App, data: []u8) -> bool {
 	if app == nil || len(data) == 0 || app.demo.session.handle == nil do return false
 	encoded, ok := terminal_core_encode_paste(&app.demo.terminal, data, context.temp_allocator)
 	if !ok || len(encoded) == 0 do return false
@@ -143,7 +143,7 @@ paste_commit :: proc(app: ^Vulkan_App, data: []u8) -> bool {
 	return true
 }
 
-paste_request :: proc(app: ^Vulkan_App, data: []u8) -> bool {
+paste_request :: proc(app: ^Grimalkin_App, data: []u8) -> bool {
 	if app == nil || len(data) == 0 do return false
 	if app.settings.paste_protection && !terminal_paste_is_safe(data) {
 		delete(app.pending_paste)
@@ -161,11 +161,11 @@ paste_request :: proc(app: ^Vulkan_App, data: []u8) -> bool {
 	return paste_commit(app, data)
 }
 
-paste_from_clipboard :: proc(app: ^Vulkan_App) -> bool {
+paste_from_clipboard :: proc(app: ^Grimalkin_App) -> bool {
 	return paste_request(app, clipboard_text(app))
 }
 
-process_terminal_clipboard :: proc(app: ^Vulkan_App) {
+process_terminal_clipboard :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil || app.demo.terminal.handle == nil do return
 	for _ in 0 ..< 4 {
 		event_type, data, ok := terminal_core_clipboard_poll(
@@ -193,7 +193,7 @@ process_terminal_clipboard :: proc(app: ^Vulkan_App) {
 }
 
 clipboard_insert_key_event :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	key, action, mods: i32,
 ) -> bool {
 	if key != glfw.KEY_INSERT {
@@ -220,7 +220,7 @@ clipboard_insert_key_event :: proc(
 	return true
 }
 
-scroll_terminal_rows :: proc(app: ^Vulkan_App, delta: i64) {
+scroll_terminal_rows :: proc(app: ^Grimalkin_App, delta: i64) {
 	if app.demo == nil || app.demo.terminal.handle == nil || delta == 0 do return
 	previous_offset := app.demo.snapshot.scroll_offset_rows
 	previous_active := app.demo.snapshot.viewport_active
@@ -234,7 +234,7 @@ scroll_terminal_rows :: proc(app: ^Vulkan_App, delta: i64) {
 	}
 }
 
-adjust_font_size_from_shortcut :: proc(app: ^Vulkan_App, delta: int) {
+adjust_font_size_from_shortcut :: proc(app: ^Grimalkin_App, delta: int) {
 	if app == nil || delta == 0 do return
 	adjusted, changed := font_size_shortcut_adjust(app.settings.font_size, delta)
 	if changed {
@@ -243,7 +243,7 @@ adjust_font_size_from_shortcut :: proc(app: ^Vulkan_App, delta: int) {
 	}
 }
 
-flush_pending_key :: proc(app: ^Vulkan_App) {
+flush_pending_key :: proc(app: ^Grimalkin_App) {
 	if !app.pending_valid do return
 	name := glfw.GetKeyName(app.pending_key, app.pending_scancode)
 	send_key_event(
@@ -368,7 +368,7 @@ char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 	}
 }
 
-current_mouse_modifiers :: proc(app: ^Vulkan_App) -> i32 {
+current_mouse_modifiers :: proc(app: ^Grimalkin_App) -> i32 {
 	mods: i32
 	if glfw.GetKey(app.window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS ||
 	   glfw.GetKey(app.window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS {
@@ -389,7 +389,7 @@ current_mouse_modifiers :: proc(app: ^Vulkan_App) -> i32 {
 	return mods
 }
 
-selection_update_mouse_cursor :: proc(app: ^Vulkan_App) {
+selection_update_mouse_cursor :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.window == nil do return
 	if app.paste_confirmation || app.osd.visible {
 		glfw.SetCursor(app.window, nil)
@@ -419,7 +419,7 @@ terminal_mouse_button :: proc(button: i32) -> Terminal_Mouse_Button {
 }
 
 send_mouse_event :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	action: Terminal_Mouse_Action,
 	button: Terminal_Mouse_Button,
 	mods: i32,
@@ -453,7 +453,7 @@ send_mouse_event :: proc(
 	}
 }
 
-mouse_framebuffer_position :: proc(app: ^Vulkan_App, x, y: f64) -> (f64, f64) {
+mouse_framebuffer_position :: proc(app: ^Grimalkin_App, x, y: f64) -> (f64, f64) {
 	window_width, window_height := glfw.GetWindowSize(app.window)
 	framebuffer_width, framebuffer_height := glfw.GetFramebufferSize(app.window)
 	scale_x, scale_y := framebuffer_coordinate_scale(
@@ -465,7 +465,7 @@ mouse_framebuffer_position :: proc(app: ^Vulkan_App, x, y: f64) -> (f64, f64) {
 	return x * scale_x, y * scale_y
 }
 
-mouse_selection_point :: proc(app: ^Vulkan_App, x, y: f64) -> Selection_Point {
+mouse_selection_point :: proc(app: ^Grimalkin_App, x, y: f64) -> Selection_Point {
 	area := text_render_area(app)
 	metrics := app.demo.resources.cell_metrics
 	framebuffer_x, framebuffer_y := mouse_framebuffer_position(app, x, y)
@@ -482,7 +482,7 @@ mouse_selection_point :: proc(app: ^Vulkan_App, x, y: f64) -> Selection_Point {
 	)
 }
 
-selection_set_autoscroll :: proc(app: ^Vulkan_App, framebuffer_y: f64) {
+selection_set_autoscroll :: proc(app: ^Grimalkin_App, framebuffer_y: f64) {
 	area := text_render_area(app)
 	metrics := app.demo.resources.cell_metrics
 	delta := i64(0)
@@ -641,7 +641,7 @@ window_content_scale_callback :: proc "c" (
 	app.redraw = true
 }
 
-cursor_animation_input :: proc(app: ^Vulkan_App) -> Cursor_Animation_Input {
+cursor_animation_input :: proc(app: ^Grimalkin_App) -> Cursor_Animation_Input {
 	return {
 		visible = app.demo.snapshot.cursor_visible,
 		blinking = app.demo.snapshot.cursor_blinking,
@@ -651,7 +651,7 @@ cursor_animation_input :: proc(app: ^Vulkan_App) -> Cursor_Animation_Input {
 	}
 }
 
-sample_cursor_animation :: proc(app: ^Vulkan_App, now: f64) -> Cursor_Animation_Sample {
+sample_cursor_animation :: proc(app: ^Grimalkin_App, now: f64) -> Cursor_Animation_Sample {
 	return cursor_animation_sample(
 		app.settings.cursor_animation,
 		cursor_animation_input(app),
@@ -660,7 +660,7 @@ sample_cursor_animation :: proc(app: ^Vulkan_App, now: f64) -> Cursor_Animation_
 	)
 }
 
-reset_cursor_animation :: proc(app: ^Vulkan_App, now: f64) {
+reset_cursor_animation :: proc(app: ^Grimalkin_App, now: f64) {
 	_ = cursor_animation_restart(
 		&app.cursor_animation,
 		app.settings.cursor_animation,
@@ -670,7 +670,7 @@ reset_cursor_animation :: proc(app: ^Vulkan_App, now: f64) {
 	app.redraw = true
 }
 
-settings_flush :: proc(app: ^Vulkan_App) {
+settings_flush :: proc(app: ^Grimalkin_App) {
 	if !app.settings_save_pending || app.settings_path == "" do return
 	if settings_save(app.settings_path, app.settings) {
 		app.settings_save_pending = false
@@ -691,7 +691,7 @@ window_outer_geometry :: proc(window: glfw.WindowHandle) -> [4]i32 {
 	}
 }
 
-apply_window_style :: proc(app: ^Vulkan_App) {
+apply_window_style :: proc(app: ^Grimalkin_App) {
 	if app.window == nil do return
 	frameless := app.settings.window_style == .Frameless
 	outer := window_outer_geometry(app.window)
@@ -715,7 +715,7 @@ apply_window_style :: proc(app: ^Vulkan_App) {
 	app.redraw = true
 }
 
-settings_changed :: proc(app: ^Vulkan_App, change: Application_Settings_Change) {
+settings_changed :: proc(app: ^Grimalkin_App, change: Application_Settings_Change) {
 	if change == {} do return
 	app.settings_save_pending = true
 	app.settings_save_deadline = glfw.GetTime() + 0.4
@@ -728,7 +728,7 @@ settings_changed :: proc(app: ^Vulkan_App, change: Application_Settings_Change) 
 	app.redraw = true
 }
 
-osd_prepare :: proc(app: ^Vulkan_App) {
+osd_prepare :: proc(app: ^Grimalkin_App) {
 	if app.demo == nil || app.extent.width == 0 || app.extent.height == 0 do return
 	if osd_page_row_count(app.osd.page) > 0 && !osd_page_row_enabled(
 		app.osd.page,
@@ -764,7 +764,7 @@ osd_prepare :: proc(app: ^Vulkan_App) {
 	)
 }
 
-osd_set_visible :: proc(app: ^Vulkan_App, visible: bool) {
+osd_set_visible :: proc(app: ^Grimalkin_App, visible: bool) {
 	if visible {
 		font_size_shortcut_clear(&app.font_size_shortcut)
 		switch app.osd.page {
@@ -786,7 +786,7 @@ osd_set_visible :: proc(app: ^Vulkan_App, visible: bool) {
 	app.redraw = true
 }
 
-osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
+osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
@@ -911,7 +911,7 @@ osd_handle_key :: proc(app: ^Vulkan_App, key, mods: i32) {
 	app.redraw = true
 }
 
-osd_handle_character :: proc(app: ^Vulkan_App, codepoint: rune) {
+osd_handle_character :: proc(app: ^Grimalkin_App, codepoint: rune) {
 	if app == nil || !app.osd.visible || app.osd.page != .Font_List do return
 	if codepoint < 0x20 || codepoint == 0x7f do return
 	now := glfw.GetTime()

@@ -134,7 +134,7 @@ selection_clears_when_the_active_terminal_screen_changes :: proc(t: ^testing.T) 
 
 @(test)
 clipboard_insert_shortcuts_consume_the_full_key_lifecycle :: proc(t: ^testing.T) {
-	app := Vulkan_App{settings = application_settings_default()}
+	app := Grimalkin_App{settings = application_settings_default()}
 	testing.expect(t, clipboard_insert_key_event(&app, glfw.KEY_INSERT, glfw.PRESS, glfw.MOD_CONTROL))
 	testing.expect(t, app.clipboard_insert_suppressed)
 	testing.expect(t, clipboard_insert_key_event(&app, glfw.KEY_INSERT, glfw.REPEAT, glfw.MOD_CONTROL))

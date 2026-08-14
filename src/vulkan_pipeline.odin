@@ -5,12 +5,12 @@ import "core:slice"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
+query_swapchain_support :: proc(renderer: ^Vulkan_Renderer) -> Swapchain_Support {
 	support := Swapchain_Support{}
 	vk_must(
 		vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
-			app.physical_device,
-			app.surface,
+			renderer.physical_device,
+			renderer.surface,
 			&support.capabilities,
 		),
 		"querying surface capabilities",
@@ -19,8 +19,8 @@ query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
 	format_count: u32
 	vk_must(
 		vk.GetPhysicalDeviceSurfaceFormatsKHR(
-			app.physical_device,
-			app.surface,
+			renderer.physical_device,
+			renderer.surface,
 			&format_count,
 			nil,
 		),
@@ -29,8 +29,8 @@ query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
 	support.formats = make([]vk.SurfaceFormatKHR, format_count, context.temp_allocator)
 	vk_must(
 		vk.GetPhysicalDeviceSurfaceFormatsKHR(
-			app.physical_device,
-			app.surface,
+			renderer.physical_device,
+			renderer.surface,
 			&format_count,
 			raw_data(support.formats),
 		),
@@ -40,8 +40,8 @@ query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
 	present_mode_count: u32
 	vk_must(
 		vk.GetPhysicalDeviceSurfacePresentModesKHR(
-			app.physical_device,
-			app.surface,
+			renderer.physical_device,
+			renderer.surface,
 			&present_mode_count,
 			nil,
 		),
@@ -50,8 +50,8 @@ query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
 	support.present_modes = make([]vk.PresentModeKHR, present_mode_count, context.temp_allocator)
 	vk_must(
 		vk.GetPhysicalDeviceSurfacePresentModesKHR(
-			app.physical_device,
-			app.surface,
+			renderer.physical_device,
+			renderer.surface,
 			&present_mode_count,
 			raw_data(support.present_modes),
 		),
@@ -61,13 +61,17 @@ query_swapchain_support :: proc(app: ^Vulkan_App) -> Swapchain_Support {
 	return support
 }
 
-create_swapchain :: proc(app: ^Vulkan_App) {
-	support := query_swapchain_support(app)
-	app.surface_format = choose_surface_format(support.formats)
-	app.manual_srgb_output = !surface_format_is_srgb(app.surface_format.format)
-	app.extent = choose_extent(app, support.capabilities)
+create_swapchain :: proc(
+	renderer: ^Vulkan_Renderer,
+	window: glfw.WindowHandle,
+	framebuffer_readback: bool,
+) {
+	support := query_swapchain_support(renderer)
+	renderer.surface_format = choose_surface_format(support.formats)
+	renderer.manual_srgb_output = !surface_format_is_srgb(renderer.surface_format.format)
+	renderer.extent = choose_extent(renderer, window, support.capabilities)
 	image_usage := vk.ImageUsageFlags{.COLOR_ATTACHMENT}
-	if app.framebuffer_readback {
+	if framebuffer_readback {
 		if .TRANSFER_SRC not_in support.capabilities.supportedUsageFlags {
 			fmt.panicf("the Vulkan surface does not support framebuffer readback")
 		}
@@ -79,14 +83,14 @@ create_swapchain :: proc(app: ^Vulkan_App) {
 		image_count = support.capabilities.maxImageCount
 	}
 
-	queue_family_indices := [2]u32{app.queue_families.graphics, app.queue_families.present}
+	queue_family_indices := [2]u32{renderer.queue_families.graphics, renderer.queue_families.present}
 	create_info := vk.SwapchainCreateInfoKHR {
 		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
-		surface          = app.surface,
+		surface          = renderer.surface,
 		minImageCount    = image_count,
-		imageFormat      = app.surface_format.format,
-		imageColorSpace  = app.surface_format.colorSpace,
-		imageExtent      = app.extent,
+		imageFormat      = renderer.surface_format.format,
+		imageColorSpace  = renderer.surface_format.colorSpace,
+		imageExtent      = renderer.extent,
 		imageArrayLayers = 1,
 		imageUsage       = image_usage,
 		preTransform     = support.capabilities.currentTransform,
@@ -95,44 +99,44 @@ create_swapchain :: proc(app: ^Vulkan_App) {
 		clipped          = true,
 	}
 
-	if app.queue_families.graphics != app.queue_families.present {
+	if renderer.queue_families.graphics != renderer.queue_families.present {
 		create_info.imageSharingMode = .CONCURRENT
 		create_info.queueFamilyIndexCount = 2
 		create_info.pQueueFamilyIndices = &queue_family_indices[0]
 	}
 
 	vk_must(
-		vk.CreateSwapchainKHR(app.device, &create_info, nil, &app.swapchain),
+		vk.CreateSwapchainKHR(renderer.device, &create_info, nil, &renderer.swapchain),
 		"creating the swapchain",
 	)
 
 	actual_image_count: u32
 	vk_must(
-		vk.GetSwapchainImagesKHR(app.device, app.swapchain, &actual_image_count, nil),
+		vk.GetSwapchainImagesKHR(renderer.device, renderer.swapchain, &actual_image_count, nil),
 		"counting swapchain images",
 	)
-	app.swapchain_images = make([]vk.Image, actual_image_count)
+	renderer.swapchain_images = make([]vk.Image, actual_image_count)
 	vk_must(
 		vk.GetSwapchainImagesKHR(
-			app.device,
-			app.swapchain,
+			renderer.device,
+			renderer.swapchain,
 			&actual_image_count,
-			raw_data(app.swapchain_images),
+			raw_data(renderer.swapchain_images),
 		),
 		"getting swapchain images",
 	)
 
-	app.image_views = make([]vk.ImageView, actual_image_count)
-	for image, index in app.swapchain_images {
+	renderer.image_views = make([]vk.ImageView, actual_image_count)
+	for image, index in renderer.swapchain_images {
 		view_info := vk.ImageViewCreateInfo {
 			sType = .IMAGE_VIEW_CREATE_INFO,
 			image = image,
 			viewType = .D2,
-			format = app.surface_format.format,
+			format = renderer.surface_format.format,
 			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
 		}
 		vk_must(
-			vk.CreateImageView(app.device, &view_info, nil, &app.image_views[index]),
+			vk.CreateImageView(renderer.device, &view_info, nil, &renderer.image_views[index]),
 			"creating a swapchain image view",
 		)
 	}
@@ -154,12 +158,16 @@ surface_format_is_srgb :: proc(format: vk.Format) -> bool {
 	return format == .B8G8R8A8_SRGB || format == .R8G8B8A8_SRGB
 }
 
-choose_extent :: proc(app: ^Vulkan_App, capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
+choose_extent :: proc(
+	renderer: ^Vulkan_Renderer,
+	window: glfw.WindowHandle,
+	capabilities: vk.SurfaceCapabilitiesKHR,
+) -> vk.Extent2D {
 	if capabilities.currentExtent.width != max(u32) {
 		return capabilities.currentExtent
 	}
 
-	width, height := glfw.GetFramebufferSize(app.window)
+	width, height := glfw.GetFramebufferSize(window)
 	return vk.Extent2D {
 		width = clamp(
 			u32(width),
@@ -174,9 +182,9 @@ choose_extent :: proc(app: ^Vulkan_App, capabilities: vk.SurfaceCapabilitiesKHR)
 	}
 }
 
-create_render_pass :: proc(app: ^Vulkan_App) {
+create_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 	colour_attachment := vk.AttachmentDescription {
-		format         = app.surface_format.format,
+		format         = renderer.surface_format.format,
 		samples        = {._1},
 		loadOp         = .CLEAR,
 		storeOp        = .STORE,
@@ -211,12 +219,12 @@ create_render_pass :: proc(app: ^Vulkan_App) {
 		pDependencies   = &dependency,
 	}
 	vk_must(
-		vk.CreateRenderPass(app.device, &create_info, nil, &app.render_pass),
+		vk.CreateRenderPass(renderer.device, &create_info, nil, &renderer.render_pass),
 		"creating the render pass",
 	)
 }
 
-create_descriptor_layout :: proc(app: ^Vulkan_App) {
+create_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
 	bindings := [4]vk.DescriptorSetLayoutBinding {
 		{
 			binding = 0,
@@ -239,7 +247,7 @@ create_descriptor_layout :: proc(app: ^Vulkan_App) {
 		{
 			binding = 3,
 			descriptorType = .COMBINED_IMAGE_SAMPLER,
-			descriptorCount = app.texture_capacity,
+			descriptorCount = renderer.texture_capacity,
 			stageFlags = {.FRAGMENT},
 		},
 	}
@@ -261,12 +269,12 @@ create_descriptor_layout :: proc(app: ^Vulkan_App) {
 		pBindings    = &bindings[0],
 	}
 	vk_must(
-		vk.CreateDescriptorSetLayout(app.device, &create_info, nil, &app.descriptor_layout),
+		vk.CreateDescriptorSetLayout(renderer.device, &create_info, nil, &renderer.descriptor_layout),
 		"creating the text descriptor layout",
 	)
 }
 
-create_padding_glow_descriptor_layout :: proc(app: ^Vulkan_App) {
+create_padding_glow_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
 	bindings := [2]vk.DescriptorSetLayoutBinding {
 		{
 			binding = 0,
@@ -288,10 +296,10 @@ create_padding_glow_descriptor_layout :: proc(app: ^Vulkan_App) {
 	}
 	vk_must(
 		vk.CreateDescriptorSetLayout(
-			app.device,
+			renderer.device,
 			&create_info,
 			nil,
-			&app.padding_glow_descriptor_layout,
+			&renderer.padding_glow_descriptor_layout,
 		),
 		"creating the padding glow descriptor layout",
 	)
@@ -308,13 +316,13 @@ Fullscreen_Pipeline_Spec :: struct {
 }
 
 create_fullscreen_pipeline :: proc(
-	app: ^Vulkan_App,
+	renderer: ^Vulkan_Renderer,
 	spec: Fullscreen_Pipeline_Spec,
 ) -> (vk.PipelineLayout, vk.Pipeline) {
-	vertex_module := create_shader_module(app.device, FULLSCREEN_VERTEX_SHADER)
-	defer vk.DestroyShaderModule(app.device, vertex_module, nil)
-	fragment_module := create_shader_module(app.device, spec.fragment_shader)
-	defer vk.DestroyShaderModule(app.device, fragment_module, nil)
+	vertex_module := create_shader_module(renderer.device, FULLSCREEN_VERTEX_SHADER)
+	defer vk.DestroyShaderModule(renderer.device, vertex_module, nil)
+	fragment_module := create_shader_module(renderer.device, spec.fragment_shader)
+	defer vk.DestroyShaderModule(renderer.device, fragment_module, nil)
 	stages := [2]vk.PipelineShaderStageCreateInfo {
 		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex_module, pName = "main"},
 		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment_module, pName = "main"},
@@ -375,7 +383,7 @@ create_fullscreen_pipeline :: proc(
 			layout_info.pPushConstantRanges = &push_range
 		}
 		vk_must(
-			vk.CreatePipelineLayout(app.device, &layout_info, nil, &layout),
+			vk.CreatePipelineLayout(renderer.device, &layout_info, nil, &layout),
 			fmt.tprintf("creating the %s pipeline layout", spec.name),
 		)
 	}
@@ -397,26 +405,26 @@ create_fullscreen_pipeline :: proc(
 		basePipelineIndex = -1,
 	}
 	vk_must(
-		vk.CreateGraphicsPipelines(app.device, 0, 1, &pipeline_info, nil, &pipeline),
+		vk.CreateGraphicsPipelines(renderer.device, 0, 1, &pipeline_info, nil, &pipeline),
 		fmt.tprintf("creating the %s graphics pipeline", spec.name),
 	)
 	return layout, pipeline
 }
 
-create_graphics_pipeline :: proc(app: ^Vulkan_App) {
-	app.pipeline_layout, app.pipeline = create_fullscreen_pipeline(
-		app,
+create_graphics_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.pipeline_layout, renderer.pipeline = create_fullscreen_pipeline(
+		renderer,
 		{
 			name = "text",
 			fragment_shader = FRAGMENT_SHADER,
-			render_pass = app.render_pass,
-			descriptor_layout = app.descriptor_layout,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
 			push_constant_size = u32(size_of(Text_Layout_Push)),
 		},
 	)
 }
 
-create_padding_glow_source_render_pass :: proc(app: ^Vulkan_App) {
+create_padding_glow_source_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 	colour_attachment := vk.AttachmentDescription {
 		format = PADDING_GLOW_SOURCE_FORMAT,
 		samples = {._1},
@@ -460,91 +468,91 @@ create_padding_glow_source_render_pass :: proc(app: ^Vulkan_App) {
 		pDependencies = &dependencies[0],
 	}
 	vk_must(
-		vk.CreateRenderPass(app.device, &create_info, nil, &app.padding_glow_source_render_pass),
+		vk.CreateRenderPass(renderer.device, &create_info, nil, &renderer.padding_glow_source_render_pass),
 		"creating the padding glow source render pass",
 	)
 }
 
-create_padding_glow_source_pipeline :: proc(app: ^Vulkan_App) {
+create_padding_glow_source_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 	create_padding_glow_source_pipeline_with_fragment(
-		app,
+		renderer,
 		FRAGMENT_SHADER,
-		&app.padding_glow_source_pipeline,
+		&renderer.padding_glow_source_pipeline,
 	)
 }
 
-create_padding_glow_background_pipeline :: proc(app: ^Vulkan_App) {
+create_padding_glow_background_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 	create_padding_glow_source_pipeline_with_fragment(
-		app,
+		renderer,
 		PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER,
-		&app.padding_glow_background_pipeline,
+		&renderer.padding_glow_background_pipeline,
 	)
 }
 
 create_padding_glow_source_pipeline_with_fragment :: proc(
-	app: ^Vulkan_App,
+	renderer: ^Vulkan_Renderer,
 	fragment_shader: []byte,
 	pipeline: ^vk.Pipeline,
 ) {
 	_, pipeline^ = create_fullscreen_pipeline(
-		app,
+		renderer,
 		{
 			name = "padding glow source",
 			fragment_shader = fragment_shader,
-			render_pass = app.padding_glow_source_render_pass,
-			pipeline_layout = app.pipeline_layout,
+			render_pass = renderer.padding_glow_source_render_pass,
+			pipeline_layout = renderer.pipeline_layout,
 		},
 	)
 }
 
-create_padding_glow_pipeline :: proc(app: ^Vulkan_App) {
-	app.padding_glow_pipeline_layout, app.padding_glow_pipeline = create_fullscreen_pipeline(
-		app,
+create_padding_glow_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.padding_glow_pipeline_layout, renderer.padding_glow_pipeline = create_fullscreen_pipeline(
+		renderer,
 		{
 			name = "padding glow",
 			fragment_shader = PADDING_GLOW_FRAGMENT_SHADER,
-			render_pass = app.render_pass,
-			descriptor_layout = app.padding_glow_descriptor_layout,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.padding_glow_descriptor_layout,
 			push_constant_size = u32(size_of(Padding_Glow_Push)),
 		},
 	)
 }
 
-create_osd_pipeline :: proc(app: ^Vulkan_App) {
-	app.osd_pipeline_layout, app.osd_pipeline = create_fullscreen_pipeline(
-		app,
+create_osd_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.osd_pipeline_layout, renderer.osd_pipeline = create_fullscreen_pipeline(
+		renderer,
 		{
 			name = "OSD",
 			fragment_shader = OSD_FRAGMENT_SHADER,
-			render_pass = app.render_pass,
-			descriptor_layout = app.descriptor_layout,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
 			push_constant_size = u32(size_of(Osd_Push)),
 			blend = true,
 		},
 	)
 }
 
-create_selection_pipeline :: proc(app: ^Vulkan_App) {
-	app.selection_pipeline_layout, app.selection_pipeline = create_fullscreen_pipeline(
-		app,
+create_selection_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.selection_pipeline_layout, renderer.selection_pipeline = create_fullscreen_pipeline(
+		renderer,
 		{
 			name = "selection",
 			fragment_shader = SELECTION_FRAGMENT_SHADER,
-			render_pass = app.render_pass,
-			descriptor_layout = app.descriptor_layout,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
 			push_constant_size = u32(size_of(Selection_Push)),
 			blend = true,
 		},
 	)
 }
 
-create_scroll_indicator_pipeline :: proc(app: ^Vulkan_App) {
-	app.scroll_indicator_pipeline_layout, app.scroll_indicator_pipeline = create_fullscreen_pipeline(
-		app,
+create_scroll_indicator_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.scroll_indicator_pipeline_layout, renderer.scroll_indicator_pipeline = create_fullscreen_pipeline(
+		renderer,
 		{
 			name = "scroll indicator",
 			fragment_shader = SCROLL_INDICATOR_FRAGMENT_SHADER,
-			render_pass = app.render_pass,
+			render_pass = renderer.render_pass,
 			push_constant_size = u32(size_of(Scroll_Indicator_Push)),
 			blend = true,
 		},
@@ -563,20 +571,20 @@ create_shader_module :: proc(device: vk.Device, code: []byte) -> vk.ShaderModule
 	return module
 }
 
-create_framebuffers :: proc(app: ^Vulkan_App) {
-	app.framebuffers = make([]vk.Framebuffer, len(app.image_views))
-	for &image_view, index in app.image_views {
+create_framebuffers :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.framebuffers = make([]vk.Framebuffer, len(renderer.image_views))
+	for &image_view, index in renderer.image_views {
 		create_info := vk.FramebufferCreateInfo {
 			sType           = .FRAMEBUFFER_CREATE_INFO,
-			renderPass      = app.render_pass,
+			renderPass      = renderer.render_pass,
 			attachmentCount = 1,
 			pAttachments    = &image_view,
-			width           = app.extent.width,
-			height          = app.extent.height,
+			width           = renderer.extent.width,
+			height          = renderer.extent.height,
 			layers          = 1,
 		}
 		vk_must(
-			vk.CreateFramebuffer(app.device, &create_info, nil, &app.framebuffers[index]),
+			vk.CreateFramebuffer(renderer.device, &create_info, nil, &renderer.framebuffers[index]),
 			"creating a framebuffer",
 		)
 	}
@@ -592,14 +600,14 @@ destroy_offscreen_target :: proc(device: vk.Device, target: ^Offscreen_Target) {
 }
 
 create_padding_glow_source_target :: proc(
-	app: ^Vulkan_App,
+	renderer: ^Vulkan_Renderer,
 	target: ^Offscreen_Target,
 ) {
 	image_info := vk.ImageCreateInfo {
 		sType = .IMAGE_CREATE_INFO,
 		imageType = .D2,
 		format = PADDING_GLOW_SOURCE_FORMAT,
-		extent = {width = app.extent.width, height = app.extent.height, depth = 1},
+		extent = {width = renderer.extent.width, height = renderer.extent.height, depth = 1},
 		mipLevels = 1,
 		arrayLayers = 1,
 		samples = {._1},
@@ -608,16 +616,16 @@ create_padding_glow_source_target :: proc(
 		sharingMode = .EXCLUSIVE,
 		initialLayout = .UNDEFINED,
 	}
-	vk_must(vk.CreateImage(app.device, &image_info, nil, &target.image), "creating a padding glow source image")
+	vk_must(vk.CreateImage(renderer.device, &image_info, nil, &target.image), "creating a padding glow source image")
 	requirements: vk.MemoryRequirements
-	vk.GetImageMemoryRequirements(app.device, target.image, &requirements)
+	vk.GetImageMemoryRequirements(renderer.device, target.image, &requirements)
 	allocate_info := vk.MemoryAllocateInfo {
 		sType = .MEMORY_ALLOCATE_INFO,
 		allocationSize = requirements.size,
-		memoryTypeIndex = find_memory_type(app, requirements.memoryTypeBits, {.DEVICE_LOCAL}),
+		memoryTypeIndex = find_memory_type(renderer, requirements.memoryTypeBits, {.DEVICE_LOCAL}),
 	}
-	vk_must(vk.AllocateMemory(app.device, &allocate_info, nil, &target.memory), "allocating padding glow source memory")
-	vk_must(vk.BindImageMemory(app.device, target.image, target.memory, 0), "binding padding glow source memory")
+	vk_must(vk.AllocateMemory(renderer.device, &allocate_info, nil, &target.memory), "allocating padding glow source memory")
+	vk_must(vk.BindImageMemory(renderer.device, target.image, target.memory, 0), "binding padding glow source memory")
 	attachment_view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = target.image,
@@ -626,34 +634,34 @@ create_padding_glow_source_target :: proc(
 		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
 	}
 	vk_must(
-		vk.CreateImageView(app.device, &attachment_view_info, nil, &target.attachment_view),
+		vk.CreateImageView(renderer.device, &attachment_view_info, nil, &target.attachment_view),
 		"creating a padding glow source attachment view",
 	)
 	sampled_view_info := attachment_view_info
 	sampled_view_info.subresourceRange.levelCount = 1
 	vk_must(
-		vk.CreateImageView(app.device, &sampled_view_info, nil, &target.sampled_view),
+		vk.CreateImageView(renderer.device, &sampled_view_info, nil, &target.sampled_view),
 		"creating a padding glow source sampled view",
 	)
 	framebuffer_info := vk.FramebufferCreateInfo {
 		sType = .FRAMEBUFFER_CREATE_INFO,
-		renderPass = app.padding_glow_source_render_pass,
+		renderPass = renderer.padding_glow_source_render_pass,
 		attachmentCount = 1,
 		pAttachments = &target.attachment_view,
-		width = app.extent.width,
-		height = app.extent.height,
+		width = renderer.extent.width,
+		height = renderer.extent.height,
 		layers = 1,
 	}
 	vk_must(
-		vk.CreateFramebuffer(app.device, &framebuffer_info, nil, &target.framebuffer),
+		vk.CreateFramebuffer(renderer.device, &framebuffer_info, nil, &target.framebuffer),
 		"creating a padding glow source framebuffer",
 	)
 }
 
-create_padding_glow_source_resources :: proc(app: ^Vulkan_App) {
+create_padding_glow_source_resources :: proc(renderer: ^Vulkan_Renderer) {
 	format_properties: vk.FormatProperties
 	vk.GetPhysicalDeviceFormatProperties(
-		app.physical_device,
+		renderer.physical_device,
 		PADDING_GLOW_SOURCE_FORMAT,
 		&format_properties,
 	)
@@ -680,57 +688,57 @@ create_padding_glow_source_resources :: proc(app: ^Vulkan_App) {
 		maxLod = 0,
 	}
 	vk_must(
-		vk.CreateSampler(app.device, &sampler_info, nil, &app.padding_glow_sampler),
+		vk.CreateSampler(renderer.device, &sampler_info, nil, &renderer.padding_glow_sampler),
 		"creating the padding glow source sampler",
 	)
 
-	for &frame in app.frames {
-		create_padding_glow_source_target(app, &frame.padding_glow_source)
-		create_padding_glow_source_target(app, &frame.padding_glow_background)
+	for &frame in renderer.frames {
+		create_padding_glow_source_target(renderer, &frame.padding_glow_source)
+		create_padding_glow_source_target(renderer, &frame.padding_glow_background)
 	}
 
 	pool_size := vk.DescriptorPoolSize {
 		type = .COMBINED_IMAGE_SAMPLER,
-		descriptorCount = u32(len(app.frames) * 2),
+		descriptorCount = u32(len(renderer.frames) * 2),
 	}
 	pool_info := vk.DescriptorPoolCreateInfo {
 		sType = .DESCRIPTOR_POOL_CREATE_INFO,
-		maxSets = u32(len(app.frames)),
+		maxSets = u32(len(renderer.frames)),
 		poolSizeCount = 1,
 		pPoolSizes = &pool_size,
 	}
 	vk_must(
 		vk.CreateDescriptorPool(
-			app.device,
+			renderer.device,
 			&pool_info,
 			nil,
-			&app.padding_glow_descriptor_pool,
+			&renderer.padding_glow_descriptor_pool,
 		),
 		"creating the padding glow descriptor pool",
 	)
-	layouts := make([]vk.DescriptorSetLayout, len(app.frames), context.temp_allocator)
-	for &layout in layouts do layout = app.padding_glow_descriptor_layout
-	sets := make([]vk.DescriptorSet, len(app.frames), context.temp_allocator)
+	layouts := make([]vk.DescriptorSetLayout, len(renderer.frames), context.temp_allocator)
+	for &layout in layouts do layout = renderer.padding_glow_descriptor_layout
+	sets := make([]vk.DescriptorSet, len(renderer.frames), context.temp_allocator)
 	set_allocate_info := vk.DescriptorSetAllocateInfo {
 		sType = .DESCRIPTOR_SET_ALLOCATE_INFO,
-		descriptorPool = app.padding_glow_descriptor_pool,
+		descriptorPool = renderer.padding_glow_descriptor_pool,
 		descriptorSetCount = u32(len(sets)),
 		pSetLayouts = raw_data(layouts),
 	}
 	vk_must(
-		vk.AllocateDescriptorSets(app.device, &set_allocate_info, raw_data(sets)),
+		vk.AllocateDescriptorSets(renderer.device, &set_allocate_info, raw_data(sets)),
 		"allocating padding glow descriptor sets",
 	)
-	for &frame, index in app.frames {
+	for &frame, index in renderer.frames {
 		frame.padding_glow_descriptor_set = sets[index]
 		image_infos := [2]vk.DescriptorImageInfo {
 			{
-			sampler = app.padding_glow_sampler,
+			sampler = renderer.padding_glow_sampler,
 			imageView = frame.padding_glow_source.sampled_view,
 			imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 			},
 			{
-				sampler = app.padding_glow_sampler,
+				sampler = renderer.padding_glow_sampler,
 				imageView = frame.padding_glow_background.sampled_view,
 				imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 			},
@@ -752,70 +760,70 @@ create_padding_glow_source_resources :: proc(app: ^Vulkan_App) {
 			descriptorType = .COMBINED_IMAGE_SAMPLER,
 			pImageInfo = &image_infos[1],
 		}
-		vk.UpdateDescriptorSets(app.device, 2, &writes[0], 0, nil)
+		vk.UpdateDescriptorSets(renderer.device, 2, &writes[0], 0, nil)
 	}
 }
 
-create_commands :: proc(app: ^Vulkan_App) {
-	app.frames = make([]Frame_Context, MAX_FRAMES_IN_FLIGHT)
-	app.active_frame_count = min(MAX_FRAMES_IN_FLIGHT, len(app.swapchain_images))
-	app.images_in_flight = make([]vk.Fence, len(app.swapchain_images))
+create_commands :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.frames = make([]Frame_Context, MAX_FRAMES_IN_FLIGHT)
+	renderer.active_frame_count = min(MAX_FRAMES_IN_FLIGHT, len(renderer.swapchain_images))
+	renderer.images_in_flight = make([]vk.Fence, len(renderer.swapchain_images))
 	pool_info := vk.CommandPoolCreateInfo {
 		sType            = .COMMAND_POOL_CREATE_INFO,
 		flags            = {.RESET_COMMAND_BUFFER},
-		queueFamilyIndex = app.queue_families.graphics,
+		queueFamilyIndex = renderer.queue_families.graphics,
 	}
 	vk_must(
-		vk.CreateCommandPool(app.device, &pool_info, nil, &app.command_pool),
+		vk.CreateCommandPool(renderer.device, &pool_info, nil, &renderer.command_pool),
 		"creating the command pool",
 	)
 
-	command_buffers := make([]vk.CommandBuffer, len(app.frames) + 1, context.temp_allocator)
+	command_buffers := make([]vk.CommandBuffer, len(renderer.frames) + 1, context.temp_allocator)
 	allocate_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-		commandPool        = app.command_pool,
+		commandPool        = renderer.command_pool,
 		level              = .PRIMARY,
 		commandBufferCount = u32(len(command_buffers)),
 	}
 	vk_must(
-		vk.AllocateCommandBuffers(app.device, &allocate_info, raw_data(command_buffers)),
+		vk.AllocateCommandBuffers(renderer.device, &allocate_info, raw_data(command_buffers)),
 		"allocating command buffers",
 	)
-	app.command_buffer = command_buffers[0]
-	for &frame, index in app.frames do frame.command_buffer = command_buffers[index + 1]
+	renderer.command_buffer = command_buffers[0]
+	for &frame, index in renderer.frames do frame.command_buffer = command_buffers[index + 1]
 	fence_info := vk.FenceCreateInfo{sType = .FENCE_CREATE_INFO, flags = {.SIGNALED}}
 	vk_must(
-		vk.CreateFence(app.device, &fence_info, nil, &app.upload_fence),
+		vk.CreateFence(renderer.device, &fence_info, nil, &renderer.upload_fence),
 		"creating the texture-upload fence",
 	)
 }
 
-create_timestamp_queries :: proc(app: ^Vulkan_App) {
+create_timestamp_queries :: proc(renderer: ^Vulkan_Renderer) {
 	family_count: u32
-	vk.GetPhysicalDeviceQueueFamilyProperties(app.physical_device, &family_count, nil)
+	vk.GetPhysicalDeviceQueueFamilyProperties(renderer.physical_device, &family_count, nil)
 	families := make([]vk.QueueFamilyProperties, family_count, context.temp_allocator)
 	vk.GetPhysicalDeviceQueueFamilyProperties(
-		app.physical_device,
+		renderer.physical_device,
 		&family_count,
 		raw_data(families),
 	)
-	app.timestamp_bits = families[app.queue_families.graphics].timestampValidBits
-	if app.timestamp_bits == 0 {
+	renderer.timestamp_bits = families[renderer.queue_families.graphics].timestampValidBits
+	if renderer.timestamp_bits == 0 {
 		fmt.println("Vulkan timestamp queries are unavailable on the graphics queue")
 		return
 	}
 
 	properties: vk.PhysicalDeviceProperties
-	vk.GetPhysicalDeviceProperties(app.physical_device, &properties)
-	app.timestamp_period = f64(properties.limits.timestampPeriod)
+	vk.GetPhysicalDeviceProperties(renderer.physical_device, &properties)
+	renderer.timestamp_period = f64(properties.limits.timestampPeriod)
 	create_info := vk.QueryPoolCreateInfo {
 		sType      = .QUERY_POOL_CREATE_INFO,
 		queryType  = .TIMESTAMP,
 		queryCount = 2,
 	}
-	for &frame in app.frames {
+	for &frame in renderer.frames {
 		vk_must(
-			vk.CreateQueryPool(app.device, &create_info, nil, &frame.timestamp_pool),
+			vk.CreateQueryPool(renderer.device, &create_info, nil, &frame.timestamp_pool),
 			"creating a benchmark timestamp query pool",
 		)
 	}

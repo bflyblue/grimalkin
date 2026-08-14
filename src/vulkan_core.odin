@@ -7,7 +7,7 @@ import "core:slice"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-create_instance :: proc(app: ^Vulkan_App) {
+create_instance :: proc(app: ^Grimalkin_App) {
 	application_info := vk.ApplicationInfo {
 		sType              = .APPLICATION_INFO,
 		pApplicationName   = "Grimalkin",
@@ -51,7 +51,7 @@ create_instance :: proc(app: ^Vulkan_App) {
 	vk_must(vk.CreateInstance(&create_info, nil, &app.instance), "creating the Vulkan instance")
 }
 
-create_debug_messenger :: proc(app: ^Vulkan_App) {
+create_debug_messenger :: proc(app: ^Grimalkin_App) {
 	when ENABLE_VALIDATION {
 		create_info := debug_messenger_create_info()
 		vk_must(
@@ -81,7 +81,7 @@ vulkan_debug_callback :: proc "system" (
 	return false
 }
 
-pick_physical_device :: proc(app: ^Vulkan_App) {
+pick_physical_device :: proc(app: ^Grimalkin_App) {
 	device_count: u32
 	vk_must(
 		vk.EnumeratePhysicalDevices(app.instance, &device_count, nil),
@@ -167,7 +167,7 @@ supports_descriptor_indexing :: proc(device: vk.PhysicalDevice) -> bool {
 	)
 }
 
-find_queue_families :: proc(app: ^Vulkan_App, device: vk.PhysicalDevice) -> Queue_Families {
+find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Queue_Families {
 	result := Queue_Families{}
 	count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(device, &count, nil)
@@ -236,7 +236,7 @@ has_extension :: proc(available: []vk.ExtensionProperties, wanted: cstring) -> b
 	return false
 }
 
-swapchain_option_counts :: proc(app: ^Vulkan_App, device: vk.PhysicalDevice) -> (u32, u32) {
+swapchain_option_counts :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> (u32, u32) {
 	format_count, present_mode_count: u32
 	if vk.GetPhysicalDeviceSurfaceFormatsKHR(device, app.surface, &format_count, nil) != .SUCCESS {
 		return 0, 0
@@ -248,7 +248,7 @@ swapchain_option_counts :: proc(app: ^Vulkan_App, device: vk.PhysicalDevice) -> 
 	return format_count, present_mode_count
 }
 
-create_logical_device :: proc(app: ^Vulkan_App) {
+create_logical_device :: proc(app: ^Grimalkin_App) {
 	priority := f32(1.0)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
 	queue_infos[0] = vk.DeviceQueueCreateInfo {

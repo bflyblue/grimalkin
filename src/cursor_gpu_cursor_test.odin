@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 
-cursor_gpu_test_shape :: proc(app: ^Vulkan_App, style: Terminal_Cursor_Style, label: string) {
+cursor_gpu_test_shape :: proc(app: ^Grimalkin_App, style: Terminal_Cursor_Style, label: string) {
 	capture := cursor_gpu_capture(app, style, cursor_quantize_opacity(CURSOR_BASE_OPACITY))
 	defer cursor_gpu_capture_destroy(&capture)
 	cursor_gpu_expect_no_metadata_upload(label, capture.stats)
@@ -142,7 +142,7 @@ cursor_gpu_test_shape :: proc(app: ^Vulkan_App, style: Terminal_Cursor_Style, la
 	}
 }
 
-cursor_gpu_test_opacity :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_opacity :: proc(app: ^Grimalkin_App) {
 	metrics := app.demo.resources.cell_metrics
 	x := u32(app.demo.snapshot.cursor_x)
 	y := u32(app.demo.snapshot.cursor_y)
@@ -208,7 +208,7 @@ cursor_gpu_test_opacity :: proc(app: ^Vulkan_App) {
 	}
 }
 
-cursor_gpu_test_subpixel_masks :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_subpixel_masks :: proc(app: ^Grimalkin_App) {
 	previous_contrast := app.settings.text_contrast
 	defer app.settings.text_contrast = previous_contrast
 	app.settings.text_contrast = .Balanced
@@ -258,7 +258,7 @@ cursor_gpu_test_subpixel_masks :: proc(app: ^Vulkan_App) {
 	display_grid_mark_row_dirty(grid, int(row))
 	app.demo.snapshot.cursor_visible = false
 
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	pixels := read_framebuffer_pixels(app)
 	defer delete(pixels)
 	middle_x := metrics.cell_width / 2
@@ -282,7 +282,7 @@ cursor_gpu_test_subpixel_masks :: proc(app: ^Vulkan_App) {
 	}
 
 	app.settings.text_contrast = .Sharp
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	sharp_pixels := read_framebuffer_pixels(app)
 	defer delete(sharp_pixels)
 	sharp_partial := cursor_gpu_pixel_rgba(app, sharp_pixels, 3, row, middle_x, middle_y)
@@ -298,12 +298,12 @@ cursor_gpu_test_subpixel_masks :: proc(app: ^Vulkan_App) {
 	}
 	app.settings.text_contrast = .Balanced
 
-	for _ in 0 ..< app.active_frame_count do _ = draw_frame(app, 0, true)
-	warm := draw_frame(app, 0, true)
+	for _ in 0 ..< app.active_frame_count do _ = draw_frame_components(app, 0, true)
+	warm := draw_frame_components(app, 0, true)
 	cursor_gpu_expect_no_metadata_upload("subpixel-mask-warm", warm)
 }
 
-cursor_gpu_test_premultiplied_colour :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_premultiplied_colour :: proc(app: ^Grimalkin_App) {
 	resources := &app.demo.resources
 	grid := &app.demo.grid
 	metrics := resources.cell_metrics
@@ -334,7 +334,7 @@ cursor_gpu_test_premultiplied_colour :: proc(app: ^Vulkan_App) {
 	}
 	display_grid_mark_row_dirty(grid, int(row))
 	app.demo.snapshot.cursor_visible = false
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	framebuffer := read_framebuffer_pixels(app)
 	defer delete(framebuffer)
 	actual := cursor_gpu_pixel_rgba(
@@ -361,13 +361,13 @@ cursor_gpu_test_premultiplied_colour :: proc(app: ^Vulkan_App) {
 			)
 		}
 	}
-	for _ in 0 ..< app.active_frame_count do _ = draw_frame(app, 0, true)
-	warm := draw_frame(app, 0, true)
+	for _ in 0 ..< app.active_frame_count do _ = draw_frame_components(app, 0, true)
+	warm := draw_frame_components(app, 0, true)
 	cursor_gpu_expect_no_metadata_upload("premultiplied-colour-warm", warm)
 }
 
 cursor_gpu_decoration_lit_pixels :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	pixels: []u8,
 	cell_x, cell_y: u32,
 ) -> int {

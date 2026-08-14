@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 
-cursor_gpu_test_text_decorations_and_animation :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_text_decorations_and_animation :: proc(app: ^Grimalkin_App) {
 	grid := &app.demo.grid
 	if grid.cols < 8 || grid.rows < 3 do return
 	row := u32(2)
@@ -25,7 +25,7 @@ cursor_gpu_test_text_decorations_and_animation :: proc(app: ^Vulkan_App) {
 	display_grid_mark_row_dirty(grid, int(row))
 	app.demo.snapshot.cursor_visible = false
 
-	_ = draw_frame(app, 0, true, text_opacity = max(u16))
+	_ = draw_frame_components(app, 0, true, text_opacity = max(u16))
 	pixels := read_framebuffer_pixels(app)
 	for column := u32(0); column < 8; column += 1 {
 		if cursor_gpu_decoration_lit_pixels(app, pixels, column, row) == 0 {
@@ -49,7 +49,7 @@ cursor_gpu_test_text_decorations_and_animation :: proc(app: ^Vulkan_App) {
 	}
 	delete(pixels)
 
-	_ = draw_frame(app, 0, true, text_opacity = 0)
+	_ = draw_frame_components(app, 0, true, text_opacity = 0)
 	pixels = read_framebuffer_pixels(app)
 	defer delete(pixels)
 	if cursor_gpu_decoration_lit_pixels(app, pixels, 7, row) != 0 {
@@ -60,7 +60,7 @@ cursor_gpu_test_text_decorations_and_animation :: proc(app: ^Vulkan_App) {
 	}
 }
 
-cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_selection_overlay :: proc(app: ^Grimalkin_App) {
 	previous_style := app.settings.selection_style
 	previous_cursor_visible := app.demo.snapshot.cursor_visible
 	defer {
@@ -99,7 +99,7 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
 	_ = selection_rebuild_mask(&app.selection, &app.demo.snapshot)
 
 	selection_clear(&app.selection)
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	closed := read_framebuffer_pixels(app)
 	defer delete(closed)
 
@@ -117,7 +117,7 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
 	middle_y := metrics.cell_height / 2
 
 	app.settings.selection_style = .Solid
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	solid := read_framebuffer_pixels(app)
 	defer delete(solid)
 	closed_center := cursor_gpu_pixel_rgba(app, closed, 1, 1, middle_x, middle_y)
@@ -137,7 +137,7 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
 	}
 
 	app.settings.selection_style = .Outline
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	outline := read_framebuffer_pixels(app)
 	defer delete(outline)
 	outline_center := cursor_gpu_pixel_rgba(app, outline, 1, 1, middle_x, middle_y)
@@ -195,7 +195,7 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
 	}
 
 	app.settings.selection_style = .Glass
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	glass := read_framebuffer_pixels(app)
 	defer delete(glass)
 	glass_center := cursor_gpu_pixel_rgba(app, glass, 1, 1, middle_x, middle_y)
@@ -236,7 +236,7 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Vulkan_App) {
 	app.selection.source_active_screen = app.demo.snapshot.active_screen
 	_ = selection_rebuild_mask(&app.selection, &app.demo.snapshot)
 	app.settings.selection_style = .Outline
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	stepped := read_framebuffer_pixels(app)
 	defer delete(stepped)
 	radius_pixels := max(

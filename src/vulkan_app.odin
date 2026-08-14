@@ -138,9 +138,7 @@ Swapchain_Support :: struct {
 	present_modes: []vk.PresentModeKHR,
 }
 
-Vulkan_App :: struct {
-	demo:               ^Grimalkin_Demo,
-	window:             glfw.WindowHandle,
+Vulkan_Device_Resources :: struct {
 	instance:           vk.Instance,
 	debug_messenger:    vk.DebugUtilsMessengerEXT,
 	surface:            vk.SurfaceKHR,
@@ -150,6 +148,20 @@ Vulkan_App :: struct {
 	graphics_queue:     vk.Queue,
 	present_queue:      vk.Queue,
 	queue_families:     Queue_Families,
+	padding_glow_descriptor_layout: vk.DescriptorSetLayout,
+	descriptor_layout:  vk.DescriptorSetLayout,
+	descriptor_pool:    vk.DescriptorPool,
+	staging_buffer:     Gpu_Buffer,
+	texture_images:     [dynamic]Gpu_Texture_Image,
+	command_pool:       vk.CommandPool,
+	command_buffer:     vk.CommandBuffer, // synchronous texture upload command buffer
+	upload_fence:       vk.Fence,
+	frames:             []Frame_Context,
+	timestamp_period:   f64,
+	timestamp_bits:     u32,
+}
+
+Vulkan_Swapchain_Resources :: struct {
 	swapchain:          vk.SwapchainKHR,
 	swapchain_images:   []vk.Image,
 	image_views:        []vk.ImageView,
@@ -166,44 +178,36 @@ Vulkan_App :: struct {
 	padding_glow_source_render_pass: vk.RenderPass,
 	padding_glow_source_pipeline: vk.Pipeline,
 	padding_glow_background_pipeline: vk.Pipeline,
-	padding_glow_descriptor_layout: vk.DescriptorSetLayout,
 	padding_glow_descriptor_pool: vk.DescriptorPool,
 	padding_glow_sampler: vk.Sampler,
 	scroll_indicator_pipeline_layout: vk.PipelineLayout,
 	scroll_indicator_pipeline:        vk.Pipeline,
 	selection_pipeline_layout: vk.PipelineLayout,
 	selection_pipeline:        vk.Pipeline,
-	descriptor_layout:  vk.DescriptorSetLayout,
-	descriptor_pool:    vk.DescriptorPool,
-	staging_buffer:     Gpu_Buffer,
-	texture_images:     [dynamic]Gpu_Texture_Image,
 	framebuffers:       []vk.Framebuffer,
-	command_pool:       vk.CommandPool,
-	command_buffer:     vk.CommandBuffer, // synchronous texture upload command buffer
-	upload_fence:       vk.Fence,
-	frames:             []Frame_Context,
-	frame_index:        int,
 	active_frame_count: int,
-	grid_generation:    u64,
-	osd_generation:     u64,
 	render_finished:    []vk.Semaphore,
 	images_in_flight:   []vk.Fence,
-	timestamp_period:   f64,
-	timestamp_bits:     u32,
 	capture_buffer:     Gpu_Buffer,
+}
+
+Vulkan_Renderer :: struct {
+	using device_resources:    Vulkan_Device_Resources,
+	using swapchain_resources: Vulkan_Swapchain_Resources,
+	frame_index:     int,
+	grid_generation: u64,
+	osd_generation:  u64,
+}
+
+Application_Capture_State :: struct {
 	capture_path:       string,
 	capture_complete:   bool,
 	capture_deadline:   f64,
 	capture_exit:       bool,
 	framebuffer_readback: bool,
-	cursor_gpu_test:    bool,
-	framebuffer_dirty:  bool,
-	minimized:          bool,
-	redraw:             bool,
-	focused:            bool,
-	cursor_animation:   Cursor_Animation_State,
-	scroll_indicator:   Scroll_Indicator_State,
-	osd:                Osd_State,
+}
+
+Application_Settings_State :: struct {
 	settings:           Application_Settings,
 	applied_settings:   Application_Settings,
 	font_catalog:       ^Font_Catalog,
@@ -219,6 +223,9 @@ Vulkan_App :: struct {
 	display_rotation_check_deadline: f64,
 	content_scale_x:    f32,
 	content_scale_y:    f32,
+}
+
+Application_Input_State :: struct {
 	pending_key:        i32,
 	pending_scancode:   i32,
 	pending_action:     i32,
@@ -228,8 +235,36 @@ Vulkan_App :: struct {
 	selection:          Terminal_Selection,
 	clipboard_insert_suppressed: bool,
 	mouse_buttons:      u16,
-	pending_paste:      []u8,
-	paste_confirmation: bool,
 	selection_text_cursor:  glfw.CursorHandle,
 	selection_block_cursor: glfw.CursorHandle,
+}
+
+Application_Paste_State :: struct {
+	pending_paste:      []u8,
+	paste_confirmation: bool,
+}
+
+Grimalkin_App :: struct {
+	demo:   ^Grimalkin_Demo,
+	window: glfw.WindowHandle,
+	using renderer:       Vulkan_Renderer,
+	using capture:        Application_Capture_State,
+	using settings_state: Application_Settings_State,
+	using input:          Application_Input_State,
+	using paste:          Application_Paste_State,
+	cursor_gpu_test:   bool,
+	framebuffer_dirty: bool,
+	minimized:         bool,
+	redraw:            bool,
+	focused:           bool,
+	cursor_animation:  Cursor_Animation_State,
+	scroll_indicator:  Scroll_Indicator_State,
+	osd:               Osd_State,
+}
+
+Render_Frame_Input :: struct {
+	cursor_opacity:           u16,
+	read_back_framebuffer:    bool,
+	text_opacity:             u16,
+	scroll_indicator_opacity: u16,
 }

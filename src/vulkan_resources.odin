@@ -6,12 +6,12 @@ import "core:slice"
 import vk "vendor:vulkan"
 
 find_memory_type :: proc(
-	app: ^Vulkan_App,
+	renderer: ^Vulkan_Renderer,
 	type_bits: u32,
 	required: vk.MemoryPropertyFlags,
 ) -> u32 {
 	properties: vk.PhysicalDeviceMemoryProperties
-	vk.GetPhysicalDeviceMemoryProperties(app.physical_device, &properties)
+	vk.GetPhysicalDeviceMemoryProperties(renderer.physical_device, &properties)
 	for index := u32(0); index < properties.memoryTypeCount; index += 1 {
 		available := properties.memoryTypes[index].propertyFlags
 		if type_bits & (u32(1) << index) != 0 && (available & required) == required {
@@ -22,7 +22,7 @@ find_memory_type :: proc(
 }
 
 create_buffer :: proc(
-	app: ^Vulkan_App,
+	renderer: ^Vulkan_Renderer,
 	size: vk.DeviceSize,
 	usage: vk.BufferUsageFlags,
 	properties: vk.MemoryPropertyFlags,
@@ -37,26 +37,26 @@ create_buffer :: proc(
 		usage       = usage,
 		sharingMode = .EXCLUSIVE,
 	}
-	vk_must(vk.CreateBuffer(app.device, &create_info, nil, &buffer.handle), "creating a buffer")
+	vk_must(vk.CreateBuffer(renderer.device, &create_info, nil, &buffer.handle), "creating a buffer")
 
 	requirements: vk.MemoryRequirements
-	vk.GetBufferMemoryRequirements(app.device, buffer.handle, &requirements)
+	vk.GetBufferMemoryRequirements(renderer.device, buffer.handle, &requirements)
 	allocate_info := vk.MemoryAllocateInfo {
 		sType           = .MEMORY_ALLOCATE_INFO,
 		allocationSize  = requirements.size,
-		memoryTypeIndex = find_memory_type(app, requirements.memoryTypeBits, properties),
+		memoryTypeIndex = find_memory_type(renderer, requirements.memoryTypeBits, properties),
 	}
 	vk_must(
-		vk.AllocateMemory(app.device, &allocate_info, nil, &buffer.memory),
+		vk.AllocateMemory(renderer.device, &allocate_info, nil, &buffer.memory),
 		"allocating buffer memory",
 	)
 	vk_must(
-		vk.BindBufferMemory(app.device, buffer.handle, buffer.memory, 0),
+		vk.BindBufferMemory(renderer.device, buffer.handle, buffer.memory, 0),
 		"binding buffer memory",
 	)
 	if map_memory {
 		vk_must(
-			vk.MapMemory(app.device, buffer.memory, 0, size, {}, &buffer.mapped),
+			vk.MapMemory(renderer.device, buffer.memory, 0, size, {}, &buffer.mapped),
 			"mapping buffer memory",
 		)
 	}
@@ -100,7 +100,7 @@ texture_vulkan_format :: proc(resource: ^Texture_Resource) -> vk.Format {
 	return resource.encoding == .SRGB ? .R8G8B8A8_SRGB : .R8G8B8A8_UNORM
 }
 
-create_texture_image :: proc(app: ^Vulkan_App, resource: ^Texture_Resource) -> Gpu_Texture_Image {
+create_texture_image :: proc(app: ^Grimalkin_App, resource: ^Texture_Resource) -> Gpu_Texture_Image {
 	texture := Gpu_Texture_Image {
 		slot_generation = resource.slot_generation,
 		width      = resource.width,
@@ -136,7 +136,7 @@ create_texture_image :: proc(app: ^Vulkan_App, resource: ^Texture_Resource) -> G
 	allocate_info := vk.MemoryAllocateInfo {
 		sType           = .MEMORY_ALLOCATE_INFO,
 		allocationSize  = requirements.size,
-		memoryTypeIndex = find_memory_type(app, requirements.memoryTypeBits, {.DEVICE_LOCAL}),
+		memoryTypeIndex = find_memory_type(&app.renderer, requirements.memoryTypeBits, {.DEVICE_LOCAL}),
 	}
 	vk_must(
 		vk.AllocateMemory(app.device, &allocate_info, nil, &texture.memory),
@@ -200,7 +200,7 @@ destroy_texture_images :: proc(device: vk.Device, textures: []Gpu_Texture_Image)
 	for &texture in textures do destroy_texture_image(device, &texture)
 }
 
-create_descriptor_sets :: proc(app: ^Vulkan_App) {
+create_descriptor_sets :: proc(app: ^Grimalkin_App) {
 	set_count := u32(len(app.frames) * 3)
 	pool_sizes := [2]vk.DescriptorPoolSize {
 		{type = .STORAGE_BUFFER, descriptorCount = set_count * 3},
@@ -244,7 +244,7 @@ create_descriptor_sets :: proc(app: ^Vulkan_App) {
 	}
 }
 
-update_selection_descriptor_set :: proc(app: ^Vulkan_App, frame: ^Frame_Context) {
+update_selection_descriptor_set :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) {
 	if frame.selection_descriptor_set == 0 || frame.selection_mask_buffer.handle == 0 do return
 	cell_info := vk.DescriptorBufferInfo{buffer = frame.cell_buffer.handle, range = frame.cell_buffer.size}
 	visual_info := vk.DescriptorBufferInfo{buffer = frame.visual_buffer.handle, range = frame.visual_buffer.size}
@@ -279,7 +279,7 @@ update_selection_descriptor_set :: proc(app: ^Vulkan_App, frame: ^Frame_Context)
 }
 
 update_descriptor_set :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	frame: ^Frame_Context,
 	descriptor_set: vk.DescriptorSet,
 	cell_buffer: ^Gpu_Buffer,
@@ -344,14 +344,14 @@ update_descriptor_set :: proc(
 	vk.UpdateDescriptorSets(app.device, u32(write_count), &writes[0], 0, nil)
 }
 
-update_text_descriptors :: proc(app: ^Vulkan_App, frame: ^Frame_Context) {
+update_text_descriptors :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) {
 	update_descriptor_set(app, frame, frame.descriptor_set, &frame.cell_buffer)
 	if frame.osd_descriptor_set != 0 do update_descriptor_set(app, frame, frame.osd_descriptor_set, &frame.osd_cell_buffer)
 	update_selection_descriptor_set(app, frame)
 }
 
 ensure_mapped_buffer_capacity :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	buffer: ^Gpu_Buffer,
 	capacity: ^int,
 	required, minimum, element_size: int,
@@ -373,7 +373,7 @@ ensure_mapped_buffer_capacity :: proc(
 	if next > max(int) / element_size do fmt.panicf("mapped Vulkan buffer size overflow")
 	destroy_buffer(app.device, buffer)
 	buffer^ = create_buffer(
-		app,
+		&app.renderer,
 		vk.DeviceSize(next * element_size),
 		usage,
 		{.HOST_VISIBLE, .HOST_COHERENT},
@@ -383,7 +383,7 @@ ensure_mapped_buffer_capacity :: proc(
 	return true
 }
 
-ensure_visual_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+ensure_visual_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
 	recreated := ensure_mapped_buffer_capacity(
 		app,
 		&frame.visual_buffer,
@@ -399,7 +399,7 @@ ensure_visual_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
 	return true
 }
 
-ensure_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+ensure_cell_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
 	recreated := ensure_mapped_buffer_capacity(
 		app,
 		&frame.cell_buffer,
@@ -414,7 +414,7 @@ ensure_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
 	return true
 }
 
-ensure_decoration_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+ensure_decoration_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
 	recreated := ensure_mapped_buffer_capacity(
 		app,
 		&frame.decoration_buffer,
@@ -429,7 +429,7 @@ ensure_decoration_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> boo
 	return true
 }
 
-ensure_osd_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+ensure_osd_cell_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
 	recreated := ensure_mapped_buffer_capacity(
 		app,
 		&frame.osd_cell_buffer,
@@ -444,7 +444,7 @@ ensure_osd_cell_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool 
 	return true
 }
 
-ensure_selection_mask_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> bool {
+ensure_selection_mask_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
 	recreated := ensure_mapped_buffer_capacity(
 		app,
 		&frame.selection_mask_buffer,
@@ -459,7 +459,7 @@ ensure_selection_mask_buffer :: proc(app: ^Vulkan_App, frame: ^Frame_Context) ->
 	return true
 }
 
-ensure_staging_buffer :: proc(app: ^Vulkan_App, required_size: int) {
+ensure_staging_buffer :: proc(app: ^Grimalkin_App, required_size: int) {
 	_ = ensure_mapped_buffer_capacity(
 		app,
 		&app.staging_buffer,
@@ -471,7 +471,7 @@ ensure_staging_buffer :: proc(app: ^Vulkan_App, required_size: int) {
 	)
 }
 
-begin_one_time_commands :: proc(app: ^Vulkan_App) {
+begin_one_time_commands :: proc(app: ^Grimalkin_App) {
 	vk_must(
 		vk.WaitForFences(app.device, 1, &app.upload_fence, true, max(u64)),
 		"waiting to reuse the texture-upload command buffer",
@@ -485,7 +485,7 @@ begin_one_time_commands :: proc(app: ^Vulkan_App) {
 	vk_must(vk.BeginCommandBuffer(app.command_buffer, &begin_info), "beginning transfer commands")
 }
 
-end_one_time_commands :: proc(app: ^Vulkan_App) {
+end_one_time_commands :: proc(app: ^Grimalkin_App) {
 	vk_must(vk.EndCommandBuffer(app.command_buffer), "ending transfer commands")
 	submit_info := vk.SubmitInfo {
 		sType              = .SUBMIT_INFO,
@@ -577,7 +577,7 @@ gpu_texture_matches :: proc(texture: ^Gpu_Texture_Image, resource: ^Texture_Reso
 	)
 }
 
-upload_texture_resource :: proc(app: ^Vulkan_App, resource: ^Texture_Resource) -> bool {
+upload_texture_resource :: proc(app: ^Grimalkin_App, resource: ^Texture_Resource) -> bool {
 	texture := &app.texture_images[resource.id]
 	recreated := false
 	growing :=
@@ -715,7 +715,7 @@ upload_texture_resource :: proc(app: ^Vulkan_App, resource: ^Texture_Resource) -
 	return recreated
 }
 
-sync_texture_resources :: proc(app: ^Vulkan_App, frame: ^Frame_Context) {
+sync_texture_resources :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) {
 	resource_count := len(app.demo.resources.textures.resources)
 	if resource_count > int(app.texture_capacity) {
 		fmt.panicf(
@@ -763,7 +763,7 @@ sync_texture_resources :: proc(app: ^Vulkan_App, frame: ^Frame_Context) {
 	}
 }
 
-flush_text_resources :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> Gpu_Upload_Stats {
+flush_text_resources :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> Gpu_Upload_Stats {
 	stats := Gpu_Upload_Stats{}
 	cell_recreated := ensure_cell_buffer(app, frame)
 	decoration_recreated := ensure_decoration_buffer(app, frame)
@@ -809,7 +809,7 @@ flush_text_resources :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> Gpu_Upl
 	return stats
 }
 
-create_text_resources :: proc(app: ^Vulkan_App) {
+create_text_resources :: proc(app: ^Grimalkin_App) {
 	for &frame in app.frames {
 		_ = ensure_cell_buffer(app, &frame)
 		_ = ensure_decoration_buffer(app, &frame)
@@ -847,7 +847,7 @@ create_text_resources :: proc(app: ^Vulkan_App) {
 	app.osd.dirty = false
 }
 
-create_synchronization :: proc(app: ^Vulkan_App) {
+create_synchronization :: proc(app: ^Grimalkin_App) {
 	semaphore_info := vk.SemaphoreCreateInfo {
 		sType = .SEMAPHORE_CREATE_INFO,
 	}
@@ -865,20 +865,20 @@ create_synchronization :: proc(app: ^Vulkan_App) {
 			"creating an in-flight fence",
 		)
 	}
-	create_swapchain_image_synchronization(app)
+	create_swapchain_image_synchronization(&app.renderer)
 }
 
-create_swapchain_image_synchronization :: proc(app: ^Vulkan_App) {
+create_swapchain_image_synchronization :: proc(renderer: ^Vulkan_Renderer) {
 	semaphore_info := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
-	app.render_finished = make([]vk.Semaphore, len(app.swapchain_images))
-	for &semaphore in app.render_finished {
+	renderer.render_finished = make([]vk.Semaphore, len(renderer.swapchain_images))
+	for &semaphore in renderer.render_finished {
 		vk_must(
-			vk.CreateSemaphore(app.device, &semaphore_info, nil, &semaphore),
+			vk.CreateSemaphore(renderer.device, &semaphore_info, nil, &semaphore),
 			"creating a render-finished semaphore",
 		)
 	}
-	delete(app.images_in_flight)
-	app.images_in_flight = make([]vk.Fence, len(app.swapchain_images))
-	app.active_frame_count = min(len(app.frames), len(app.swapchain_images))
-	app.frame_index %= app.active_frame_count
+	delete(renderer.images_in_flight)
+	renderer.images_in_flight = make([]vk.Fence, len(renderer.swapchain_images))
+	renderer.active_frame_count = min(len(renderer.frames), len(renderer.swapchain_images))
+	renderer.frame_index %= renderer.active_frame_count
 }
