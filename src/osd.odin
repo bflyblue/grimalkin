@@ -89,8 +89,8 @@ Osd_State :: struct {
 	paste_lines:         int,
 }
 
-Osd_Settings_Change :: distinct bit_set[Osd_Settings_Change_Flag; u8]
-Osd_Settings_Change_Flag :: enum u8 {
+Application_Settings_Change :: distinct bit_set[Application_Settings_Change_Flag; u8]
+Application_Settings_Change_Flag :: enum u8 {
 	Font_Resources,
 	Layout,
 	Cursor,
@@ -477,7 +477,7 @@ osd_page_adjust_setting :: proc(
 	catalog: ^Font_Catalog,
 	selected, direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
 	switch page {
 	case .Main:
@@ -507,7 +507,7 @@ osd_page_reset_setting :: proc(
 	catalog: ^Font_Catalog,
 	selected: int,
 	detected_rotation := Display_Rotation.Degrees_0,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
 	switch page {
 	case .Main:
@@ -750,7 +750,7 @@ osd_reset_setting :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Main_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
 	case .Text_Rendering:
@@ -800,7 +800,7 @@ osd_reset_setting :: proc(
 osd_text_rendering_change :: proc(
 	before, after: Application_Settings,
 	detected_rotation: Display_Rotation,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	if application_settings_render_config(before, detected_rotation) !=
 	   application_settings_render_config(after, detected_rotation) {
 		return {.Font_Resources}
@@ -812,7 +812,7 @@ osd_reset_text_rendering :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Text_Rendering_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 	before := settings^
 	defaults := application_settings_default()
@@ -831,7 +831,7 @@ osd_adjust_text_rendering :: proc(
 	selected: Osd_Text_Rendering_Row,
 	direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	before := settings^
 	step := direction < 0 ? -1 : 1
 	switch selected {
@@ -868,7 +868,7 @@ osd_adjust_text_rendering :: proc(
 	return osd_text_rendering_change(before, settings^, detected_rotation)
 }
 
-osd_reset_key_binding :: proc(settings: ^Application_Settings, selected: Osd_Key_Binding_Row) -> Osd_Settings_Change {
+osd_reset_key_binding :: proc(settings: ^Application_Settings, selected: Osd_Key_Binding_Row) -> Application_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
 	case .Page_Scrolling: settings.scroll_page_modifier = defaults.scroll_page_modifier
@@ -882,7 +882,7 @@ osd_adjust_key_binding :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Key_Binding_Row,
 	direction: int,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	switch selected {
 	case .Page_Scrolling:
 		step := direction < 0 ? -1 : 1
@@ -898,7 +898,7 @@ osd_adjust_key_binding :: proc(
 	return {.Persist}
 }
 
-osd_reset_copy_paste :: proc(settings: ^Application_Settings, selected: Osd_Copy_Paste_Row) -> Osd_Settings_Change {
+osd_reset_copy_paste :: proc(settings: ^Application_Settings, selected: Osd_Copy_Paste_Row) -> Application_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
 	case .Insert_Shortcuts: settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
@@ -916,7 +916,7 @@ osd_adjust_copy_paste :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Copy_Paste_Row,
 	direction: int,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	step := direction < 0 ? -1 : 1
 	switch selected {
 	case .Insert_Shortcuts: settings.clipboard_insert_shortcuts = !settings.clipboard_insert_shortcuts
@@ -939,7 +939,7 @@ osd_adjust_copy_paste :: proc(
 	return {.Persist}
 }
 
-osd_reset_font_setting :: proc(settings: ^Application_Settings, selected: Osd_Font_Row) -> Osd_Settings_Change {
+osd_reset_font_setting :: proc(settings: ^Application_Settings, selected: Osd_Font_Row) -> Application_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
 	case .Family:
@@ -956,7 +956,7 @@ osd_adjust_font_setting :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Font_Row,
 	direction: int,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	if selected != .Size do return {}
 	step := direction < 0 ? -1 : 1
 	settings.font_size = u16(clamp(
@@ -971,7 +971,7 @@ osd_adjust_setting :: proc(
 	settings: ^Application_Settings,
 	selected: Osd_Main_Row,
 	direction: int,
-) -> Osd_Settings_Change {
+) -> Application_Settings_Change {
 	step := direction < 0 ? -1 : 1
 	switch selected {
 	case .Text_Rendering, .Font, .Key_Bindings, .Copy_Paste:
