@@ -3,6 +3,8 @@ FROM ${BASE_IMAGE}
 
 ARG DISTRO_FAMILY
 
+COPY glslc-from-glslang.sh /tmp/glslc-from-glslang.sh
+
 RUN if [ "$DISTRO_FAMILY" = debian ]; then \
       export DEBIAN_FRONTEND=noninteractive; \
       apt-get update; \
@@ -20,7 +22,7 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
         fonts-noto-cjk \
         gh \
         git \
-        glslc \
+        glslang-tools \
         libvulkan1 \
         libxcursor-dev \
         libxi-dev \
@@ -38,6 +40,7 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
         xvfb \
         xz-utils \
         zip; \
+      install -m 755 /tmp/glslc-from-glslang.sh /usr/local/bin/glslc; \
       rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_FAMILY" = arch ]; then \
       pacman -Syu --noconfirm --needed \
@@ -79,7 +82,8 @@ RUN if [ "$DISTRO_FAMILY" = debian ]; then \
     else \
       echo "Unsupported DISTRO_FAMILY: $DISTRO_FAMILY" >&2; \
       exit 1; \
-    fi
+    fi; \
+    rm -f /tmp/glslc-from-glslang.sh
 
 COPY linux-toolchain.env /tmp/grimalkin-linux-toolchain.env
 
