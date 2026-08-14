@@ -5,6 +5,15 @@ import "core:strings"
 import "core:testing"
 
 @(test)
+settings_cycle_index_wraps_in_both_directions :: proc(t: ^testing.T) {
+	testing.expect_value(t, settings_cycle_index(0, 4, -1), 3)
+	testing.expect_value(t, settings_cycle_index(3, 4, 1), 0)
+	testing.expect_value(t, settings_cycle_index(1, 4, 1), 2)
+	testing.expect_value(t, settings_cycle_index(2, 4, -1), 1)
+	testing.expect_value(t, settings_cycle_index(2, 0, 1), 0)
+}
+
+@(test)
 settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	expected := application_settings_default()
 	testing.expect_value(t, expected.text_smoothing, Text_Smoothing.Grayscale)

@@ -16,6 +16,8 @@ display_grid_coalesces_pending_dirty_rows :: proc(t: ^testing.T) {
 	grid := display_grid_init(8, 6)
 	defer display_grid_destroy(&grid)
 	display_grid_clear_dirty(&grid)
+	testing.expect_value(t, len(grid.row_states), 6)
+	for row in grid.row_states do testing.expect(t, !row.dirty)
 	display_grid_mark_row_dirty(&grid, 1)
 	display_grid_mark_row_dirty(&grid, 2)
 	display_grid_mark_row_dirty(&grid, 4)
@@ -31,6 +33,7 @@ display_grid_coalesces_pending_dirty_rows :: proc(t: ^testing.T) {
 	delete(ranges)
 
 	display_grid_resize(&grid, 10, 3)
+	testing.expect_value(t, len(grid.row_states), 3)
 	ranges = display_grid_dirty_ranges(&grid)
 	testing.expect_value(t, len(ranges), 1)
 	testing.expect_value(t, ranges[0], Display_Dirty_Row_Range{first_row = 0, row_count = 3})

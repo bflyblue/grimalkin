@@ -166,6 +166,43 @@ osd_footer_help_fits_the_preferred_panel_width :: proc(t: ^testing.T) {
 }
 
 @(test)
+osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testing.T) {
+	main := osd_page_metadata(.Main)
+	testing.expect_value(t, main.preferred_rows, OSD_PREFERRED_ROWS)
+	testing.expect_value(t, main.row_count, OSD_MAIN_ROW_COUNT)
+	testing.expect_value(t, main.parent, Osd_Page.Main)
+
+	text := osd_page_metadata(.Text_Rendering)
+	testing.expect_value(t, text.title, "Text rendering")
+	testing.expect_value(t, text.parent, Osd_Page.Main)
+	testing.expect_value(t, text.return_row, int(Osd_Main_Row.Text_Rendering))
+
+	font_list := osd_page_metadata(.Font_List)
+	testing.expect_value(t, font_list.parent, Osd_Page.Font)
+	testing.expect_value(t, font_list.return_row, int(Osd_Font_Row.Family))
+
+	testing.expect_value(
+		t,
+		osd_page_row_presentation(.Main, int(Osd_Main_Row.Font), true),
+		Osd_Row_Presentation_Kind.Submenu,
+	)
+	testing.expect_value(
+		t,
+		osd_page_row_presentation(.Font, int(Osd_Font_Row.Size), true),
+		Osd_Row_Presentation_Kind.Adjustable,
+	)
+	testing.expect_value(
+		t,
+		osd_page_row_presentation(.Font, int(Osd_Font_Row.Family), false),
+		Osd_Row_Presentation_Kind.Read_Only,
+	)
+	testing.expect_value(t, osd_present_row_value(.Adjustable, "16 px"), "< 16 px >")
+	testing.expect_value(t, osd_present_row_value(.Submenu, "JetBrains Mono"), "JetBrains Mono >")
+	testing.expect_value(t, osd_present_row_value(.Submenu, ">"), ">")
+	testing.expect_value(t, osd_present_row_value(.Read_Only, "Inactive"), "Inactive")
+}
+
+@(test)
 osd_main_title_includes_the_build_version :: proc(t: ^testing.T) {
 	version := application_version()
 	testing.expect(t, version != "")

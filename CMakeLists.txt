@@ -183,7 +183,10 @@ add_executable(grimalkin_session_test_child src/session_test_child.c)
 set_property(TARGET grimalkin_session_test_child PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(GRIMALKIN_SHADER_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/manifest.txt")
-set(GRIMALKIN_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/colour.glsl")
+set(GRIMALKIN_SHADER_INCLUDES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/colour.glsl"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/text_visual.glsl"
+)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRIMALKIN_SHADER_MANIFEST}")
 file(STRINGS "${GRIMALKIN_SHADER_MANIFEST}" GRIMALKIN_SHADER_NAMES)
 set(GRIMALKIN_SHADER_OUTPUTS)
@@ -202,7 +205,7 @@ foreach(shader_name IN LISTS GRIMALKIN_SHADER_NAMES)
     DEPENDS
       "${CMAKE_CURRENT_SOURCE_DIR}/${shader}"
       "${GRIMALKIN_SHADER_MANIFEST}"
-      "${GRIMALKIN_SHADER_INCLUDE}"
+      ${GRIMALKIN_SHADER_INCLUDES}
     COMMENT "Compiling ${shader}"
     VERBATIM
   )

@@ -63,14 +63,18 @@ Renderer_Resources :: struct {
 	nerd_icon_height: u32,
 }
 
+Display_Row_State :: struct {
+	revision:    u64,
+	dirty:       bool,
+	blink_count: u16,
+}
+
 Display_Grid :: struct {
-	cols:          u16,
-	rows:          u16,
-	cells:         []Gpu_Cell,
-	decorations:   []u32,
-	row_revisions: []u64,
-	dirty_rows:    []bool,
-	row_blink_counts: []u16,
+	cols:             u16,
+	rows:             u16,
+	cells:            []Gpu_Cell,
+	decorations:      []u32,
+	row_states:       []Display_Row_State,
 	blink_cell_count: u32,
 }
 
@@ -142,15 +146,16 @@ display_compile :: proc(
 	}
 
 	for row := 0; row < int(snapshot.rows); row += 1 {
-		row_changed := force_full_recompile || grid.row_revisions[row] != snapshot.row_data[row].revision
+		row_state := &grid.row_states[row]
+		row_changed := force_full_recompile || row_state.revision != snapshot.row_data[row].revision
 		if !resized && !row_changed && !(graphics_changed && snapshot.row_data[row].has_kitty_placeholder) do continue
-		grid.blink_cell_count -= u32(grid.row_blink_counts[row])
-		grid.row_blink_counts[row] = compile_text_row(resources, snapshot, grid, row)
-		grid.blink_cell_count += u32(grid.row_blink_counts[row])
+		grid.blink_cell_count -= u32(row_state.blink_count)
+		row_state.blink_count = compile_text_row(resources, snapshot, grid, row)
+		grid.blink_cell_count += u32(row_state.blink_count)
 		if snapshot.row_data[row].has_kitty_placeholder {
 			compile_kitty_placeholder_row(resources, snapshot, grid, row)
 		}
-		grid.row_revisions[row] = snapshot.row_data[row].revision
+		row_state.revision = snapshot.row_data[row].revision
 		display_grid_mark_row_dirty(grid, row)
 		stats.rows_compiled += 1
 	}

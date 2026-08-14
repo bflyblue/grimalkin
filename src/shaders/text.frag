@@ -3,15 +3,10 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "colour.glsl"
+#include "text_visual.glsl"
 
 layout(set = 0, binding = 0, std430) readonly buffer CellBuffer {
 	uvec4 cells[];
-};
-
-struct VisualRecord {
-	uvec4 source_rect;
-	ivec4 destination_rect;
-	uvec4 texture; // texture index, array layer, visual kind, flags
 };
 
 layout(set = 0, binding = 1, std430) readonly buffer VisualBuffer {
@@ -33,10 +28,6 @@ layout(push_constant) uniform TextLayout {
 
 layout(location = 0) out vec4 output_colour;
 
-const uint VISUAL_MASK = 1u;
-const uint VISUAL_COLOUR = 2u;
-const uint VISUAL_IMAGE = 3u;
-const uint VISUAL_SUBPIXEL_MASK = 4u;
 const uint CELL_UNDERLINE_MASK = 7u;
 const uint CELL_STRIKETHROUGH = 1u << 3;
 const uint CELL_OVERLINE = 1u << 4;
@@ -51,20 +42,6 @@ vec4 premultiply(vec4 straight) {
 
 vec4 over(vec4 source, vec4 destination) {
 	return source + destination * (1.0 - source.a);
-}
-
-float adjust_coverage(float coverage) {
-	if (layout_data.effects.y == 0u) return coverage;
-	float exponent = layout_data.effects.y == 1u ? 1.40 :
-		layout_data.effects.y == 2u ? 1.80 : 2.20;
-	return pow(coverage, exponent);
-}
-
-vec3 adjust_coverage(vec3 coverage) {
-	if (layout_data.effects.y == 0u) return coverage;
-	float exponent = layout_data.effects.y == 1u ? 1.40 :
-		layout_data.effects.y == 2u ? 1.80 : 2.20;
-	return pow(coverage, vec3(exponent));
 }
 
 void write_output(vec4 linear_premultiplied) {
@@ -111,7 +88,7 @@ void main() {
 					ivec3(source_pixel, int(visual.texture.y)),
 					0
 				).r;
-				float alpha = adjust_coverage(coverage) * foreground.a;
+				float alpha = adjust_coverage(coverage, layout_data.effects.y) * foreground.a;
 				colour = over(vec4(foreground.rgb * alpha, alpha), colour);
 			} else if (visual_kind == VISUAL_SUBPIXEL_MASK) {
 				ivec2 source_pixel = ivec2(visual.source_rect.xy) +
@@ -122,8 +99,8 @@ void main() {
 					ivec3(source_pixel, int(visual.texture.y)),
 					0
 				);
-				vec3 component_alpha = adjust_coverage(coverage.rgb) * foreground.a;
-				float alpha = adjust_coverage(coverage.a) * foreground.a;
+				vec3 component_alpha = adjust_coverage(coverage.rgb, layout_data.effects.y) * foreground.a;
+				float alpha = adjust_coverage(coverage.a, layout_data.effects.y) * foreground.a;
 				colour.rgb = foreground.rgb * component_alpha +
 					colour.rgb * (vec3(1.0) - component_alpha);
 				colour.a = alpha + colour.a * (1.0 - alpha);
