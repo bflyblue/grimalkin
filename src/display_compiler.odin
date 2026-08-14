@@ -176,10 +176,6 @@ renderer_resources_init_configured :: proc(
 	return resources
 }
 
-renderer_resources_init :: proc(pixel_height: u16) -> Renderer_Resources {
-	return renderer_resources_init_configured(pixel_height, font_render_config_default())
-}
-
 renderer_resources_destroy :: proc(resources: ^Renderer_Resources) {
 	for face in resources.font_faces {
 		if face != nil {

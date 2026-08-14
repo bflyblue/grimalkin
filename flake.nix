@@ -132,37 +132,6 @@
           thirdPartyNotices = ./THIRD_PARTY_NOTICES.md;
           thirdPartyLicenses = ./third_party/licenses;
           macosIcon = ./assets/macos/Grimalkin.icns;
-          macosInfoPlist = pkgs.writeText "Grimalkin-Info.plist" ''
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-              <key>CFBundleDevelopmentRegion</key><string>en</string>
-              <key>CFBundleExecutable</key><string>grimalkin</string>
-              <key>CFBundleIdentifier</key><string>dev.grimalkin.Grimalkin</string>
-              <key>CFBundleIconFile</key><string>Grimalkin.icns</string>
-              <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-              <key>CFBundleName</key><string>Grimalkin</string>
-              <key>CFBundlePackageType</key><string>APPL</string>
-              <key>CFBundleShortVersionString</key><string>${appVersion}</string>
-              <key>CFBundleVersion</key><string>${macosBundleVersion}</string>
-              <key>LSMinimumSystemVersion</key><string>14.0</string>
-              <key>NSHighResolutionCapable</key><true/>
-            </dict>
-            </plist>
-          '';
-          macosFontconfig = pkgs.writeText "Grimalkin-fonts.conf" ''
-            <?xml version="1.0"?>
-            <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
-            <fontconfig>
-              <dir prefix="relative">fonts</dir>
-              <dir>/System/Library/Fonts</dir>
-              <dir>/Library/Fonts</dir>
-              <dir prefix="xdg">fonts</dir>
-              <dir>~/Library/Fonts</dir>
-              <cachedir prefix="xdg">fontconfig</cachedir>
-            </fontconfig>
-          '';
           grimalkin = pkgs.stdenv.mkDerivation {
             pname = "grimalkin";
             version = appVersion;
@@ -208,16 +177,12 @@
               ar rcs libgrimalkin_png.a png_shim.o
               ar rcs libgrimalkin_session.a session_shim.o \
                 ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "window_shim_macos.o"}
-              glslc shaders/text.vert -o shaders/text.vert.spv
-              glslc shaders/text.frag -o shaders/text.frag.spv
-              glslc shaders/osd.vert -o shaders/osd.vert.spv
-              glslc shaders/osd.frag -o shaders/osd.frag.spv
-              glslc shaders/padding_glow.vert -o shaders/padding_glow.vert.spv
-              glslc shaders/padding_glow.frag -o shaders/padding_glow.frag.spv
-              glslc shaders/padding_glow_background.frag -o shaders/padding_glow_background.frag.spv
-              glslc shaders/scroll_indicator.frag -o shaders/scroll_indicator.frag.spv
-              glslc shaders/selection.vert -o shaders/selection.vert.spv
-              glslc shaders/selection.frag -o shaders/selection.frag.spv
+              while IFS= read -r shader; do
+                case "$shader" in
+                  ""|\#*) continue ;;
+                esac
+                glslc -I shaders "shaders/$shader" -o "shaders/$shader.spv"
+              done < shaders/manifest.txt
               odin build . -out:grimalkin -o:speed \
                 -extra-linker-flags:'-L. ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-Wl,-rpath,${pkgs.vulkan-loader}/lib -framework AppKit"}' \
                 ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "-define:GLFW_SHARED=true"}
@@ -243,9 +208,11 @@
                   --set VK_ICD_FILENAMES "${pkgs.moltenvk}/share/vulkan/icd.d/MoltenVK_icd.json"
 
                 app="$out/Applications/Grimalkin.app"
-                install -Dm644 "${macosInfoPlist}" "$app/Contents/Info.plist"
+                substitute "${./assets/macos/Info.plist.in}" "$app/Contents/Info.plist" \
+                  --replace-fail '@GRIMALKIN_VERSION@' '${appVersion}' \
+                  --replace-fail '@GRIMALKIN_BUNDLE_VERSION@' '${macosBundleVersion}'
                 install -Dm644 "${macosIcon}" "$app/Contents/Resources/Grimalkin.icns"
-                install -Dm644 "${macosFontconfig}" "$app/Contents/Resources/fonts.conf"
+                install -Dm644 "${./assets/macos/fonts.conf}" "$app/Contents/Resources/fonts.conf"
                 mkdir -p \
                   "$app/Contents/Frameworks" \
                   "$app/Contents/Resources/fonts" \

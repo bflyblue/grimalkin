@@ -3,16 +3,52 @@ package main
 import "core:fmt"
 import vk "vendor:vulkan"
 
-OSD_MAIN_ROW_COUNT :: 9
-OSD_TEXT_RENDERING_ROW :: 0
-OSD_FONT_ROW :: 1
-OSD_PADDING_GLOW_ROW :: 4
-OSD_KEY_BINDING_ROW :: 7
-OSD_COPY_PASTE_ROW :: 8
-OSD_TEXT_RENDERING_COUNT :: 5
-OSD_FONT_COUNT :: 2
-OSD_KEY_BINDING_COUNT :: 3
-OSD_COPY_PASTE_COUNT :: 7
+Osd_Main_Row :: enum int {
+	Text_Rendering,
+	Font,
+	Cursor_Animation,
+	Padding,
+	Padding_Glow,
+	Nerd_Font_Symbols,
+	Window_Style,
+	Key_Bindings,
+	Copy_Paste,
+}
+
+Osd_Text_Rendering_Row :: enum int {
+	Smoothing,
+	Contrast,
+	Hinting,
+	Subpixel_Layout,
+	Rotation,
+}
+
+Osd_Font_Row :: enum int {
+	Family,
+	Size,
+}
+
+Osd_Key_Binding_Row :: enum int {
+	Page_Scrolling,
+	Line_Scrolling,
+	Font_Size,
+}
+
+Osd_Copy_Paste_Row :: enum int {
+	Insert_Shortcuts,
+	Copy_On_Select,
+	Right_Click_Paste,
+	Paste_Protection,
+	Terminal_Clipboard,
+	Block_Whitespace,
+	Selection_Style,
+}
+
+OSD_MAIN_ROW_COUNT :: int(Osd_Main_Row.Copy_Paste) + 1
+OSD_TEXT_RENDERING_COUNT :: int(Osd_Text_Rendering_Row.Rotation) + 1
+OSD_FONT_COUNT :: int(Osd_Font_Row.Size) + 1
+OSD_KEY_BINDING_COUNT :: int(Osd_Key_Binding_Row.Font_Size) + 1
+OSD_COPY_PASTE_COUNT :: int(Osd_Copy_Paste_Row.Selection_Style) + 1
 OSD_PREFERRED_COLUMNS :: u16(46)
 OSD_PREFERRED_ROWS :: u16(12)
 OSD_TEXT_RENDERING_PREFERRED_ROWS :: u16(8)
@@ -59,8 +95,7 @@ Osd_Settings_Change_Flag :: enum u8 {
 	Layout,
 	Cursor,
 	Window_Style,
-	Input,
-	Persistence,
+	Persist,
 }
 
 Osd_Push :: struct {
@@ -221,72 +256,59 @@ osd_font_list_label :: proc(catalog: ^Font_Catalog, list_index: int) -> string {
 
 osd_row_text :: proc(
 	settings: Application_Settings,
-	row: int,
+	row: Osd_Main_Row,
 	catalog: ^Font_Catalog = nil,
 ) -> (string, string) {
 	switch row {
-	case 0: return "Text rendering", ">"
-	case 1: return "Font", ">"
-	case 2: return "Cursor animation", settings_cursor_animation_name(settings.cursor_animation)
-	case 3: return "Padding", fmt.tprintf("%d px", settings.padding)
-	case 4:
+	case .Text_Rendering: return "Text rendering", ">"
+	case .Font: return "Font", ">"
+	case .Cursor_Animation: return "Cursor animation", settings_cursor_animation_name(settings.cursor_animation)
+	case .Padding: return "Padding", fmt.tprintf("%d px", settings.padding)
+	case .Padding_Glow:
 		if settings.padding == 0 do return "Padding glow", "Inactive"
 		return "Padding glow", settings_padding_glow_name(settings.padding_glow)
-	case 5: return "Nerd Font symbols", settings.nerd_font_symbols ? "On" : "Off"
-	case 6: return "Window style", settings_window_style_name(settings.window_style)
-	case 7: return "Key bindings", ">"
-	case 8: return "Copy & paste", ">"
+	case .Nerd_Font_Symbols: return "Nerd Font symbols", settings.nerd_font_symbols ? "On" : "Off"
+	case .Window_Style: return "Window style", settings_window_style_name(settings.window_style)
+	case .Key_Bindings: return "Key bindings", ">"
+	case .Copy_Paste: return "Copy & paste", ">"
 	}
 	return "", ""
 }
 
 osd_font_row_text :: proc(
 	settings: Application_Settings,
-	row: int,
+	row: Osd_Font_Row,
 	catalog: ^Font_Catalog,
 ) -> (string, string) {
 	switch row {
-	case 0: return "Family", osd_font_effective_name(settings, catalog)
-	case 1: return "Size", fmt.tprintf("%d px", settings.font_size)
+	case .Family: return "Family", osd_font_effective_name(settings, catalog)
+	case .Size: return "Size", fmt.tprintf("%d px", settings.font_size)
 	}
 	return "", ""
 }
 
-osd_main_row_enabled :: proc(settings: Application_Settings, row: int) -> bool {
-	if row == OSD_PADDING_GLOW_ROW do return settings.padding > 0
-	return row >= 0 && row < OSD_MAIN_ROW_COUNT
-}
-
-osd_move_main_selection :: proc(
-	settings: Application_Settings,
-	selected, direction: int,
-) -> int {
-	step := direction < 0 ? -1 : 1
-	candidate := selected
-	for _ in 0 ..< OSD_MAIN_ROW_COUNT {
-		candidate = (candidate + step + OSD_MAIN_ROW_COUNT) % OSD_MAIN_ROW_COUNT
-		if osd_main_row_enabled(settings, candidate) do return candidate
-	}
-	return selected
+osd_main_row_enabled :: proc(settings: Application_Settings, row: Osd_Main_Row) -> bool {
+	if row == .Padding_Glow do return settings.padding > 0
+	return true
 }
 
 osd_text_rendering_row_text :: proc(
 	settings: Application_Settings,
-	row: int,
+	row: Osd_Text_Rendering_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
 ) -> (string, string) {
 	switch row {
-	case 0: return "Smoothing", settings_text_smoothing_name(settings.text_smoothing)
-	case 1:
+	case .Smoothing: return "Smoothing", settings_text_smoothing_name(settings.text_smoothing)
+	case .Contrast:
 		if settings.text_smoothing == .Monochrome do return "Contrast", "Inactive"
 		return "Contrast", settings_text_contrast_name(settings.text_contrast)
-	case 2:
+	case .Hinting:
 		if settings.text_smoothing == .Monochrome do return "Hinting", "Mono (fixed)"
 		return "Hinting", settings_font_hinting_name(settings.font_hinting)
-	case 3:
+	case .Subpixel_Layout:
 		if settings.text_smoothing != .Subpixel do return "Subpixel layout", "Inactive"
 		return "Subpixel layout", settings_effective_subpixel_layout_name(settings, detected_rotation)
-	case 4:
+	case .Rotation:
 		if settings.text_smoothing != .Subpixel do return "Rotation", "Inactive"
 		return "Rotation", settings_subpixel_rotation_name(settings.subpixel_rotation, detected_rotation)
 	}
@@ -295,43 +317,29 @@ osd_text_rendering_row_text :: proc(
 
 osd_text_rendering_row_enabled :: proc(
 	settings: Application_Settings,
-	row: int,
+	row: Osd_Text_Rendering_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
 ) -> bool {
 	switch row {
-	case 0: return true
-	case 1, 2: return settings.text_smoothing != .Monochrome
-	case 3:
+	case .Smoothing: return true
+	case .Contrast, .Hinting: return settings.text_smoothing != .Monochrome
+	case .Subpixel_Layout:
 		_, known := settings_effective_display_rotation(settings, detected_rotation)
 		return settings.text_smoothing == .Subpixel && known
-	case 4: return settings.text_smoothing == .Subpixel
+	case .Rotation: return settings.text_smoothing == .Subpixel
 	}
 	return false
 }
 
-osd_move_text_rendering_selection :: proc(
-	settings: Application_Settings,
-	selected, direction: int,
-	detected_rotation := Display_Rotation.Degrees_0,
-) -> int {
-	step := direction < 0 ? -1 : 1
-	candidate := selected
-	for _ in 0 ..< OSD_TEXT_RENDERING_COUNT {
-		candidate = (candidate + step + OSD_TEXT_RENDERING_COUNT) % OSD_TEXT_RENDERING_COUNT
-		if osd_text_rendering_row_enabled(settings, candidate, detected_rotation) do return candidate
-	}
-	return selected
-}
-
-osd_key_binding_row_text :: proc(settings: Application_Settings, row: int) -> (string, string) {
+osd_key_binding_row_text :: proc(settings: Application_Settings, row: Osd_Key_Binding_Row) -> (string, string) {
 	switch row {
-	case 0:
+	case .Page_Scrolling:
 		value := settings_scroll_modifier_name(settings.scroll_page_modifier)
 		return "Page/Home/End", value == "Off" ? "Disabled" : value
-	case 1:
+	case .Line_Scrolling:
 		value := settings_scroll_modifier_name(settings.scroll_line_modifier)
 		return "Line scroll (↑/↓)", value == "Off" ? "Disabled" : value
-	case 2:
+	case .Font_Size:
 		return "Font size", settings.font_size_shortcuts ? "Ctrl + / Ctrl -" : "Disabled"
 	}
 	return "", ""
@@ -357,32 +365,228 @@ osd_main_title_text :: proc() -> string {
 	return fmt.tprintf("Grimalkin %s", application_version())
 }
 
-osd_copy_paste_row_text :: proc(settings: Application_Settings, row: int) -> (string, string) {
+osd_copy_paste_row_text :: proc(settings: Application_Settings, row: Osd_Copy_Paste_Row) -> (string, string) {
 	switch row {
-	case 0: return "Insert shortcuts", settings.clipboard_insert_shortcuts ? "On" : "Off"
-	case 1: return "Copy on select", settings.copy_on_select ? "On" : "Off"
-	case 2: return "Right-click paste", settings.right_click_paste ? "On" : "Off"
-	case 3: return "Paste protection", settings.paste_protection ? "On" : "Off"
-	case 4: return "Terminal clipboard", settings_terminal_clipboard_name(settings.terminal_clipboard)
-	case 5: return "Block whitespace", settings_block_whitespace_name(settings.block_selection_whitespace)
-	case 6: return "Selection style", settings_selection_style_name(settings.selection_style)
+	case .Insert_Shortcuts: return "Insert shortcuts", settings.clipboard_insert_shortcuts ? "On" : "Off"
+	case .Copy_On_Select: return "Copy on select", settings.copy_on_select ? "On" : "Off"
+	case .Right_Click_Paste: return "Right-click paste", settings.right_click_paste ? "On" : "Off"
+	case .Paste_Protection: return "Paste protection", settings.paste_protection ? "On" : "Off"
+	case .Terminal_Clipboard: return "Terminal clipboard", settings_terminal_clipboard_name(settings.terminal_clipboard)
+	case .Block_Whitespace: return "Block whitespace", settings_block_whitespace_name(settings.block_selection_whitespace)
+	case .Selection_Style: return "Selection style", settings_selection_style_name(settings.selection_style)
 	}
 	return "", ""
 }
 
-osd_font_row_enabled :: proc(catalog: ^Font_Catalog, row: int) -> bool {
-	if row == 0 do return catalog != nil && !catalog.environment_override && len(catalog.families) > 0
-	return row == 1
+osd_font_row_enabled :: proc(catalog: ^Font_Catalog, row: Osd_Font_Row) -> bool {
+	if row == .Family do return catalog != nil && !catalog.environment_override && len(catalog.families) > 0
+	return true
 }
 
-osd_move_font_selection :: proc(catalog: ^Font_Catalog, selected, direction: int) -> int {
+osd_page_row_count :: proc(page: Osd_Page) -> int {
+	switch page {
+	case .Main:           return OSD_MAIN_ROW_COUNT
+	case .Text_Rendering: return OSD_TEXT_RENDERING_COUNT
+	case .Font:           return OSD_FONT_COUNT
+	case .Key_Bindings:   return OSD_KEY_BINDING_COUNT
+	case .Copy_Paste:     return OSD_COPY_PASTE_COUNT
+	case .Font_List, .Paste_Confirm: return 0
+	}
+	return 0
+}
+
+osd_page_row_enabled :: proc(
+	page: Osd_Page,
+	settings: Application_Settings,
+	catalog: ^Font_Catalog,
+	row: int,
+	detected_rotation := Display_Rotation.Degrees_0,
+) -> bool {
+	if row < 0 || row >= osd_page_row_count(page) do return false
+	switch page {
+	case .Main:
+		return osd_main_row_enabled(settings, Osd_Main_Row(row))
+	case .Text_Rendering:
+		return osd_text_rendering_row_enabled(
+			settings,
+			Osd_Text_Rendering_Row(row),
+			detected_rotation,
+		)
+	case .Font:
+		return osd_font_row_enabled(catalog, Osd_Font_Row(row))
+	case .Key_Bindings, .Copy_Paste:
+		return true
+	case .Font_List, .Paste_Confirm:
+		return false
+	}
+	return false
+}
+
+osd_page_move_selection :: proc(
+	page: Osd_Page,
+	settings: Application_Settings,
+	catalog: ^Font_Catalog,
+	selected, direction: int,
+	detected_rotation := Display_Rotation.Degrees_0,
+) -> int {
+	count := osd_page_row_count(page)
+	if count == 0 do return selected
 	step := direction < 0 ? -1 : 1
-	candidate := selected
-	for _ in 0 ..< OSD_FONT_COUNT {
-		candidate = (candidate + step + OSD_FONT_COUNT) % OSD_FONT_COUNT
-		if osd_font_row_enabled(catalog, candidate) do return candidate
+	candidate := clamp(selected, 0, count - 1)
+	for _ in 0 ..< count {
+		candidate = (candidate + step + count) % count
+		if osd_page_row_enabled(page, settings, catalog, candidate, detected_rotation) {
+			return candidate
+		}
 	}
 	return selected
+}
+
+osd_page_row_text :: proc(
+	page: Osd_Page,
+	settings: Application_Settings,
+	catalog: ^Font_Catalog,
+	row: int,
+	detected_rotation := Display_Rotation.Degrees_0,
+) -> (string, string) {
+	if row < 0 || row >= osd_page_row_count(page) do return "", ""
+	switch page {
+	case .Main:
+		return osd_row_text(settings, Osd_Main_Row(row), catalog)
+	case .Text_Rendering:
+		return osd_text_rendering_row_text(
+			settings,
+			Osd_Text_Rendering_Row(row),
+			detected_rotation,
+		)
+	case .Font:
+		return osd_font_row_text(settings, Osd_Font_Row(row), catalog)
+	case .Key_Bindings:
+		return osd_key_binding_row_text(settings, Osd_Key_Binding_Row(row))
+	case .Copy_Paste:
+		return osd_copy_paste_row_text(settings, Osd_Copy_Paste_Row(row))
+	case .Font_List, .Paste_Confirm:
+		return "", ""
+	}
+	return "", ""
+}
+
+osd_page_adjust_setting :: proc(
+	page: Osd_Page,
+	settings: ^Application_Settings,
+	catalog: ^Font_Catalog,
+	selected, direction: int,
+	detected_rotation := Display_Rotation.Degrees_0,
+) -> Osd_Settings_Change {
+	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
+	switch page {
+	case .Main:
+		return osd_adjust_setting(settings, Osd_Main_Row(selected), direction)
+	case .Text_Rendering:
+		return osd_adjust_text_rendering(
+			settings,
+			Osd_Text_Rendering_Row(selected),
+			direction,
+			detected_rotation,
+		)
+	case .Font:
+		return osd_adjust_font_setting(settings, Osd_Font_Row(selected), direction)
+	case .Key_Bindings:
+		return osd_adjust_key_binding(settings, Osd_Key_Binding_Row(selected), direction)
+	case .Copy_Paste:
+		return osd_adjust_copy_paste(settings, Osd_Copy_Paste_Row(selected), direction)
+	case .Font_List, .Paste_Confirm:
+		return {}
+	}
+	return {}
+}
+
+osd_page_reset_setting :: proc(
+	page: Osd_Page,
+	settings: ^Application_Settings,
+	catalog: ^Font_Catalog,
+	selected: int,
+	detected_rotation := Display_Rotation.Degrees_0,
+) -> Osd_Settings_Change {
+	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
+	switch page {
+	case .Main:
+		return osd_reset_setting(settings, Osd_Main_Row(selected), detected_rotation)
+	case .Text_Rendering:
+		return osd_reset_text_rendering(
+			settings,
+			Osd_Text_Rendering_Row(selected),
+			detected_rotation,
+		)
+	case .Font:
+		return osd_reset_font_setting(settings, Osd_Font_Row(selected))
+	case .Key_Bindings:
+		return osd_reset_key_binding(settings, Osd_Key_Binding_Row(selected))
+	case .Copy_Paste:
+		return osd_reset_copy_paste(settings, Osd_Copy_Paste_Row(selected))
+	case .Font_List, .Paste_Confirm:
+		return {}
+	}
+	return {}
+}
+
+osd_open_submenu :: proc(
+	osd: ^Osd_State,
+	settings: Application_Settings,
+	catalog: ^Font_Catalog,
+) -> bool {
+	if osd == nil do return false
+	if osd.page == .Main {
+		if !osd_page_row_enabled(.Main, settings, catalog, osd.selected) do return false
+		switch Osd_Main_Row(osd.selected) {
+		case .Text_Rendering:
+			osd.page = .Text_Rendering
+			osd.selected = int(Osd_Text_Rendering_Row.Smoothing)
+		case .Font:
+			osd.page = .Font
+			osd.selected = osd_font_row_enabled(catalog, .Family) ? int(Osd_Font_Row.Family) : int(Osd_Font_Row.Size)
+		case .Key_Bindings:
+			osd.page = .Key_Bindings
+			osd.selected = int(Osd_Key_Binding_Row.Page_Scrolling)
+		case .Copy_Paste:
+			osd.page = .Copy_Paste
+			osd.selected = int(Osd_Copy_Paste_Row.Insert_Shortcuts)
+		case .Cursor_Animation, .Padding, .Padding_Glow, .Nerd_Font_Symbols, .Window_Style:
+			return false
+		}
+		return true
+	}
+	if osd.page == .Font && osd.selected == int(Osd_Font_Row.Family) &&
+	   osd_font_row_enabled(catalog, .Family) {
+		osd.page = .Font_List
+		osd.font_list_candidate = osd_font_applied_list_index(settings, catalog)
+		osd.font_list_top = 0
+		delete(osd.font_error)
+		osd.font_error = ""
+		return true
+	}
+	return false
+}
+
+osd_close_submenu :: proc(osd: ^Osd_State) -> bool {
+	if osd == nil do return false
+	switch osd.page {
+	case .Text_Rendering:
+		osd.page = .Main
+		osd.selected = int(Osd_Main_Row.Text_Rendering)
+	case .Font:
+		osd.page = .Main
+		osd.selected = int(Osd_Main_Row.Font)
+	case .Key_Bindings:
+		osd.page = .Main
+		osd.selected = int(Osd_Main_Row.Key_Bindings)
+	case .Copy_Paste:
+		osd.page = .Main
+		osd.selected = int(Osd_Main_Row.Copy_Paste)
+	case .Main, .Font_List, .Paste_Confirm:
+		return false
+	}
+	return true
 }
 
 osd_font_list_count :: proc(catalog: ^Font_Catalog) -> int {
@@ -487,56 +691,44 @@ osd_rebuild :: proc(
 		return
 	}
 	title := osd_main_title_text()
-	row_count := OSD_MAIN_ROW_COUNT
-	if osd.page == .Text_Rendering {
-		title = "Text rendering"
-		row_count = OSD_TEXT_RENDERING_COUNT
-	} else if osd.page == .Font {
-		title = "Font"
-		row_count = OSD_FONT_COUNT
-	} else if osd.page == .Key_Bindings {
-		title = "Key bindings"
-		row_count = OSD_KEY_BINDING_COUNT
-	} else if osd.page == .Copy_Paste {
-		title = "Copy & paste"
-		row_count = OSD_COPY_PASTE_COUNT
+	switch osd.page {
+	case .Text_Rendering: title = "Text rendering"
+	case .Font:           title = "Font"
+	case .Key_Bindings:   title = "Key bindings"
+	case .Copy_Paste:     title = "Copy & paste"
+	case .Main, .Font_List, .Paste_Confirm:
 	}
+	row_count := osd_page_row_count(osd.page)
 	osd_write_text(osd, resources, 0, 0, title)
 	for setting_index := 0; setting_index < row_count; setting_index += 1 {
 		row := setting_index + 2
 		if row >= int(osd.rows) do break
 		if setting_index == osd.selected do osd_fill_row(osd, row, OSD_SELECTED_BACKGROUND)
-		label, value := osd_row_text(settings, setting_index, catalog)
-		if osd.page == .Text_Rendering {
-			label, value = osd_text_rendering_row_text(settings, setting_index, detected_rotation)
-		} else if osd.page == .Font {
-			label, value = osd_font_row_text(settings, setting_index, catalog)
-		} else if osd.page == .Key_Bindings {
-			label, value = osd_key_binding_row_text(settings, setting_index)
-		} else if osd.page == .Copy_Paste {
-			label, value = osd_copy_paste_row_text(settings, setting_index)
-		}
+		label, value := osd_page_row_text(
+			osd.page,
+			settings,
+			catalog,
+			setting_index,
+			detected_rotation,
+		)
 		foreground := OSD_FOREGROUND
-		if osd.page == .Main && !osd_main_row_enabled(settings, setting_index) {
-			foreground = OSD_MUTED
-		} else if osd.page == .Text_Rendering &&
-		   !osd_text_rendering_row_enabled(settings, setting_index, detected_rotation) {
-			foreground = OSD_MUTED
-		} else if osd.page == .Font && !osd_font_row_enabled(catalog, setting_index) {
+		if !osd_page_row_enabled(osd.page, settings, catalog, setting_index, detected_rotation) {
 			foreground = OSD_MUTED
 		}
 		osd_write_text(osd, resources, row, 1, label, foreground)
 		decorated := fmt.tprintf("< %s >", value)
-		if osd.page == .Font && setting_index == 0 &&
-		   osd_font_row_enabled(catalog, setting_index) {
+		if osd.page == .Font && setting_index == int(Osd_Font_Row.Family) &&
+		   osd_font_row_enabled(catalog, .Family) {
 			decorated = fmt.tprintf("%s >", value)
 		} else if (osd.page == .Main &&
-		   (!osd_main_row_enabled(settings, setting_index) ||
-		    setting_index == OSD_TEXT_RENDERING_ROW ||
-		    setting_index == OSD_FONT_ROW ||
-		    setting_index == OSD_KEY_BINDING_ROW ||
-		    setting_index == OSD_COPY_PASTE_ROW)) ||
-		   (osd.page == .Font && (setting_index == 0 || !osd_font_row_enabled(catalog, setting_index))) {
+		   (!osd_page_row_enabled(.Main, settings, catalog, setting_index) ||
+		    setting_index == int(Osd_Main_Row.Text_Rendering) ||
+		    setting_index == int(Osd_Main_Row.Font) ||
+		    setting_index == int(Osd_Main_Row.Key_Bindings) ||
+		    setting_index == int(Osd_Main_Row.Copy_Paste))) ||
+		   (osd.page == .Font &&
+		    (setting_index == int(Osd_Font_Row.Family) ||
+		     !osd_page_row_enabled(.Font, settings, catalog, setting_index))) {
 			decorated = value
 		}
 		value_column := max(1, int(osd.cols) - len(decorated) - 1)
@@ -556,12 +748,12 @@ osd_rebuild :: proc(
 
 osd_reset_setting :: proc(
 	settings: ^Application_Settings,
-	selected: int,
+	selected: Osd_Main_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
 ) -> Osd_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
-	case 0:
+	case .Text_Rendering:
 		before := settings^
 		settings.text_smoothing = defaults.text_smoothing
 		settings.text_contrast = defaults.text_contrast
@@ -569,30 +761,30 @@ osd_reset_setting :: proc(
 		settings.subpixel_layout = defaults.subpixel_layout
 		settings.subpixel_rotation = defaults.subpixel_rotation
 		return osd_text_rendering_change(before, settings^, detected_rotation)
-	case 1:
+	case .Font:
 		settings.font_family = defaults.font_family
 		settings.font_size = defaults.font_size
 		return {.Font_Resources, .Layout}
-	case 2:
+	case .Cursor_Animation:
 		settings.cursor_animation = defaults.cursor_animation
 		return {.Cursor}
-	case 3:
+	case .Padding:
 		settings.padding = defaults.padding
 		return {.Layout}
-	case 4:
+	case .Padding_Glow:
 		settings.padding_glow = defaults.padding_glow
-		return {.Persistence}
-	case 5:
+		return {.Persist}
+	case .Nerd_Font_Symbols:
 		settings.nerd_font_symbols = defaults.nerd_font_symbols
 		return {.Font_Resources}
-	case 6:
+	case .Window_Style:
 		settings.window_style = defaults.window_style
 		return {.Window_Style}
-	case 7:
+	case .Key_Bindings:
 		settings.scroll_page_modifier = defaults.scroll_page_modifier
 		settings.scroll_line_modifier = defaults.scroll_line_modifier
-		return {.Input}
-	case 8:
+		return {.Persist}
+	case .Copy_Paste:
 		settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
 		settings.copy_on_select = defaults.copy_on_select
 		settings.right_click_paste = defaults.right_click_paste
@@ -600,7 +792,7 @@ osd_reset_setting :: proc(
 		settings.terminal_clipboard = defaults.terminal_clipboard
 		settings.block_selection_whitespace = defaults.block_selection_whitespace
 		settings.selection_style = defaults.selection_style
-		return {.Input}
+		return {.Persist}
 	}
 	return {}
 }
@@ -613,152 +805,147 @@ osd_text_rendering_change :: proc(
 	   application_settings_render_config(after, detected_rotation) {
 		return {.Font_Resources}
 	}
-	return {.Persistence}
+	return {.Persist}
 }
 
 osd_reset_text_rendering :: proc(
 	settings: ^Application_Settings,
-	selected: int,
+	selected: Osd_Text_Rendering_Row,
 	detected_rotation := Display_Rotation.Degrees_0,
 ) -> Osd_Settings_Change {
 	if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 	before := settings^
 	defaults := application_settings_default()
 	switch selected {
-	case 0: settings.text_smoothing = defaults.text_smoothing
-	case 1: settings.text_contrast = defaults.text_contrast
-	case 2: settings.font_hinting = defaults.font_hinting
-	case 3: settings.subpixel_layout = defaults.subpixel_layout
-	case 4: settings.subpixel_rotation = defaults.subpixel_rotation
-	case: return {}
+	case .Smoothing: settings.text_smoothing = defaults.text_smoothing
+	case .Contrast: settings.text_contrast = defaults.text_contrast
+	case .Hinting: settings.font_hinting = defaults.font_hinting
+	case .Subpixel_Layout: settings.subpixel_layout = defaults.subpixel_layout
+	case .Rotation: settings.subpixel_rotation = defaults.subpixel_rotation
 	}
 	return osd_text_rendering_change(before, settings^, detected_rotation)
 }
 
 osd_adjust_text_rendering :: proc(
 	settings: ^Application_Settings,
-	selected, direction: int,
+	selected: Osd_Text_Rendering_Row,
+	direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
 ) -> Osd_Settings_Change {
 	before := settings^
 	step := direction < 0 ? -1 : 1
 	switch selected {
-	case 0:
+	case .Smoothing:
 		count := int(Text_Smoothing.Monochrome) + 1
 		settings.text_smoothing = Text_Smoothing(
 			(int(settings.text_smoothing) + step + count) % count,
 		)
-	case 1:
+	case .Contrast:
 		if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 		count := int(Text_Contrast.Very_Sharp) + 1
 		settings.text_contrast = Text_Contrast(
 			(int(settings.text_contrast) + step + count) % count,
 		)
-	case 2:
+	case .Hinting:
 		if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 		count := int(Font_Hinting.None) + 1
 		settings.font_hinting = Font_Hinting(
 			(int(settings.font_hinting) + step + count) % count,
 		)
-	case 3:
+	case .Subpixel_Layout:
 		if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 		count := int(Subpixel_Layout.QD_OLED_Diamond) + 1
 		settings.subpixel_layout = Subpixel_Layout(
 			(int(settings.subpixel_layout) + step + count) % count,
 		)
-	case 4:
+	case .Rotation:
 		if !osd_text_rendering_row_enabled(settings^, selected, detected_rotation) do return {}
 		count := int(Subpixel_Rotation.Degrees_270) + 1
 		settings.subpixel_rotation = Subpixel_Rotation(
 			(int(settings.subpixel_rotation) + step + count) % count,
 		)
-	case:
-		return {}
 	}
 	return osd_text_rendering_change(before, settings^, detected_rotation)
 }
 
-osd_reset_key_binding :: proc(settings: ^Application_Settings, selected: int) -> Osd_Settings_Change {
+osd_reset_key_binding :: proc(settings: ^Application_Settings, selected: Osd_Key_Binding_Row) -> Osd_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
-	case 0: settings.scroll_page_modifier = defaults.scroll_page_modifier
-	case 1: settings.scroll_line_modifier = defaults.scroll_line_modifier
-	case 2: settings.font_size_shortcuts = defaults.font_size_shortcuts
-	case: return {}
+	case .Page_Scrolling: settings.scroll_page_modifier = defaults.scroll_page_modifier
+	case .Line_Scrolling: settings.scroll_line_modifier = defaults.scroll_line_modifier
+	case .Font_Size: settings.font_size_shortcuts = defaults.font_size_shortcuts
 	}
-	return {.Input}
+	return {.Persist}
 }
 
 osd_adjust_key_binding :: proc(
 	settings: ^Application_Settings,
-	selected, direction: int,
+	selected: Osd_Key_Binding_Row,
+	direction: int,
 ) -> Osd_Settings_Change {
 	switch selected {
-	case 0:
+	case .Page_Scrolling:
 		step := direction < 0 ? -1 : 1
 		count := int(Scroll_Modifier.Ctrl_Shift) + 1
 		value := (int(settings.scroll_page_modifier) + step + count) % count
 		settings.scroll_page_modifier = Scroll_Modifier(value)
-	case 1:
+	case .Line_Scrolling:
 		settings.scroll_line_modifier =
 			settings.scroll_line_modifier == .Off ? .Ctrl_Shift : .Off
-	case 2:
+	case .Font_Size:
 		settings.font_size_shortcuts = !settings.font_size_shortcuts
-	case:
-		return {}
 	}
-	return {.Input}
+	return {.Persist}
 }
 
-osd_reset_copy_paste :: proc(settings: ^Application_Settings, selected: int) -> Osd_Settings_Change {
+osd_reset_copy_paste :: proc(settings: ^Application_Settings, selected: Osd_Copy_Paste_Row) -> Osd_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
-	case 0: settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
-	case 1: settings.copy_on_select = defaults.copy_on_select
-	case 2: settings.right_click_paste = defaults.right_click_paste
-	case 3: settings.paste_protection = defaults.paste_protection
-	case 4: settings.terminal_clipboard = defaults.terminal_clipboard
-	case 5: settings.block_selection_whitespace = defaults.block_selection_whitespace
-	case 6: settings.selection_style = defaults.selection_style
-	case: return {}
+	case .Insert_Shortcuts: settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
+	case .Copy_On_Select: settings.copy_on_select = defaults.copy_on_select
+	case .Right_Click_Paste: settings.right_click_paste = defaults.right_click_paste
+	case .Paste_Protection: settings.paste_protection = defaults.paste_protection
+	case .Terminal_Clipboard: settings.terminal_clipboard = defaults.terminal_clipboard
+	case .Block_Whitespace: settings.block_selection_whitespace = defaults.block_selection_whitespace
+	case .Selection_Style: settings.selection_style = defaults.selection_style
 	}
-	return {.Input}
+	return {.Persist}
 }
 
 osd_adjust_copy_paste :: proc(
 	settings: ^Application_Settings,
-	selected, direction: int,
+	selected: Osd_Copy_Paste_Row,
+	direction: int,
 ) -> Osd_Settings_Change {
 	step := direction < 0 ? -1 : 1
 	switch selected {
-	case 0: settings.clipboard_insert_shortcuts = !settings.clipboard_insert_shortcuts
-	case 1: settings.copy_on_select = !settings.copy_on_select
-	case 2: settings.right_click_paste = !settings.right_click_paste
-	case 3: settings.paste_protection = !settings.paste_protection
-	case 4:
+	case .Insert_Shortcuts: settings.clipboard_insert_shortcuts = !settings.clipboard_insert_shortcuts
+	case .Copy_On_Select: settings.copy_on_select = !settings.copy_on_select
+	case .Right_Click_Paste: settings.right_click_paste = !settings.right_click_paste
+	case .Paste_Protection: settings.paste_protection = !settings.paste_protection
+	case .Terminal_Clipboard:
 		count := int(Terminal_Clipboard_Policy.Read_Write) + 1
 		settings.terminal_clipboard = Terminal_Clipboard_Policy(
 			(int(settings.terminal_clipboard) + step + count) % count,
 		)
-	case 5:
+	case .Block_Whitespace:
 		settings.block_selection_whitespace = settings.block_selection_whitespace == .Trim ? .Preserve : .Trim
-	case 6:
+	case .Selection_Style:
 		count := int(Selection_Style.Solid) + 1
 		settings.selection_style = Selection_Style(
 			(int(settings.selection_style) + step + count) % count,
 		)
-	case: return {}
 	}
-	return {.Input}
+	return {.Persist}
 }
 
-osd_reset_font_setting :: proc(settings: ^Application_Settings, selected: int) -> Osd_Settings_Change {
+osd_reset_font_setting :: proc(settings: ^Application_Settings, selected: Osd_Font_Row) -> Osd_Settings_Change {
 	defaults := application_settings_default()
 	switch selected {
-	case 0:
+	case .Family:
 		settings.font_family = defaults.font_family
 		return {.Font_Resources, .Layout}
-	case 1:
+	case .Size:
 		settings.font_size = defaults.font_size
 		return {.Font_Resources, .Layout}
 	}
@@ -767,9 +954,10 @@ osd_reset_font_setting :: proc(settings: ^Application_Settings, selected: int) -
 
 osd_adjust_font_setting :: proc(
 	settings: ^Application_Settings,
-	selected, direction: int,
+	selected: Osd_Font_Row,
+	direction: int,
 ) -> Osd_Settings_Change {
-	if selected != 1 do return {}
+	if selected != .Size do return {}
 	step := direction < 0 ? -1 : 1
 	settings.font_size = u16(clamp(
 		int(settings.font_size) + step,
@@ -781,37 +969,36 @@ osd_adjust_font_setting :: proc(
 
 osd_adjust_setting :: proc(
 	settings: ^Application_Settings,
-	selected, direction: int,
+	selected: Osd_Main_Row,
+	direction: int,
 ) -> Osd_Settings_Change {
 	step := direction < 0 ? -1 : 1
 	switch selected {
-	case 0:
+	case .Text_Rendering, .Font, .Key_Bindings, .Copy_Paste:
 		return {}
-	case 1:
-		return {}
-	case 2:
+	case .Cursor_Animation:
 		count := int(Cursor_Animation_Policy.Steady) + 1
 		value := (int(settings.cursor_animation) + step + count) % count
 		settings.cursor_animation = Cursor_Animation_Policy(value)
 		return {.Cursor}
-	case 3:
+	case .Padding:
 		settings.padding = u16(clamp(
 			int(settings.padding) + step,
 			0,
 			int(SETTINGS_PADDING_MAX),
 		))
 		return {.Layout}
-	case 4:
+	case .Padding_Glow:
 		if !osd_main_row_enabled(settings^, selected) do return {}
 		count := int(Padding_Glow.Tint) + 1
 		settings.padding_glow = Padding_Glow(
 			(int(settings.padding_glow) + step + count) % count,
 		)
-		return {.Persistence}
-	case 5:
+		return {.Persist}
+	case .Nerd_Font_Symbols:
 		settings.nerd_font_symbols = !settings.nerd_font_symbols
 		return {.Font_Resources}
-	case 6:
+	case .Window_Style:
 		settings.window_style = settings.window_style == .System ? .Frameless : .System
 		return {.Window_Style}
 	}

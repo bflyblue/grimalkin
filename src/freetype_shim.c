@@ -330,9 +330,6 @@ int grimalkin_font_open(const char *path,
   out_metrics->cell_height =
       (uint32_t)ceil_26_6(font->face->size->metrics.height);
   out_metrics->baseline = ceil_26_6(font->face->size->metrics.ascender);
-  out_metrics->ascender = out_metrics->baseline;
-  out_metrics->descender =
-      ceil_26_6(-font->face->size->metrics.descender);
 
   font->hb_font = hb_ft_font_create_referenced(font->face);
   if (font->hb_font == NULL) {
@@ -491,7 +488,6 @@ static int rasterize_current_size(GrimalkinFont *font,
   out_bitmap->height = bitmap->rows;
   out_bitmap->bearing_x = slot->bitmap_left;
   out_bitmap->bitmap_top = slot->bitmap_top;
-  out_bitmap->advance_x = (int32_t)(slot->advance.x >> 6);
   out_bitmap->pitch = output_pitch;
   out_bitmap->buffer = required == 0 ? NULL : font->scratch;
   return GRIMALKIN_FONT_OK;

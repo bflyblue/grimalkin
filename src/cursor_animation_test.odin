@@ -44,7 +44,7 @@ blinking_text_uses_the_cursor_policy_phase_without_changing_cursor_semantics :: 
 }
 
 cursor_expect_opacity_near :: proc(t: ^testing.T, actual: u16, expected: f64) {
-	difference := abs(cursor_opacity_from_u16(actual) - expected)
+	difference := abs(f64(actual) / f64(max(u16)) - expected)
 	testing.expect(t, difference <= 1.0 / f64(max(u16)))
 }
 

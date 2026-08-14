@@ -8,7 +8,6 @@ Cursor_Animation_Policy :: enum u8 {
 	Steady,
 }
 
-CURSOR_ANIMATION_POLICY :: Cursor_Animation_Policy.Pulse
 CURSOR_ANIMATION_PERIOD :: 1.0
 CURSOR_PULSE_SAMPLE_INTERVAL :: CURSOR_ANIMATION_PERIOD / 60.0
 CURSOR_BLINK_SAMPLE_INTERVAL :: CURSOR_ANIMATION_PERIOD / 2.0
@@ -43,10 +42,6 @@ Cursor_Animation_Sample :: struct {
 cursor_quantize_opacity :: proc(opacity: f64) -> u16 {
 	scaled := math.round(clamp(opacity, 0.0, 1.0) * f64(max(u16)))
 	return u16(scaled)
-}
-
-cursor_opacity_from_u16 :: proc(opacity: u16) -> f64 {
-	return f64(opacity) / f64(max(u16))
 }
 
 cursor_next_sample_deadline :: proc(epoch, now, interval: f64) -> f64 {

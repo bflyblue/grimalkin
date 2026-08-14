@@ -315,10 +315,6 @@ grimalkin_demo_init_configured :: proc(
 	return demo
 }
 
-grimalkin_demo_init :: proc(pixel_height := u16(FONT_PIXEL_HEIGHT)) -> Grimalkin_Demo {
-	return grimalkin_demo_init_configured(pixel_height, font_render_config_default())
-}
-
 grimalkin_terminal_init_configured :: proc(
 	pixel_height: u16,
 	render_config: Font_Render_Config,
@@ -331,10 +327,6 @@ grimalkin_terminal_init_configured :: proc(
 	view.grid = display_grid_init(GRID_COLUMNS, GRID_ROWS)
 	_ = grimalkin_view_refresh(&view)
 	return view
-}
-
-grimalkin_terminal_init :: proc(pixel_height := u16(FONT_PIXEL_HEIGHT)) -> Grimalkin_Demo {
-	return grimalkin_terminal_init_configured(pixel_height, font_render_config_default())
 }
 
 grimalkin_view_refresh :: proc(view: ^Grimalkin_Demo) -> Display_Compile_Stats {
@@ -383,31 +375,4 @@ grimalkin_demo_apply_next_update :: proc(demo: ^Grimalkin_Demo) -> bool {
 
 grimalkin_demo_prepare_benchmark :: proc(demo: ^Grimalkin_Demo) {
 	for grimalkin_demo_apply_next_update(demo) {}
-}
-
-hue_to_rgb :: proc(hue: f32) -> (u8, u8, u8) {
-	sector_value := hue * 6.0
-	sector := int(sector_value)
-	fraction := sector_value - f32(sector)
-	value := f32(1.0)
-	minimum := f32(0.20)
-	falling := value - (value - minimum) * fraction
-	rising := minimum + (value - minimum) * fraction
-
-	red, green, blue: f32
-	switch sector % 6 {
-	case 0:
-		red, green, blue = value, rising, minimum
-	case 1:
-		red, green, blue = falling, value, minimum
-	case 2:
-		red, green, blue = minimum, value, rising
-	case 3:
-		red, green, blue = minimum, falling, value
-	case 4:
-		red, green, blue = rising, minimum, value
-	case:
-		red, green, blue = value, minimum, falling
-	}
-	return u8(red * 255.0 + 0.5), u8(green * 255.0 + 0.5), u8(blue * 255.0 + 0.5)
 }

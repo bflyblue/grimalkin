@@ -1,5 +1,8 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "colour.glsl"
 
 layout(set = 0, binding = 0, std430) readonly buffer CellBuffer {
 	uvec4 cells[];
@@ -28,31 +31,6 @@ layout(location = 0) out vec4 output_colour;
 
 const uint VISUAL_MASK = 1u;
 const uint VISUAL_SUBPIXEL_MASK = 4u;
-
-vec4 unpack_rgba8(uint packed) {
-	return vec4(
-		float( packed        & 0xffu),
-		float((packed >>  8) & 0xffu),
-		float((packed >> 16) & 0xffu),
-		float((packed >> 24) & 0xffu)
-	) / 255.0;
-}
-
-vec3 srgb_to_linear(vec3 value) {
-	bvec3 low = lessThanEqual(value, vec3(0.04045));
-	return mix(pow((value + 0.055) / 1.055, vec3(2.4)), value / 12.92, low);
-}
-
-vec3 linear_to_srgb(vec3 value) {
-	value = clamp(value, 0.0, 1.0);
-	bvec3 low = lessThanEqual(value, vec3(0.0031308));
-	return mix(1.055 * pow(value, vec3(1.0 / 2.4)) - 0.055, value * 12.92, low);
-}
-
-vec4 unpack_srgb_rgba8(uint packed) {
-	vec4 encoded = unpack_rgba8(packed);
-	return vec4(srgb_to_linear(encoded.rgb), encoded.a);
-}
 
 void write_output(vec4 linear_premultiplied) {
 	if (layout_data.frame.z != 0u) {

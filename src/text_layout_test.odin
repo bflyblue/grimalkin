@@ -138,9 +138,8 @@ framebuffer_grid_uses_complete_cells_and_rejects_minimized_extents :: proc(t: ^t
 
 @(test)
 zero_window_padding_uses_the_full_framebuffer_for_terminal_cells :: proc(t: ^testing.T) {
-	cols, rows, valid := grid_dimensions_for_framebuffer(1200, 880, 10, 22, WINDOW_PADDING_PX, WINDOW_PADDING_PX)
+	cols, rows, valid := grid_dimensions_for_framebuffer(1200, 880, 10, 22, 0, 0)
 	testing.expect(t, valid)
-	testing.expect_value(t, WINDOW_PADDING_PX, u32(0))
 	testing.expect_value(t, cols, u16(120))
 	testing.expect_value(t, rows, u16(40))
 }

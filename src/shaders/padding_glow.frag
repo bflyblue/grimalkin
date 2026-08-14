@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "colour.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D terminal_source;
 layout(set = 0, binding = 1) uniform sampler2D background_source;
@@ -19,17 +22,6 @@ const float TINT_DEPTH = 15.0;
 const float TINT_HALF_WIDTH = 6.0;
 const int TINT_DEPTH_SAMPLES = 8;
 const int TINT_TANGENT_SAMPLES = 7;
-
-vec3 linear_to_srgb(vec3 value) {
-	value = clamp(value, 0.0, 1.0);
-	bvec3 low = lessThanEqual(value, vec3(0.0031308));
-	return mix(1.055 * pow(value, vec3(1.0 / 2.4)) - 0.055, value * 12.92, low);
-}
-
-vec3 srgb_to_linear(vec3 value) {
-	bvec3 low = lessThanEqual(value, vec3(0.04045));
-	return mix(pow((value + 0.055) / 1.055, vec3(2.4)), value / 12.92, low);
-}
 
 vec2 source_uv(vec2 pixel) {
 	vec2 text_min = vec2(layout_data.text.xy);

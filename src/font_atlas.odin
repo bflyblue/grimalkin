@@ -501,12 +501,3 @@ visual_cache_clear_images :: proc(cache: ^Visual_Cache) {
 	delete(cache.image_lookup)
 	cache.image_lookup = make(map[Image_Visual_Cache_Key]u32)
 }
-
-texture_registry_clear_pending :: proc(registry: ^Texture_Registry) {
-	for resource in registry.resources {
-		if resource == nil do continue
-		resource.full_upload = false
-		resource.grew_from_layers = 0
-		clear(&resource.pending_uploads)
-	}
-}

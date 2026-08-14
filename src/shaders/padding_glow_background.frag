@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "colour.glsl"
 
 layout(set = 0, binding = 0, std430) readonly buffer CellBuffer {
 	uvec4 cells[];
@@ -12,20 +15,6 @@ layout(push_constant) uniform TextLayout {
 } layout_data;
 
 layout(location = 0) out vec4 output_colour;
-
-vec4 unpack_rgba8(uint packed) {
-	return vec4(
-		float( packed        & 0xffu),
-		float((packed >>  8) & 0xffu),
-		float((packed >> 16) & 0xffu),
-		float((packed >> 24) & 0xffu)
-	) / 255.0;
-}
-
-vec3 srgb_to_linear(vec3 value) {
-	bvec3 low = lessThanEqual(value, vec3(0.04045));
-	return mix(pow((value + 0.055) / 1.055, vec3(2.4)), value / 12.92, low);
-}
 
 void main() {
 	ivec2 pixel = ivec2(gl_FragCoord.xy) - layout_data.font.yz;
