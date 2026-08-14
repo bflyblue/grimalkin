@@ -53,6 +53,7 @@ source "$project_root/scripts/macos-toolchain.env"
 downloads="$cache_root/downloads"
 toolchains="$cache_root/toolchains"
 mkdir -p "$downloads" "$toolchains" "$(dirname -- "$app")"
+app=$(cd -- "$(dirname -- "$app")" && pwd -P)/$(basename -- "$app")
 if [[ -n ${VCPKG_DEFAULT_BINARY_CACHE:-} ]]; then
   mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 fi
