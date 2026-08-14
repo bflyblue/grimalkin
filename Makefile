@@ -24,7 +24,9 @@ SESSION_SHIM := src/libgrimalkin_session.a
 SESSION_TEST := src/session_shim_test
 SUPPORT_LIBRARIES := $(FREETYPE_SHIM) $(GHOSTTY_SHIM) $(PNG_SHIM) $(SESSION_SHIM)
 SHADER_MANIFEST := src/shaders/manifest.txt
-SHADER_SOURCES := $(addprefix src/shaders/,$(shell awk 'NF && $$1 !~ /^#/' $(SHADER_MANIFEST)))
+# Match manifest entries by their valid filename prefix instead of spelling a
+# comment marker here; Apple's GNU Make 3.81 parses that marker as Make syntax.
+SHADER_SOURCES := $(addprefix src/shaders/,$(shell awk 'NF && $$1 ~ /^[[:alnum:]_.-]/ { print $$1 }' $(SHADER_MANIFEST)))
 SHADER_OUTPUTS := $(addsuffix .spv,$(SHADER_SOURCES))
 SHADER_INCLUDES := src/shaders/colour.glsl
 
