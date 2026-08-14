@@ -292,6 +292,15 @@ if [[ "$prepare_only" == true ]]; then
   exit 0
 fi
 
+"$cmake" -E remove_directory "$app"
+GRIMALKIN_APP_VERSION=$version \
+GRIMALKIN_BUNDLE_VERSION=$bundle_version \
+GRIMALKIN_NOTO_FONT=$noto_font \
+GRIMALKIN_NOTO_LICENSE=$noto_license \
+GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
+GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
+  "$project_root/scripts/stage-macos-assets.sh" "$app"
+
 work_tree="$build_root/work"
 grimalkin_stage_make_work_tree "$project_root" "$work_tree" "$cmake"
 
@@ -319,14 +328,18 @@ if [[ ! -f "$test_font" ]]; then
   exit 1
 fi
 
+# Exercise the same Fontconfig file and bundled fonts used by the installed
+# application. Leaving the CJK test override empty prevents CI from bypassing
+# the packaged fallback cascade.
 PATH="$pkgconf_root/bin:$triplet_root/tools/shaderc:$odin_root:$zig_root:$PATH" \
 PKG_CONFIG_PATH="$pkg_config_path" \
+FONTCONFIG_FILE="$app/Contents/Resources/fonts.conf" \
 GRIMALKIN_TEST_FONT_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_ITALIC_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_ITALIC_PATH="$test_font" \
-GRIMALKIN_TEST_CJK_FONT_PATH="$noto_font" \
-GRIMALKIN_NERD_FONT_PATH="$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
+GRIMALKIN_TEST_CJK_FONT_PATH='' \
+GRIMALKIN_NERD_FONT_PATH="$app/Contents/Resources/fonts/SymbolsNerdFontMono-Regular.ttf" \
 ODIN_ROOT="$odin_root" \
 ODIN_FLAGS="-o:speed" \
 ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib ${static_link_flags[*]} $vulkan_link_flags" \
@@ -338,15 +351,6 @@ if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' 
   otool -L "$work_tree/grimalkin" >&2
   exit 1
 fi
-
-"$cmake" -E remove_directory "$app"
-GRIMALKIN_APP_VERSION=$version \
-GRIMALKIN_BUNDLE_VERSION=$bundle_version \
-GRIMALKIN_NOTO_FONT=$noto_font \
-GRIMALKIN_NOTO_LICENSE=$noto_license \
-GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
-GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
-  "$project_root/scripts/stage-macos-assets.sh" "$app"
 
 bundle_inputs="$build_root/bundle-inputs"
 "$cmake" -E remove_directory "$bundle_inputs"

@@ -81,3 +81,15 @@ for required_notice in "${required_notices[@]}"; do
     exit 1
   }
 done
+
+required_font_resources=(
+  "$resources/fonts.conf"
+  "$resources/fonts/NotoSansCJK-Regular.ttc"
+  "$resources/fonts/SymbolsNerdFontMono-Regular.ttf"
+)
+for required_font_resource in "${required_font_resources[@]}"; do
+  [[ -s "$required_font_resource" ]] || {
+    echo "macOS bundle omitted required font resource: $required_font_resource" >&2
+    exit 1
+  }
+done

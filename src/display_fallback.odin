@@ -225,6 +225,7 @@ font_selection_for_cell :: proc(
 				graphemes,
 				candidate_index,
 				"",
+				"",
 				true,
 			)
 			if !found do break
@@ -306,7 +307,13 @@ font_selection_for_cell :: proc(
 	for candidate_index := 0; ; candidate_index += 1 {
 		preferred := ""
 		if nerd_font_symbol_grapheme(graphemes) do preferred = resources.nerd_symbols_path
-		path, face_index, found := font_match_fallback_candidate(style, graphemes, candidate_index, preferred)
+		path, face_index, found := font_match_fallback_candidate(
+			style,
+			graphemes,
+			candidate_index,
+			preferred,
+			resources.fallback_font_path,
+		)
 		if !found do break
 		existing := fallback_face_lookup(
 			resources,

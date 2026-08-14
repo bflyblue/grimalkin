@@ -189,6 +189,19 @@ emoji_presentation_selectors_override_wide_heuristics :: proc(t: ^testing.T) {
 }
 
 @(test)
+fallback_preference_preserves_specific_and_user_faces_before_the_bundle :: proc(t: ^testing.T) {
+	paths, count := fallback_preferred_paths("/nerd.ttf", "/user.ttf", "/bundle.ttc")
+	testing.expect_value(t, count, 3)
+	testing.expect_value(t, paths[0], "/nerd.ttf")
+	testing.expect_value(t, paths[1], "/user.ttf")
+	testing.expect_value(t, paths[2], "/bundle.ttc")
+
+	paths, count = fallback_preferred_paths("/same.ttf", "/same.ttf", "/same.ttf")
+	testing.expect_value(t, count, 1)
+	testing.expect_value(t, paths[0], "/same.ttf")
+}
+
+@(test)
 unsafe_programming_ligature_clusters_are_grouped_across_their_cells :: proc(t: ^testing.T) {
 	shaped := []Shaped_Glyph {
 		{cluster = 0, flags = SHAPED_GLYPH_UNSAFE_TO_BREAK},
