@@ -253,16 +253,34 @@ font_instance_try_open_configured :: proc(
 	}
 
 	font.path = strings.clone(canonical_path)
-	font.key = Font_Instance_Key {
-		source       = font.path,
-		face_index   = face_index,
-		pixel_height = pixel_height,
-		style        = style,
-		hinting      = render_config.hinting,
-		render_config = render_config,
+	font.key = font_instance_key(
+		font.path,
+		face_index,
+		pixel_height,
+		style,
+		render_config,
+		require_colour,
+	)
+	return font, GRIMALKIN_FONT_OK
+}
+
+font_instance_key :: proc(
+	source: string,
+	face_index: i32,
+	pixel_height: u16,
+	style: Font_Style,
+	render_config: Font_Render_Config,
+	require_colour := false,
+) -> Font_Instance_Key {
+	return Font_Instance_Key {
+		source         = source,
+		face_index     = face_index,
+		pixel_height   = pixel_height,
+		style          = style,
+		hinting        = render_config.hinting,
+		render_config  = render_config,
 		require_colour = require_colour,
 	}
-	return font, GRIMALKIN_FONT_OK
 }
 
 font_instance_close :: proc(font: ^Font_Instance) {

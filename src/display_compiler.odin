@@ -53,6 +53,7 @@ Renderer_Resources :: struct {
 	colour_glyph_atlas: Raster_Atlas,
 	colour_glyph_atlas_initialized: bool,
 	font_faces:   [dynamic]^Font_Face,
+	font_face_lookup: map[Font_Instance_Key]^Font_Face,
 	images:       map[u32]Image_Resource_State,
 	fallback_cache: map[u64]Font_Selection,
 	fallback_misses: map[u64]bool,

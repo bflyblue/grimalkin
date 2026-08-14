@@ -43,13 +43,7 @@ sync_terminal_images :: proc(
 	removed: [dynamic]u32
 	defer delete(removed)
 	for image_id, _ in resources.images {
-		present := false
-		for &image in snapshot.images {
-			if image.image_id == image_id {
-				present = true
-				break
-			}
-		}
+		_, present := terminal_snapshot_image(snapshot, image_id)
 		if !present do append(&removed, image_id)
 	}
 	for image_id in removed {
@@ -170,14 +164,7 @@ find_virtual_placement :: proc(
 	^Terminal_Placement,
 	bool,
 ) {
-	for &placement in snapshot.placements {
-		if placement.is_virtual &&
-		   placement.image_id == image_id &&
-		   (placement_id == 0 || placement.placement_id == placement_id) {
-			return &placement, true
-		}
-	}
-	return nil, false
+	return terminal_snapshot_virtual_placement(snapshot, image_id, placement_id)
 }
 
 kitty_placement_source_rect :: proc(

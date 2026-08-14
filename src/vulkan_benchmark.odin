@@ -2,7 +2,133 @@ package main
 
 import "core:fmt"
 import "core:sort"
+import "core:time"
 import vk "vendor:vulkan"
+
+BENCHMARK_INDEX_ENTRIES :: 1024
+BENCHMARK_INDEX_LOOKUPS :: 100_000
+
+benchmark_print_index_result :: proc(label: string, linear_start, indexed_start: time.Tick, checksum: u64) {
+	linear_ms := time.duration_milliseconds(time.tick_diff(linear_start, indexed_start))
+	indexed_ms := time.duration_milliseconds(time.tick_since(indexed_start))
+	fmt.printfln(
+		"  %s lookup: linear %.3f ms, indexed %.3f ms (%d entries, %d lookups, checksum %d)",
+		label,
+		linear_ms,
+		indexed_ms,
+		BENCHMARK_INDEX_ENTRIES,
+		BENCHMARK_INDEX_LOOKUPS,
+		checksum,
+	)
+}
+
+benchmark_graphics_indexes :: proc() {
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	snapshot.images = make([]Terminal_Image, BENCHMARK_INDEX_ENTRIES)
+	snapshot.image_indices = make(map[u32]int)
+	snapshot.placements = make([]Terminal_Placement, BENCHMARK_INDEX_ENTRIES)
+	for index in 0 ..< BENCHMARK_INDEX_ENTRIES {
+		image_id := u32(index + 1)
+		snapshot.images[index].image_id = image_id
+		snapshot.image_indices[image_id] = index
+		snapshot.placements[index] = {
+			image_id = image_id,
+			placement_id = image_id,
+			is_virtual = true,
+		}
+	}
+	terminal_snapshot_index_virtual_placements(&snapshot)
+
+	checksum := u64(0)
+	linear_start := time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		image_id := u32(iteration % BENCHMARK_INDEX_ENTRIES + 1)
+		for &image in snapshot.images {
+			if image.image_id == image_id {
+				checksum += u64(image.image_id)
+				break
+			}
+		}
+	}
+	indexed_start := time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		image_id := u32(iteration % BENCHMARK_INDEX_ENTRIES + 1)
+		if image, found := terminal_snapshot_image(&snapshot, image_id); found {
+			checksum += u64(image.image_id)
+		}
+	}
+	benchmark_print_index_result("Kitty image", linear_start, indexed_start, checksum)
+
+	checksum = 0
+	linear_start = time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		placement_id := u32(iteration % BENCHMARK_INDEX_ENTRIES + 1)
+		for &placement in snapshot.placements {
+			if placement.is_virtual &&
+			   placement.image_id == placement_id &&
+			   placement.placement_id == placement_id {
+				checksum += u64(placement.placement_id)
+				break
+			}
+		}
+	}
+	indexed_start = time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		placement_id := u32(iteration % BENCHMARK_INDEX_ENTRIES + 1)
+		if placement, found := terminal_snapshot_virtual_placement(
+			&snapshot,
+			placement_id,
+			placement_id,
+		); found {
+			checksum += u64(placement.placement_id)
+		}
+	}
+	benchmark_print_index_result("virtual placement", linear_start, indexed_start, checksum)
+}
+
+benchmark_fallback_face_index :: proc() {
+	resources := Renderer_Resources {
+		font_face_lookup = make(map[Font_Instance_Key]^Font_Face),
+	}
+	faces := make([]Font_Face, BENCHMARK_INDEX_ENTRIES)
+	paths := make([]string, BENCHMARK_INDEX_ENTRIES)
+	defer {
+		delete(resources.font_face_lookup)
+		for path in paths do delete(path)
+		delete(paths)
+		delete(faces)
+	}
+	config := font_render_config_grayscale()
+	for index in 0 ..< BENCHMARK_INDEX_ENTRIES {
+		paths[index] = fmt.aprintf("/benchmark/fallback-%d.ttf", index)
+		faces[index].id = u32(index)
+		faces[index].font.key = font_instance_key(paths[index], i32(index), 16, .Regular, config)
+		resources.font_face_lookup[faces[index].font.key] = &faces[index]
+	}
+
+	checksum := u64(0)
+	linear_start := time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		index := iteration % BENCHMARK_INDEX_ENTRIES
+		key := font_instance_key(paths[index], i32(index), 16, .Regular, config)
+		for &face in faces {
+			if face.font.key == key {
+				checksum += u64(face.id)
+				break
+			}
+		}
+	}
+	indexed_start := time.tick_now()
+	for iteration in 0 ..< BENCHMARK_INDEX_LOOKUPS {
+		index := iteration % BENCHMARK_INDEX_ENTRIES
+		key := font_instance_key(paths[index], i32(index), 16, .Regular, config)
+		if face := resources.font_face_lookup[key]; face != nil {
+			checksum += u64(face.id)
+		}
+	}
+	benchmark_print_index_result("fallback face", linear_start, indexed_start, checksum)
+}
 
 benchmark_samples_destroy :: proc(samples: ^Benchmark_Samples) {
 	delete(samples.cpu_redraw)
@@ -83,6 +209,9 @@ benchmark_print :: proc(app: ^Grimalkin_App, samples: ^Benchmark_Samples) {
 	fmt.println(
 		"  Total includes presentation and the demo's deliberate per-frame queue wait.",
 	)
+	fmt.println("Indexed hot-path microbenchmarks:")
+	benchmark_graphics_indexes()
+	benchmark_fallback_face_index()
 }
 
 choose_present_mode :: proc(available: []vk.PresentModeKHR) -> vk.PresentModeKHR {

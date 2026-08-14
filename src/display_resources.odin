@@ -19,6 +19,7 @@ renderer_resources_init_configured :: proc(
 	resources := Renderer_Resources {
 		visuals       = visual_cache_init(),
 		images        = make(map[u32]Image_Resource_State),
+		font_face_lookup = make(map[Font_Instance_Key]^Font_Face),
 		fallback_cache = make(map[u64]Font_Selection),
 		fallback_misses = make(map[u64]bool),
 		render_config = render_config,
@@ -66,6 +67,7 @@ renderer_resources_init_configured :: proc(
 }
 
 renderer_resources_destroy :: proc(resources: ^Renderer_Resources) {
+	delete(resources.font_face_lookup)
 	for face in resources.font_faces {
 		if face != nil {
 			font_instance_close(&face.font)

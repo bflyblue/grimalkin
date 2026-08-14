@@ -231,6 +231,11 @@ Terminal_Image :: struct {
 	pixels:     []u8,
 }
 
+Terminal_Virtual_Placement_Key :: struct {
+	image_id:     u32,
+	placement_id: u32,
+}
+
 Terminal_Snapshot :: struct {
 	cols:                    u16,
 	rows:                    u16,
@@ -254,6 +259,9 @@ Terminal_Snapshot :: struct {
 	row_graphemes:           [][]u32,
 	placements:              []Terminal_Placement,
 	images:                  []Terminal_Image,
+	image_indices:           map[u32]int,
+	virtual_placement_indices: map[Terminal_Virtual_Placement_Key]int,
+	first_virtual_placement_by_image: map[u32]int,
 }
 
 Terminal_Snapshot_Update :: struct {
@@ -613,6 +621,9 @@ terminal_snapshot_destroy :: proc(snapshot: ^Terminal_Snapshot) {
 	}
 	delete(snapshot.images)
 	delete(snapshot.placements)
+	delete(snapshot.image_indices)
+	delete(snapshot.virtual_placement_indices)
+	delete(snapshot.first_virtual_placement_by_image)
 	delete(snapshot.row_graphemes)
 	delete(snapshot.cells)
 	delete(snapshot.row_data)
@@ -634,6 +645,26 @@ terminal_snapshot_copy_cell :: proc(destination: ^Terminal_Cell, cell: ^Grimalki
 		wide                = Terminal_Wide(cell.wide),
 		underline           = cell.underline,
 		has_text            = cell.has_text != 0,
+	}
+}
+
+terminal_snapshot_index_virtual_placements :: proc(snapshot: ^Terminal_Snapshot) {
+	delete(snapshot.virtual_placement_indices)
+	delete(snapshot.first_virtual_placement_by_image)
+	snapshot.virtual_placement_indices = make(map[Terminal_Virtual_Placement_Key]int)
+	snapshot.first_virtual_placement_by_image = make(map[u32]int)
+	for &placement, index in snapshot.placements {
+		if !placement.is_virtual do continue
+		key := Terminal_Virtual_Placement_Key {
+			image_id = placement.image_id,
+			placement_id = placement.placement_id,
+		}
+		if _, found := snapshot.virtual_placement_indices[key]; !found {
+			snapshot.virtual_placement_indices[key] = index
+		}
+		if _, found := snapshot.first_virtual_placement_by_image[placement.image_id]; !found {
+			snapshot.first_virtual_placement_by_image[placement.image_id] = index
+		}
 	}
 }
 
@@ -659,14 +690,18 @@ terminal_snapshot_replace_graphics :: proc(
 			is_virtual    = placement.is_virtual != 0,
 		}
 	}
+	terminal_snapshot_index_virtual_placements(snapshot)
 
 	old_images := snapshot.images
+	old_image_indices := snapshot.image_indices
 	image_views := mem.slice_ptr(view.images, int(view.image_count))
 	snapshot.images = make([]Terminal_Image, len(image_views))
+	snapshot.image_indices = make(map[u32]int)
 	for image, index in image_views {
 		reused := false
-		for &old_image in old_images {
-			if old_image.image_id == image.image_id && old_image.generation == image.generation {
+		if old_index, found := old_image_indices[image.image_id]; found {
+			old_image := &old_images[old_index]
+			if old_image.generation == image.generation {
 				snapshot.images[index] = {
 					image_id   = image.image_id,
 					width      = image.width,
@@ -677,7 +712,6 @@ terminal_snapshot_replace_graphics :: proc(
 				}
 				old_image.pixels = nil
 				reused = true
-				break
 			}
 		}
 		if !reused {
@@ -693,9 +727,53 @@ terminal_snapshot_replace_graphics :: proc(
 			copy(snapshot.images[index].pixels, pixels)
 			update.image_bytes_copied += u64(len(pixels))
 		}
+		if _, found := snapshot.image_indices[image.image_id]; !found {
+			snapshot.image_indices[image.image_id] = index
+		}
 	}
 	for &old_image in old_images do delete(old_image.pixels)
 	delete(old_images)
+	delete(old_image_indices)
+}
+
+terminal_snapshot_image :: proc(snapshot: ^Terminal_Snapshot, image_id: u32) -> (^Terminal_Image, bool) {
+	if index, found := snapshot.image_indices[image_id]; found {
+		if index >= 0 && index < len(snapshot.images) do return &snapshot.images[index], true
+	}
+	if snapshot.image_indices != nil do return nil, false
+	// Tests and synthetic callers may construct snapshot slices directly.
+	for &image in snapshot.images {
+		if image.image_id == image_id do return &image, true
+	}
+	return nil, false
+}
+
+terminal_snapshot_virtual_placement :: proc(
+	snapshot: ^Terminal_Snapshot,
+	image_id, placement_id: u32,
+) -> (^Terminal_Placement, bool) {
+	index, found := snapshot.virtual_placement_indices[
+		Terminal_Virtual_Placement_Key{image_id = image_id, placement_id = placement_id}
+	]
+	if placement_id == 0 {
+		index, found = snapshot.first_virtual_placement_by_image[image_id]
+	}
+	if found && index >= 0 && index < len(snapshot.placements) {
+		return &snapshot.placements[index], true
+	}
+	if snapshot.virtual_placement_indices != nil ||
+	   snapshot.first_virtual_placement_by_image != nil {
+		return nil, false
+	}
+	// Preserve first-match behavior for synthetic snapshots without indexes.
+	for &placement in snapshot.placements {
+		if placement.is_virtual &&
+		   placement.image_id == image_id &&
+		   (placement_id == 0 || placement.placement_id == placement_id) {
+			return &placement, true
+		}
+	}
+	return nil, false
 }
 
 terminal_core_snapshot :: proc(
