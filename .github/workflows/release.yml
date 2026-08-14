@@ -596,6 +596,5 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" \
             dist/* \
-            --verify-tag \
             --title "Grimalkin $RELEASE_VERSION" \
             --notes-file "docs/releases/$RELEASE_TAG.md"
