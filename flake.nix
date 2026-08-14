@@ -127,7 +127,6 @@
           fontStack = harmonyFontStack pkgs;
           nerdFont = ./assets/fonts/SymbolsNerdFontMono-Regular.ttf;
           nerdFontLicense = ./assets/fonts/NerdFonts-LICENSE.txt;
-          notoCjkLicense = ./third_party/licenses/Noto-Sans-CJK.txt;
           projectLicense = ./LICENSE;
           thirdPartyNotices = ./THIRD_PARTY_NOTICES.md;
           thirdPartyLicenses = ./third_party/licenses;
@@ -201,15 +200,10 @@
                   "$app/Contents/Resources/fonts" \
                   "$app/Contents/Resources/licenses" \
                   "$app/Contents/Resources/vulkan/icd.d"
-                cp -L \
-                  "${pkgs.noto-fonts-cjk-sans}/share/fonts/opentype/noto-cjk/NotoSansCJK-VF.otf.ttc" \
-                  "$app/Contents/Resources/fonts/NotoSansCJK-VF.otf.ttc"
                 cp "${nerdFont}" \
                   "$app/Contents/Resources/fonts/SymbolsNerdFontMono-Regular.ttf"
                 cp "${nerdFontLicense}" \
                   "$app/Contents/Resources/fonts/NerdFonts-LICENSE.txt"
-                cp "${notoCjkLicense}" \
-                  "$app/Contents/Resources/fonts/NotoSansCJK-LICENSE.txt"
                 cp "${projectLicense}" \
                   "$app/Contents/Resources/licenses/Grimalkin-LICENSE.txt"
                 cp "${thirdPartyNotices}" \

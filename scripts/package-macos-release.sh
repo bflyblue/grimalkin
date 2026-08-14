@@ -40,12 +40,10 @@ ln -s /Applications "$stage/Applications"
 
 required_notices=(
   "Contents/Resources/fonts/NerdFonts-LICENSE.txt"
-  "Contents/Resources/fonts/NotoSansCJK-LICENSE.txt"
   "Contents/Resources/licenses/Grimalkin-LICENSE.txt"
   "Contents/Resources/licenses/THIRD_PARTY_NOTICES.md"
   "Contents/Resources/licenses/MoltenVK-LICENSE.txt"
   "Contents/Resources/licenses/third-party/Ghostty.txt"
-  "Contents/Resources/licenses/third-party/Noto-Sans-CJK.txt"
   "Contents/Resources/licenses/vcpkg/fontconfig.txt"
   "Contents/Resources/licenses/vcpkg/freetype.txt"
   "Contents/Resources/licenses/vcpkg/glfw3.txt"

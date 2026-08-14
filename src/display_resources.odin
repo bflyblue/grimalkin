@@ -29,8 +29,6 @@ renderer_resources_init_configured :: proc(
 	if nerd_font_symbols {
 		if path, found := bundled_nerd_symbols_font_path(); found do resources.nerd_symbols_path = path
 	}
-	if path, found := bundled_cjk_font_path(); found do resources.fallback_font_path = path
-
 	styles := [4]Font_Style{.Regular, .Bold, .Italic, .Bold_Italic}
 	for style, index in styles {
 		face := new(Font_Face)
@@ -81,7 +79,6 @@ renderer_resources_destroy :: proc(resources: ^Renderer_Resources) {
 	}
 	delete(resources.font_faces)
 	delete(resources.nerd_symbols_path)
-	delete(resources.fallback_font_path)
 	delete(resources.images)
 	delete(resources.fallback_cache)
 	delete(resources.fallback_misses)

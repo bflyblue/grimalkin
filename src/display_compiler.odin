@@ -61,7 +61,6 @@ Renderer_Resources :: struct {
 	cell_metrics: Font_Metrics,
 	render_config: Font_Render_Config,
 	nerd_symbols_path: string,
-	fallback_font_path: string,
 	nerd_icon_height: u32,
 }
 

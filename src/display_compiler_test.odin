@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 test_texture_registry_clear_pending :: proc(registry: ^Texture_Registry) {
@@ -186,19 +187,6 @@ emoji_presentation_selectors_override_wide_heuristics :: proc(t: ^testing.T) {
 	testing.expect(t, attempt && strict)
 	attempt, strict = emoji_presentation_intent([]u32{0xe0b0}, .Wide)
 	testing.expect(t, !attempt && !strict)
-}
-
-@(test)
-fallback_preference_preserves_specific_and_user_faces_before_the_bundle :: proc(t: ^testing.T) {
-	paths, count := fallback_preferred_paths("/nerd.ttf", "/user.ttf", "/bundle.ttc")
-	testing.expect_value(t, count, 3)
-	testing.expect_value(t, paths[0], "/nerd.ttf")
-	testing.expect_value(t, paths[1], "/user.ttf")
-	testing.expect_value(t, paths[2], "/bundle.ttc")
-
-	paths, count = fallback_preferred_paths("/same.ttf", "/same.ttf", "/same.ttf")
-	testing.expect_value(t, count, 1)
-	testing.expect_value(t, paths[0], "/same.ttf")
 }
 
 @(test)
@@ -406,6 +394,11 @@ display_compiler_uses_styled_faces_cjk_fallback_and_row_revisions :: proc(t: ^te
 	// being forced through the first CJK fallback face.
 	testing.expect(t, len(resources.font_faces) >= 6)
 	testing.expect_value(t, len(resources.font_face_lookup), len(resources.font_faces) - 4)
+	when ODIN_OS == .Darwin {
+		for face in resources.font_faces[4:] {
+			testing.expect(t, !strings.contains(face.font.path, "LastResort"))
+		}
+	}
 	testing.expect_value(t, len(resources.textures.resources), 1)
 	testing.expect(t, grid.cells[2 * 40 + 39].visual_id != 0)
 	testing.expect(t, grid.cells[3 * 40].visual_id != 0)

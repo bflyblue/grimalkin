@@ -211,18 +211,6 @@ if [[ ! -x "$dylibbundler_root/dylibbundler" ]]; then
   make -C "$dylibbundler_root"
 fi
 
-noto_font="$downloads/NotoSansCJK-Regular.ttc"
-noto_license="$downloads/NotoSansCJK-LICENSE.txt"
-download \
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/$NOTO_CJK_REVISION/Sans/OTC/NotoSansCJK-Regular.ttc" \
-  "$noto_font" \
-  "$NOTO_CJK_SHA256"
-download \
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/$NOTO_CJK_REVISION/LICENSE" \
-  "$noto_license" \
-  "$NOTO_CJK_LICENSE_SHA256"
-cmp "$noto_license" "$project_root/third_party/licenses/Noto-Sans-CJK.txt"
-
 vcpkg_root=${VCPKG_ROOT:-"$toolchains/vcpkg"}
 grimalkin_prepare_git_checkout \
   "$vcpkg_root" https://github.com/microsoft/vcpkg.git \
@@ -296,8 +284,6 @@ fi
 "$cmake" -E remove_directory "$app"
 GRIMALKIN_APP_VERSION=$version \
 GRIMALKIN_BUNDLE_VERSION=$bundle_version \
-GRIMALKIN_NOTO_FONT=$noto_font \
-GRIMALKIN_NOTO_LICENSE=$noto_license \
 GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
 GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
   "$project_root/scripts/stage-macos-assets.sh" "$app"
@@ -329,22 +315,26 @@ if [[ ! -f "$test_font" ]]; then
   exit 1
 fi
 
-# Exercise the same Fontconfig file and bundled fonts used by the installed
-# application. Leaving the CJK test override empty prevents CI from bypassing
-# the packaged fallback cascade.
+# Put Odin's temporary test executable inside the staged application so it
+# discovers fonts.conf through the same app-relative path as the installed
+# executable. Leaving fallback overrides unset ensures Fontconfig selects
+# fonts supplied by macOS.
+fontconfig_test="$app/Contents/MacOS/grimalkin-fontconfig-test"
 PATH="$pkgconf_root/bin:$triplet_root/tools/shaderc:$odin_root:$zig_root:$PATH" \
 PKG_CONFIG_PATH="$pkg_config_path" \
-FONTCONFIG_FILE="$app/Contents/Resources/fonts.conf" \
+DYLD_LIBRARY_PATH="$work_tree:$triplet_root/lib:$ghostty_source/zig-out/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
 GRIMALKIN_TEST_FONT_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_ITALIC_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_ITALIC_PATH="$test_font" \
 GRIMALKIN_TEST_CJK_FONT_PATH='' \
-GRIMALKIN_NERD_FONT_PATH="$app/Contents/Resources/fonts/SymbolsNerdFontMono-Regular.ttf" \
 ODIN_ROOT="$odin_root" \
 ODIN_FLAGS="-o:speed" \
+ODIN_TEST_FLAGS="-out:'$fontconfig_test'" \
 ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib ${static_link_flags[*]} $vulkan_link_flags" \
   make -C "$work_tree" "${make_targets[@]}"
+"$cmake" -E rm -f "$fontconfig_test"
+"$cmake" -E remove_directory "$fontconfig_test.dSYM"
 
 if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' | \
     grep -E -q '^(/opt/homebrew|/usr/local)/'; then

@@ -6,44 +6,30 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-fallback_preferred_paths :: proc(per_grapheme, override, bundled: string) -> ([3]string, int) {
-	result: [3]string
-	count := 0
-	candidates := [3]string{per_grapheme, override, bundled}
-	for candidate in candidates {
-		if candidate == "" do continue
-		duplicate := false
-		for existing in result[:count] {
-			if existing == candidate {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			result[count] = candidate
-			count += 1
-		}
-	}
-	return result, count
-}
-
 font_match_fallback_candidate :: proc(
 	style: Font_Style,
 	codepoints: []u32,
 	candidate_index: int,
 	preferred_path := "",
-	bundled_path := "",
 	require_colour := false,
 ) -> (string, i32, bool) {
-	preferred: [3]string
+	preferred: [2]string
 	preferred_count := 0
+	override := ""
 	if !require_colour {
-		override := os.get_env("GRIMALKIN_FALLBACK_FONT_PATH", context.temp_allocator)
+		override = os.get_env("GRIMALKIN_FALLBACK_FONT_PATH", context.temp_allocator)
 		if override == "" do override = os.get_env("GRIMALKIN_CJK_FONT_PATH", context.temp_allocator)
 		// A specific per-grapheme face (currently bundled Nerd symbols) must
 		// precede the broad CJK/user fallback, which may contain overlapping PUA
 		// mappings with unrelated artwork.
-		preferred, preferred_count = fallback_preferred_paths(preferred_path, override, bundled_path)
+		if preferred_path != "" && preferred_path != override {
+			preferred[preferred_count] = preferred_path
+			preferred_count += 1
+		}
+		if override != "" {
+			preferred[preferred_count] = override
+			preferred_count += 1
+		}
 	}
 	if candidate_index < preferred_count do return strings.clone(preferred[candidate_index]), 0, true
 	system_index := candidate_index - preferred_count
@@ -125,29 +111,6 @@ bundled_nerd_symbols_font_path :: proc(allocator := context.allocator) -> (strin
 	if development_error == nil && os.is_file(development_path) {
 		absolute, absolute_error := os.get_absolute_path(development_path, allocator)
 		if absolute_error == nil do return absolute, true
-	}
-	return "", false
-}
-
-bundled_cjk_font_path :: proc(allocator := context.allocator) -> (string, bool) {
-	when ODIN_OS == .Darwin {
-		executable_directory, executable_error := os.get_executable_directory(context.temp_allocator)
-		if executable_error != nil || !strings.has_suffix(executable_directory, "/Contents/MacOS") {
-			return "", false
-		}
-		filenames := [?]string {
-			"NotoSansCJK-Regular.ttc",
-			"NotoSansCJK-VF.otf.ttc",
-		}
-		for filename in filenames {
-			candidate, candidate_error := filepath.join(
-				[]string{executable_directory, "..", "Resources", "fonts", filename},
-				context.temp_allocator,
-			)
-			if candidate_error == nil && os.is_file(candidate) {
-				return strings.clone(candidate, allocator), true
-			}
-		}
 	}
 	return "", false
 }
