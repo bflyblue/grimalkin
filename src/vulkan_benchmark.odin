@@ -53,7 +53,7 @@ benchmark_print_series :: proc(label: string, summary: Benchmark_Summary) {
 	)
 }
 
-benchmark_print :: proc(app: ^Vulkan_App, samples: ^Benchmark_Samples) {
+benchmark_print :: proc(app: ^Grimalkin_App, samples: ^Benchmark_Samples) {
 	fmt.printfln(
 		"\nRender benchmark: %d measured redraws after %d warmup frames (%dx%d framebuffer)",
 		len(samples.total),

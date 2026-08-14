@@ -13,12 +13,12 @@ cursor_gpu_capture_destroy :: proc(capture: ^Cursor_Gpu_Capture) {
 }
 
 cursor_gpu_capture :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	style: Terminal_Cursor_Style,
 	opacity: u16,
 ) -> Cursor_Gpu_Capture {
 	app.demo.snapshot.cursor_style = style
-	stats := draw_frame(app, opacity, true)
+	stats := draw_frame_components(app, opacity, true)
 	return {
 		pixels = read_framebuffer_pixels(app),
 		stats = stats,
@@ -26,7 +26,7 @@ cursor_gpu_capture :: proc(
 }
 
 cursor_gpu_pixel_luminance :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	pixels: []u8,
 	cell_x, cell_y: u32,
 	within_x, within_y: u32,
@@ -43,7 +43,7 @@ cursor_gpu_pixel_luminance :: proc(
 }
 
 cursor_gpu_pixel_rgba :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	pixels: []u8,
 	cell_x, cell_y: u32,
 	within_x, within_y: u32,
@@ -59,7 +59,7 @@ cursor_gpu_pixel_rgba :: proc(
 	return {pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]}
 }
 
-gpu_framebuffer_pixel :: proc(app: ^Vulkan_App, pixels: []u8, x, y: u32) -> [4]u8 {
+gpu_framebuffer_pixel :: proc(app: ^Grimalkin_App, pixels: []u8, x, y: u32) -> [4]u8 {
 	if x >= app.extent.width || y >= app.extent.height do fmt.panicf("GPU probe lies outside framebuffer")
 	offset := int((y * app.extent.width + x) * 4)
 	return {pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]}
@@ -114,7 +114,7 @@ cursor_gpu_expect_no_metadata_upload :: proc(label: string, stats: Benchmark_Fra
 	}
 }
 
-run_cursor_gpu_tests :: proc(app: ^Vulkan_App) {
+run_cursor_gpu_tests :: proc(app: ^Grimalkin_App) {
 	metrics := app.demo.resources.cell_metrics
 	if metrics.cell_width < 4 || metrics.cell_height < 4 || app.demo.grid.cols < 4 || app.demo.grid.rows < 4 {
 		fmt.panicf(

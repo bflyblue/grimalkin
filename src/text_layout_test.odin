@@ -42,7 +42,7 @@ text_grid_is_centered_inside_a_larger_framebuffer :: proc(t: ^testing.T) {
 	demo.resources.cell_metrics.cell_height = 22
 	demo.grid.cols = GRID_COLUMNS
 	demo.grid.rows = GRID_ROWS
-	app := Vulkan_App {
+	app := Grimalkin_App {
 		demo = &demo,
 		extent = {width = 1200, height = 917},
 	}

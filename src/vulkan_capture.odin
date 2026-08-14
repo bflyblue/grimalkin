@@ -40,17 +40,17 @@ framebuffer_pixels_to_rgba :: proc(
 	return pixels
 }
 
-create_capture_buffer :: proc(app: ^Vulkan_App) {
-	if !capture_format_supported(app.surface_format.format) {
+create_capture_buffer :: proc(renderer: ^Vulkan_Renderer) {
+	if !capture_format_supported(renderer.surface_format.format) {
 		fmt.panicf(
 			"framebuffer capture does not support swapchain format %v",
-			app.surface_format.format,
+			renderer.surface_format.format,
 		)
 	}
-	byte_count, valid_byte_count := texture_byte_count(app.extent.width, app.extent.height, 1, 4)
+	byte_count, valid_byte_count := texture_byte_count(renderer.extent.width, renderer.extent.height, 1, 4)
 	if !valid_byte_count do fmt.panicf("framebuffer capture dimensions are invalid")
-	app.capture_buffer = create_buffer(
-		app,
+	renderer.capture_buffer = create_buffer(
+		renderer,
 		vk.DeviceSize(byte_count),
 		{.TRANSFER_DST},
 		{.HOST_VISIBLE, .HOST_COHERENT},
@@ -58,7 +58,7 @@ create_capture_buffer :: proc(app: ^Vulkan_App) {
 	)
 }
 
-write_frame_capture :: proc(app: ^Vulkan_App) {
+write_frame_capture :: proc(app: ^Grimalkin_App) {
 	pixels := read_framebuffer_pixels(app, context.temp_allocator)
 	c_path, path_error := strings.clone_to_cstring(app.capture_path, context.temp_allocator)
 	if path_error != nil {
@@ -84,14 +84,14 @@ write_frame_capture :: proc(app: ^Vulkan_App) {
 }
 
 read_framebuffer_pixels :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	allocator := context.allocator,
 ) -> []u8 {
 	source := mem.byte_slice(app.capture_buffer.mapped, int(app.capture_buffer.size))
 	return framebuffer_pixels_to_rgba(source, app.surface_format.format, allocator)
 }
 
-record_frame_capture :: proc(app: ^Vulkan_App, command_buffer: vk.CommandBuffer, image_index: u32) {
+record_frame_capture :: proc(app: ^Grimalkin_App, command_buffer: vk.CommandBuffer, image_index: u32) {
 	to_transfer := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
 		srcAccessMask = {.COLOR_ATTACHMENT_WRITE},

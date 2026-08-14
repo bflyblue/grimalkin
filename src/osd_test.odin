@@ -261,7 +261,7 @@ osd_subpixel_labels_follow_effective_rotation :: proc(t: ^testing.T) {
 osd_text_rendering_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: ^testing.T) {
 	entry_keys := [?]i32{glfw.KEY_RIGHT, glfw.KEY_ENTER, glfw.KEY_SPACE}
 	for key in entry_keys {
-		app := Vulkan_App {
+		app := Grimalkin_App {
 			settings = application_settings_default(),
 			osd = {visible = true, page = .Main, selected = int(Osd_Main_Row.Text_Rendering)},
 		}
@@ -283,7 +283,7 @@ osd_text_rendering_submenu_navigation_uses_right_enter_space_and_escape :: proc(
 osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: ^testing.T) {
 	entry_keys := [?]i32{glfw.KEY_RIGHT, glfw.KEY_ENTER, glfw.KEY_SPACE}
 	for key in entry_keys {
-		app := Vulkan_App {
+		app := Grimalkin_App {
 			settings = application_settings_default(),
 			osd = {visible = true, page = .Main, selected = int(Osd_Main_Row.Key_Bindings)},
 		}
@@ -309,7 +309,7 @@ osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: 
 osd_font_submenus_apply_on_enter_and_cancel_on_escape :: proc(t: ^testing.T) {
 	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code"})
 	defer font_catalog_destroy(&catalog)
-	app := Vulkan_App {
+	app := Grimalkin_App {
 		settings = application_settings_default(),
 		applied_settings = application_settings_default(),
 		font_catalog = &catalog,
@@ -343,7 +343,7 @@ osd_font_submenus_apply_on_enter_and_cancel_on_escape :: proc(t: ^testing.T) {
 osd_font_list_supports_paging_home_end_and_typeahead :: proc(t: ^testing.T) {
 	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code"})
 	defer font_catalog_destroy(&catalog)
-	app := Vulkan_App {
+	app := Grimalkin_App {
 		settings = application_settings_default(),
 		applied_settings = application_settings_default(),
 		font_catalog = &catalog,

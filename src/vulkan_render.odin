@@ -5,7 +5,7 @@ import "core:time"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-read_gpu_draw_time :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> (f64, bool) {
+read_gpu_draw_time :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> (f64, bool) {
 	if frame.timestamp_pool == 0 || !frame.timestamp_pending {
 		return 0, false
 	}
@@ -34,13 +34,25 @@ read_gpu_draw_time :: proc(app: ^Vulkan_App, frame: ^Frame_Context) -> (f64, boo
 	return f64(delta) * app.timestamp_period / 1_000_000.0, true
 }
 
-draw_frame :: proc(
-	app: ^Vulkan_App,
+draw_frame_components :: proc(
+	app: ^Grimalkin_App,
 	cursor_opacity: u16,
 	read_back_framebuffer := false,
 	text_opacity := max(u16),
 	scroll_indicator_opacity := u16(0),
 ) -> Benchmark_Frame_Sample {
+	return draw_frame(
+		app,
+		{
+			cursor_opacity = cursor_opacity,
+			read_back_framebuffer = read_back_framebuffer,
+			text_opacity = text_opacity,
+			scroll_indicator_opacity = scroll_indicator_opacity,
+		},
+	)
+}
+
+draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_Frame_Sample {
 	total_start := time.tick_now()
 	frame := &app.frames[app.frame_index]
 	vk_must(
@@ -60,7 +72,7 @@ draw_frame :: proc(
 	)
 	if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
 		if acquire_result == .ERROR_OUT_OF_DATE_KHR {
-			recreate_swapchain(app)
+			_ = application_recreate_swapchain(app)
 			return {}
 		}
 		fmt.panicf("acquiring a swapchain image failed: %v", acquire_result)
@@ -79,14 +91,14 @@ draw_frame :: proc(
 	vk_must(vk.ResetCommandBuffer(frame.command_buffer, {}), "resetting a frame command buffer")
 	write_capture :=
 		app.capture_path != "" && !app.capture_complete && glfw.GetTime() >= app.capture_deadline
-	capture_frame := read_back_framebuffer || write_capture
+	capture_frame := input.read_back_framebuffer || write_capture
 	record_command_buffer(
 		app,
 		frame,
 		image_index,
-		cursor_opacity,
-		text_opacity,
-		scroll_indicator_opacity,
+		input.cursor_opacity,
+		input.text_opacity,
+		input.scroll_indicator_opacity,
 		capture_frame,
 	)
 
@@ -128,7 +140,7 @@ draw_frame :: proc(
 	present_result := vk.QueuePresentKHR(app.present_queue, &present_info)
 	if present_result != .SUCCESS && present_result != .SUBOPTIMAL_KHR {
 		if present_result == .ERROR_OUT_OF_DATE_KHR {
-			recreate_swapchain(app)
+			_ = application_recreate_swapchain(app)
 		} else {
 			fmt.panicf("presenting the swapchain image failed: %v", present_result)
 		}
@@ -147,7 +159,7 @@ draw_frame :: proc(
 }
 
 record_padding_glow_source :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	frame: ^Frame_Context,
 	command_buffer: vk.CommandBuffer,
 	text_area: vk.Rect2D,
@@ -229,7 +241,7 @@ record_padding_glow_source :: proc(
 }
 
 record_command_buffer :: proc(
-	app: ^Vulkan_App,
+	app: ^Grimalkin_App,
 	frame: ^Frame_Context,
 	image_index: u32,
 	cursor_opacity: u16,

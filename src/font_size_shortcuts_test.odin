@@ -146,7 +146,7 @@ font_size_shortcut_adjust_clamps_to_existing_font_limits :: proc(t: ^testing.T) 
 @(test)
 repeated_font_size_shortcuts_coalesce_into_pending_resource_work :: proc(t: ^testing.T) {
 	settings := application_settings_default()
-	app := Vulkan_App {
+	app := Grimalkin_App {
 		settings         = settings,
 		applied_settings = settings,
 	}
@@ -157,7 +157,7 @@ repeated_font_size_shortcuts_coalesce_into_pending_resource_work :: proc(t: ^tes
 	testing.expect(t, app.settings_layout_pending)
 	testing.expect(t, app.settings_save_pending)
 
-	app = Vulkan_App {
+	app = Grimalkin_App {
 		settings         = application_settings_default(),
 		applied_settings = application_settings_default(),
 	}

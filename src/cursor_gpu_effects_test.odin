@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "vendor:glfw"
 
-cursor_gpu_test_padding_glow :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_padding_glow :: proc(app: ^Grimalkin_App) {
 	previous_settings := app.settings
 	previous_cursor_visible := app.demo.snapshot.cursor_visible
 	defer {
@@ -43,15 +43,15 @@ cursor_gpu_test_padding_glow :: proc(app: ^Vulkan_App) {
 		display_grid_mark_row_dirty(grid, row)
 	}
 
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	off := read_framebuffer_pixels(app)
 	defer delete(off)
 	app.settings.padding_glow = .Background
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	background_pixels := read_framebuffer_pixels(app)
 	defer delete(background_pixels)
 	app.settings.padding_glow = .Tint
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	tint_pixels := read_framebuffer_pixels(app)
 	defer delete(tint_pixels)
 
@@ -152,7 +152,7 @@ cursor_gpu_test_padding_glow :: proc(app: ^Vulkan_App) {
 	}
 	impulse_row := int(grid.rows) / 2
 	grid.cells[impulse_row * int(grid.cols)].background = edge_background
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	diffused := read_framebuffer_pixels(app)
 	defer delete(diffused)
 	cell_height := app.demo.resources.cell_metrics.cell_height
@@ -176,7 +176,7 @@ cursor_gpu_test_padding_glow :: proc(app: ^Vulkan_App) {
 	}
 	grid.decorations[impulse_row * int(grid.cols)] = edge_foreground
 	display_grid_mark_row_dirty(grid, impulse_row)
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	local_accent := read_framebuffer_pixels(app)
 	defer delete(local_accent)
 	center_accent_y := u32(area.offset.y) + u32(impulse_row) * cell_height
@@ -194,7 +194,7 @@ cursor_gpu_test_padding_glow :: proc(app: ^Vulkan_App) {
 	}
 }
 
-cursor_gpu_test_scroll_indicator :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_scroll_indicator :: proc(app: ^Grimalkin_App) {
 	snapshot := &app.demo.snapshot
 	previous_total := snapshot.scroll_total_rows
 	previous_offset := snapshot.scroll_offset_rows
@@ -221,13 +221,13 @@ cursor_gpu_test_scroll_indicator :: proc(app: ^Vulkan_App) {
 	)
 	if !geometry.valid do fmt.panicf("scroll indicator GPU geometry was invalid")
 
-	_ = draw_frame(app, 0, true, scroll_indicator_opacity = 0)
+	_ = draw_frame_components(app, 0, true, scroll_indicator_opacity = 0)
 	baseline := read_framebuffer_pixels(app)
 	defer delete(baseline)
-	_ = draw_frame(app, 0, true, scroll_indicator_opacity = max(u16))
+	_ = draw_frame_components(app, 0, true, scroll_indicator_opacity = max(u16))
 	full := read_framebuffer_pixels(app)
 	defer delete(full)
-	_ = draw_frame(
+	_ = draw_frame_components(
 		app,
 		0,
 		true,
@@ -267,13 +267,13 @@ cursor_gpu_test_scroll_indicator :: proc(app: ^Vulkan_App) {
 	}
 }
 
-cursor_gpu_test_osd :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_osd :: proc(app: ^Grimalkin_App) {
 	app.osd.visible = false
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	closed := read_framebuffer_pixels(app)
 	defer delete(closed)
 	osd_set_visible(app, true)
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	opened := read_framebuffer_pixels(app)
 	defer delete(opened)
 	outside_closed := gpu_framebuffer_pixel(app, closed, 0, 0)
@@ -300,7 +300,7 @@ cursor_gpu_test_osd :: proc(app: ^Vulkan_App) {
 			app.osd.paste_lines = 4
 		}
 		osd_prepare(app)
-		_ = draw_frame(app, 0, true)
+		_ = draw_frame_components(app, 0, true)
 		footer := osd_footer_text(page)
 		footer_row := int(app.osd.rows) - 1
 		column := 0
@@ -315,7 +315,7 @@ cursor_gpu_test_osd :: proc(app: ^Vulkan_App) {
 	osd_set_visible(app, false)
 }
 
-cursor_gpu_test_window_style :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_window_style :: proc(app: ^Grimalkin_App) {
 	initial := window_outer_geometry(app.window)
 	app.settings.window_style = .Frameless
 	apply_window_style(app)
@@ -345,7 +345,7 @@ cursor_gpu_test_window_style :: proc(app: ^Vulkan_App) {
 	}
 }
 
-cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Grimalkin_App) {
 	terminal_write_string(&app.demo.terminal, "Grimalkin live text rendering rebuild\r\n0123456789 ABC xyz")
 	_ = grimalkin_view_refresh(app.demo)
 	app.settings = application_settings_default()
@@ -369,7 +369,7 @@ cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Vulkan_App) {
 		// otherwise appear only intermittently in the live application.
 		app.osd.visible = false
 		for frame_index := 0; frame_index < app.active_frame_count; frame_index += 1 {
-			_ = draw_frame(app, 0, true)
+			_ = draw_frame_components(app, 0, true)
 			pixels := read_framebuffer_pixels(app)
 			if len(pixels) != int(app.extent.width * app.extent.height * 4) {
 				fmt.panicf("text-resource rebuild produced an incomplete framebuffer")
@@ -433,7 +433,7 @@ cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Vulkan_App) {
 			)
 		}
 		for _ in 0 ..< app.active_frame_count {
-			_ = draw_frame(app, 0, true)
+			_ = draw_frame_components(app, 0, true)
 			pixels := read_framebuffer_pixels(app)
 			if len(pixels) != int(app.extent.width * app.extent.height * 4) {
 				fmt.panicf("font-family rebuild produced an incomplete framebuffer")
@@ -447,10 +447,10 @@ cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Vulkan_App) {
 	apply_pending_settings(app)
 }
 
-cursor_gpu_test_lazy_fallback_growth :: proc(app: ^Vulkan_App) {
+cursor_gpu_test_lazy_fallback_growth :: proc(app: ^Grimalkin_App) {
 	terminal_write_string(&app.demo.terminal, "\x1b[6;1Hfallback: 漢字 العربية ☃ \ue0b0")
 	_ = grimalkin_view_refresh(app.demo)
-	_ = draw_frame(app, 0, true)
+	_ = draw_frame_components(app, 0, true)
 	pixels := read_framebuffer_pixels(app)
 	defer delete(pixels)
 	if len(app.demo.resources.font_faces) < 6 {

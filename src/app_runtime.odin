@@ -28,7 +28,7 @@ detect_display_rotation :: proc(window: glfw.WindowHandle = nil) -> Display_Rota
 	return .Unknown
 }
 
-refresh_display_rotation :: proc(app: ^Vulkan_App) {
+refresh_display_rotation :: proc(app: ^Grimalkin_App) {
 	detected := detect_display_rotation(app.window)
 	if detected == app.detected_display_rotation do return
 	before := application_settings_render_config(app.settings, app.detected_display_rotation)
@@ -158,7 +158,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		demo.resources.cell_metrics.cell_width,
 		demo.resources.cell_metrics.cell_height,
 	)
-	app := Vulkan_App {
+	app := Grimalkin_App {
 		demo                 = &demo,
 		redraw               = true,
 		focused              = true,
@@ -263,9 +263,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			app.cursor_animation.next_sample_at = cursor_sample.next_sample_at
 			sample := draw_frame(
 				&app,
-				cursor_sample.opacity,
-				text_opacity = cursor_sample.text_opacity,
-				scroll_indicator_opacity = indicator_sample.opacity,
+				{
+					cursor_opacity = cursor_sample.opacity,
+					text_opacity = cursor_sample.text_opacity,
+					scroll_indicator_opacity = indicator_sample.opacity,
+				},
 			)
 			frames_rendered += 1
 			if frames_rendered > BENCHMARK_WARMUP_FRAMES {
@@ -295,7 +297,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 				refresh_display_rotation(&app)
 			}
 			if app.framebuffer_dirty {
-				recreate_swapchain(&app)
+				_ = application_recreate_swapchain(&app)
 				app.framebuffer_dirty = false
 				app.redraw = true
 			}
@@ -371,9 +373,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 				app.cursor_animation.next_sample_at = cursor_sample.next_sample_at
 				_ = draw_frame(
 					&app,
-					cursor_sample.opacity,
-					text_opacity = cursor_sample.text_opacity,
-					scroll_indicator_opacity = indicator_sample.opacity,
+					{
+						cursor_opacity = cursor_sample.opacity,
+						text_opacity = cursor_sample.text_opacity,
+						scroll_indicator_opacity = indicator_sample.opacity,
+					},
 				)
 				app.redraw = false
 				frames_rendered += 1
