@@ -119,6 +119,8 @@ jobs:
       - name: Build image
         if: steps.image.outputs.build == 'true'
         shell: bash
+        env:
+          FORCE_REBUILD: ${{ inputs.force }}
         run: |
           set -euo pipefail
           image="$IMAGE_REPOSITORY:${{ matrix.distro }}-${{ needs.resolve.outputs.image_tag }}"
@@ -127,7 +129,12 @@ jobs:
           install -m 644 .github/containers/linux/Containerfile "$context/Containerfile"
           install -m 644 scripts/linux-toolchain.env "$context/linux-toolchain.env"
           docker pull "${{ matrix.base_image }}"
+          cache_args=()
+          if [[ "$FORCE_REBUILD" == true ]]; then
+            cache_args+=(--no-cache)
+          fi
           docker build \
+            "${cache_args[@]}" \
             --build-arg "BASE_IMAGE=${{ matrix.base_image }}" \
             --build-arg "DISTRO_FAMILY=${{ matrix.family }}" \
             --label "org.opencontainers.image.version=${{ needs.resolve.outputs.image_tag }}" \
