@@ -1,4 +1,5 @@
 ODIN_FLAGS ?=
+ODIN_CHECK_FLAGS ?= $(filter-out -o:%,$(ODIN_FLAGS))
 ODIN_GLFW_FLAGS ?=
 ODIN_EXTRA_LINKER_FLAGS ?= -Lsrc
 ODIN_LINK_FLAGS = -extra-linker-flags:'$(ODIN_EXTRA_LINKER_FLAGS)'
@@ -50,7 +51,7 @@ capture: shaders $(SUPPORT_LIBRARIES)
 	GRIMALKIN_CAPTURE_PATH="$(or $(CAPTURE_PATH),grimalkin-capture.png)" odin run ./src -define:DEMO_FRAME_LIMIT=1 $(ODIN_FLAGS) $(ODIN_GLFW_FLAGS) $(ODIN_LINK_FLAGS) -- --demo
 
 check: shaders $(SUPPORT_LIBRARIES)
-	odin check ./src $(ODIN_FLAGS) $(ODIN_GLFW_FLAGS)
+	odin check ./src $(ODIN_CHECK_FLAGS) $(ODIN_GLFW_FLAGS)
 
 debug: shaders $(SUPPORT_LIBRARIES)
 	odin run ./src -debug $(ODIN_GLFW_FLAGS) $(ODIN_LINK_FLAGS)
