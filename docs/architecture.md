@@ -128,6 +128,13 @@ tiers are drawn as quads before and after the text pass; the middle one is
 composited inside the text shader, between its background write and its glyph,
 because that pass produces both in a single opaque draw.
 
+The lowest tier is currently never visible. Grimalkin renders every cell
+background at full opacity, so an image drawn beneath them is always covered.
+The tier exists because the ordering is what makes the other two correct, and it
+becomes observable if cell backgrounds ever gain transparency. An application
+that places an image below the backgrounds and sees nothing is being shown the
+protocol's defined behaviour, not a rendering failure.
+
 Placement geometry is resolved by `libghostty-vt` and recollected whenever the
 viewport moves under a placement, which the graphics generation alone does not
 capture. Both image lists are bounded, and the middle tier is bounded more
