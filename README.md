@@ -27,7 +27,8 @@ useful set of live visual controls.
 - 10,000 lines of scrollback with keyboard paging and a position indicator.
 - Linear and rectangular selection, system clipboard integration, bracketed
   paste, and configurable OSC 52 access.
-- Kitty graphics through virtual Unicode placeholders.
+- Kitty graphics: PNG and raw pixel transmission, direct and Unicode-placeholder
+  placements, and the protocol's three z-index layers.
 - Live settings for fonts, text rendering, cursor animation, padding effects,
   key bindings, clipboard behaviour, and window style.
 - Optional Nerd Font symbols without requiring a patched primary font.
@@ -79,10 +80,12 @@ owns VT parsing and terminal state; Grimalkin owns the process session, display
 compiler, input UI, and renderer. It advertises `TERM=xterm-256color` rather
 than claiming another terminal's identity.
 
-Kitty direct image placements are retained by the terminal engine but are not
-yet rendered. Virtual Unicode-placeholder placements are supported. Please
-open an issue for other compatibility gaps with a minimal reproduction and the
-application involved.
+Kitty graphics covers image transmission, direct and Unicode-placeholder
+placements, deletion, queries, and z-index layering. It does not cover
+animation or relative placements, which the terminal engine does not implement,
+and images can only be transmitted over the terminal itself rather than through
+files or shared memory. Please open an issue for other compatibility gaps with
+a minimal reproduction and the application involved.
 
 ## Development
 

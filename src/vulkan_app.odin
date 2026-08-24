@@ -201,6 +201,10 @@ Vulkan_Swapchain_Resources :: struct {
 	image_views:        []vk.ImageView,
 	surface_format:     vk.SurfaceFormatKHR,
 	manual_srgb_output: bool,
+	// The cell size most recently handed to the terminal, so a resize is not
+	// skipped when only the cell size changed.
+	terminal_cell_width:  u32,
+	terminal_cell_height: u32,
 	extent:             vk.Extent2D,
 	render_pass:        vk.RenderPass,
 	pipeline_layout:    vk.PipelineLayout,

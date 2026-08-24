@@ -276,6 +276,9 @@ Terminal_Snapshot :: struct {
 	viewport_active:         bool,
 	active_screen:           u8,
 	graphics_generation:     u64,
+	// Bumped whenever the placement array is recopied, which covers both a
+	// graphics change and the viewport moving under a placement.
+	placements_revision:     u64,
 	row_data:                []Terminal_Row,
 	cells:                   []Terminal_Cell,
 	row_graphemes:           [][]u32,
@@ -738,6 +741,7 @@ terminal_snapshot_replace_graphics :: proc(
 		}
 	}
 	terminal_snapshot_index_virtual_placements(snapshot)
+	snapshot.placements_revision += 1
 
 	old_images := snapshot.images
 	old_image_indices := snapshot.image_indices

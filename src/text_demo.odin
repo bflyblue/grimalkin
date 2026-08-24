@@ -263,6 +263,17 @@ demo_write_initial_transcript :: proc(demo: ^Grimalkin_Demo) {
 	demo_write_placeholder_grid(&demo.terminal, 18, 16, 43, 12, 6, 3)
 	terminal_write_string(
 		&demo.terminal,
+		"\x1b[25;3HKitty direct placements, one per z tier. The first is hidden under the",
+	)
+	terminal_write_string(
+		&demo.terminal,
+		"\x1b[26;3Hcell backgrounds, which is what z below -1073741824 asks for:",
+	)
+	demo_send_kitty_direct_image(&demo.terminal, 44, 1, 32, 16, 4, 2, 2, 28, 4, -2000000000)
+	demo_send_kitty_direct_image(&demo.terminal, 45, 1, 32, 16, 4, 2, 3, 28, 14, -1)
+	demo_send_kitty_direct_image(&demo.terminal, 46, 1, 32, 16, 4, 2, 0, 28, 24, 1)
+	terminal_write_string(
+		&demo.terminal,
 		"\x1b[23;3HBottom rows are renderer-native game tiles drawn from two RGBA atlases.",
 	)
 	terminal_write_string(&demo.terminal, "\x1b[15;25H")
@@ -270,7 +281,7 @@ demo_write_initial_transcript :: proc(demo: ^Grimalkin_Demo) {
 
 grimalkin_demo_refresh :: proc(demo: ^Grimalkin_Demo) -> Display_Compile_Stats {
 	terminal_core_snapshot(&demo.terminal, &demo.snapshot)
-	stats := display_compile(&demo.compiler, &demo.snapshot, &demo.resources, &demo.grid)
+	stats := display_compile(&demo.compiler, &demo.snapshot, &demo.resources, &demo.grid, &demo.images)
 	demo_compile_tiles(demo)
 	return stats
 }
@@ -333,7 +344,7 @@ grimalkin_terminal_init_configured :: proc(
 
 grimalkin_view_refresh :: proc(view: ^Grimalkin_Demo) -> Display_Compile_Stats {
 	terminal_core_snapshot(&view.terminal, &view.snapshot)
-	stats := display_compile(&view.compiler, &view.snapshot, &view.resources, &view.grid)
+	stats := display_compile(&view.compiler, &view.snapshot, &view.resources, &view.grid, &view.images)
 	if view.demo_mode do demo_compile_tiles(view)
 	return stats
 }
@@ -378,4 +389,31 @@ grimalkin_demo_apply_next_update :: proc(demo: ^Grimalkin_Demo) -> bool {
 
 grimalkin_demo_prepare_benchmark :: proc(demo: ^Grimalkin_Demo) {
 	for grimalkin_demo_apply_next_update(demo) {}
+}
+
+// A direct (pin) placement: no U=1, so libghostty-vt pins it to the cursor
+// rather than waiting for Unicode placeholders. C=1 keeps the cursor where it
+// is, so the caller stays in control of the layout.
+demo_send_kitty_direct_image :: proc(
+	terminal: ^Terminal_Core,
+	image_id, placement_id, width, height, columns, rows, variant: u32,
+	row, column: u32,
+	z: i32,
+) {
+	pixels := demo_image_pixels(width, height, variant)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(terminal, image_id, width, height, pixels)
+	position := fmt.aprintf("\x1b[%d;%dH", row, column)
+	terminal_write_string(terminal, position)
+	delete(position)
+	placement := fmt.aprintf(
+		"\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,z=%d,C=1,q=2\x1b\\",
+		image_id,
+		placement_id,
+		columns,
+		rows,
+		z,
+	)
+	terminal_write_string(terminal, placement)
+	delete(placement)
 }

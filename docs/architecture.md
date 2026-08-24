@@ -119,11 +119,30 @@ positions, not physical aperture shapes.
 
 ## Texture and image scope
 
-Texture resources are bounded and recycled. Kitty virtual Unicode-placeholder
-placements are compiled into cells and rendered. Direct Kitty placements are
-parsed and retained by `libghostty-vt`, but the display compiler does not yet
-render them. Cursor-reserved blank space from a direct placement is therefore
-not evidence of a shaping failure.
+Texture resources are bounded and recycled. Kitty images reach the screen by
+two paths. Virtual Unicode-placeholder placements are cell-resident and compile
+into cells. Direct placements are pinned to the screen and compile into a list
+of quads, ordered into the protocol's three z-tiers: below the cell
+backgrounds, above them but below the text, and above everything. The outer two
+tiers are drawn as quads before and after the text pass; the middle one is
+composited inside the text shader, between its background write and its glyph,
+because that pass produces both in a single opaque draw.
+
+The lowest tier is currently never visible. Grimalkin renders every cell
+background at full opacity, so an image drawn beneath them is always covered.
+The tier exists because the ordering is what makes the other two correct, and it
+becomes observable if cell backgrounds ever gain transparency. An application
+that places an image below the backgrounds and sees nothing is being shown the
+protocol's defined behaviour, not a rendering failure.
+
+Placement geometry is resolved by `libghostty-vt` and recollected whenever the
+viewport moves under a placement, which the graphics generation alone does not
+capture. Both image lists are bounded, and the middle tier is bounded more
+tightly because each of its entries costs work for every fragment of the grid.
+
+Animation and relative placements are unimplemented in `libghostty-vt`, and the
+file, temporary file, and shared memory transmission mediums are deliberately
+not enabled.
 
 When graphics generation changes, the durable terminal snapshot rebuilds image
 and virtual-placement indexes alongside its owned slices. Placement indexes

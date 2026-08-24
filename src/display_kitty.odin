@@ -262,3 +262,108 @@ compile_kitty_placeholder_row :: proc(
 		)
 	}
 }
+
+// Kitty's z-tier boundaries. Strictly below INT32_MIN/2 an image sits under the
+// cell backgrounds; any other negative z sits above them but below the text;
+// zero or above sits over everything. The comparison is strict, so the
+// threshold value itself belongs to the below-text tier.
+KITTY_Z_BELOW_BACKGROUND :: i32(-1073741824)
+
+kitty_placement_tier :: proc(z: i32) -> Image_Tier {
+	if z < KITTY_Z_BELOW_BACKGROUND do return .Below_Background
+	if z < 0 do return .Below_Text
+	return .Above_Text
+}
+
+// The source rectangle libghostty-vt resolved, re-checked against the texture
+// actually held here. The texture can be a generation behind while an upload is
+// pending, exactly as in the placeholder path.
+kitty_direct_source_rect :: proc(
+	resource: ^Texture_Resource,
+	placement: ^Terminal_Placement,
+) -> ([4]u32, bool) {
+	if placement.source_width == 0 || placement.source_height == 0 do return {}, false
+	if placement.source_x >= resource.width || placement.source_y >= resource.height {
+		return {}, false
+	}
+	if placement.source_width > resource.width - placement.source_x ||
+	   placement.source_height > resource.height - placement.source_y {
+		return {}, false
+	}
+	return {
+		placement.source_x,
+		placement.source_y,
+		placement.source_width,
+		placement.source_height,
+	}, true
+}
+
+// The destination rectangle for a direct placement, in pixels relative to the
+// top-left of the grid.
+//
+// pixel_width and pixel_height are the rendered size and do not include the
+// sub-cell offsets, while grid_cols and grid_rows do: libghostty-vt folds the
+// offsets into the grid extent when it rounds up to whole cells. Deriving the
+// rectangle from the grid extent and then adding the offsets would count them
+// twice, so the pixel size is authoritative here and the offsets only shift the
+// origin within its cell.
+kitty_direct_destination_rect :: proc(
+	placement: ^Terminal_Placement,
+	cell_width, cell_height: i32,
+) -> [4]i32 {
+	return {
+		placement.viewport_col * cell_width + i32(placement.x_offset),
+		placement.viewport_row * cell_height + i32(placement.y_offset),
+		i32(placement.pixel_width),
+		i32(placement.pixel_height),
+	}
+}
+
+// Turns the snapshot's direct (pin) placements into the renderer's image list.
+// Virtual placements are skipped: they are cell-resident and keep going through
+// the placeholder path, which addresses them by the cell they sit in.
+compile_kitty_direct_placements :: proc(
+	resources: ^Renderer_Resources,
+	snapshot: ^Terminal_Snapshot,
+	images: ^Display_Images,
+) {
+	display_images_reset(images)
+	cell_width := i32(resources.cell_metrics.cell_width)
+	cell_height := i32(resources.cell_metrics.cell_height)
+	if cell_width <= 0 || cell_height <= 0 {
+		display_images_prepare(images)
+		return
+	}
+
+	for &placement in snapshot.placements {
+		if placement.is_virtual || !placement.viewport_visible do continue
+		if placement.pixel_width == 0 || placement.pixel_height == 0 do continue
+		state, found := resources.images[placement.image_id]
+		if !found do continue
+		resource := texture_resource(&resources.textures, state.resource_id)
+		if resource == nil do continue
+		source, valid_source := kitty_direct_source_rect(resource, &placement)
+		if !valid_source do continue
+
+		tier := kitty_placement_tier(placement.z)
+		_ = display_images_add(
+			images,
+			{
+				gpu = {
+					source_rect = source,
+					destination_rect = kitty_direct_destination_rect(
+						&placement,
+						cell_width,
+						cell_height,
+					),
+					resource = {state.resource_id, 0, u32(tier), 0},
+				},
+				tier = tier,
+				z = placement.z,
+				image_id = placement.image_id,
+				placement_id = placement.placement_id,
+			},
+		)
+	}
+	display_images_prepare(images)
+}
