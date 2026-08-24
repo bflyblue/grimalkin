@@ -99,17 +99,24 @@ Grimalkin_Ghostty_Row :: struct {
 }
 
 Grimalkin_Ghostty_Placement :: struct {
-	image_id:      u32,
-	placement_id:  u32,
-	source_x:      u32,
-	source_y:      u32,
-	source_width:  u32,
-	source_height: u32,
-	columns:       u32,
-	rows:          u32,
-	z:             i32,
-	is_virtual:    u8,
-	reserved:      [3]u8,
+	image_id:         u32,
+	placement_id:     u32,
+	source_x:         u32,
+	source_y:         u32,
+	source_width:     u32,
+	source_height:    u32,
+	pixel_width:      u32,
+	pixel_height:     u32,
+	grid_cols:        u32,
+	grid_rows:        u32,
+	x_offset:         u32,
+	y_offset:         u32,
+	viewport_col:     i32,
+	viewport_row:     i32,
+	z:                i32,
+	is_virtual:       u8,
+	viewport_visible: u8,
+	reserved:         [2]u8,
 }
 
 Grimalkin_Ghostty_Image :: struct {
@@ -157,7 +164,7 @@ Grimalkin_Ghostty_Snapshot_View :: struct {
 #assert(offset_of(Grimalkin_Ghostty_Cell, style_flags) == 28)
 #assert(offset_of(Grimalkin_Ghostty_Cell, underline) == 33)
 #assert(size_of(Grimalkin_Ghostty_Row) == 40)
-#assert(size_of(Grimalkin_Ghostty_Placement) == 40)
+#assert(size_of(Grimalkin_Ghostty_Placement) == 64)
 #assert(size_of(Grimalkin_Ghostty_Image) == 40)
 
 @(default_calling_convention = "c")
@@ -210,17 +217,30 @@ Terminal_Row :: struct {
 	has_kitty_placeholder: bool,
 }
 
+// Geometry resolved by libghostty-vt. source_* is the effective source
+// rectangle, grid_cols/grid_rows the effective cell extent, and
+// viewport_col/viewport_row the top-left corner in viewport coordinates, where
+// a negative row means the placement has scrolled partly above the viewport.
+// viewport_visible is false for virtual placements and for anything fully off
+// screen, and the two viewport fields carry nothing meaningful in that case.
 Terminal_Placement :: struct {
-	image_id:      u32,
-	placement_id:  u32,
-	source_x:      u32,
-	source_y:      u32,
-	source_width:  u32,
-	source_height: u32,
-	columns:       u32,
-	rows:          u32,
-	z:             i32,
-	is_virtual:    bool,
+	image_id:         u32,
+	placement_id:     u32,
+	source_x:         u32,
+	source_y:         u32,
+	source_width:     u32,
+	source_height:    u32,
+	pixel_width:      u32,
+	pixel_height:     u32,
+	grid_cols:        u32,
+	grid_rows:        u32,
+	x_offset:         u32,
+	y_offset:         u32,
+	viewport_col:     i32,
+	viewport_row:     i32,
+	z:                i32,
+	is_virtual:       bool,
+	viewport_visible: bool,
 }
 
 Terminal_Image :: struct {
@@ -693,16 +713,23 @@ terminal_snapshot_replace_graphics :: proc(
 	snapshot.placements = make([]Terminal_Placement, len(placement_views))
 	for placement, index in placement_views {
 		snapshot.placements[index] = {
-			image_id      = placement.image_id,
-			placement_id  = placement.placement_id,
-			source_x      = placement.source_x,
-			source_y      = placement.source_y,
-			source_width  = placement.source_width,
-			source_height = placement.source_height,
-			columns       = placement.columns,
-			rows          = placement.rows,
-			z             = placement.z,
-			is_virtual    = placement.is_virtual != 0,
+			image_id         = placement.image_id,
+			placement_id     = placement.placement_id,
+			source_x         = placement.source_x,
+			source_y         = placement.source_y,
+			source_width     = placement.source_width,
+			source_height    = placement.source_height,
+			pixel_width      = placement.pixel_width,
+			pixel_height     = placement.pixel_height,
+			grid_cols        = placement.grid_cols,
+			grid_rows        = placement.grid_rows,
+			x_offset         = placement.x_offset,
+			y_offset         = placement.y_offset,
+			viewport_col     = placement.viewport_col,
+			viewport_row     = placement.viewport_row,
+			z                = placement.z,
+			is_virtual       = placement.is_virtual != 0,
+			viewport_visible = placement.viewport_visible != 0,
 		}
 	}
 	terminal_snapshot_index_virtual_placements(snapshot)

@@ -641,10 +641,31 @@ kitty_source_rectangles_are_checked_before_creating_visuals :: proc(t: ^testing.
 	defer texture_registry_destroy(&registry)
 	resource_id := texture_registry_add(&registry, .Colour_RGBA8, .Linear, 8, 8, 1)
 	resource := texture_resource(&registry, resource_id)
-	placement := Terminal_Placement {columns = 2, rows = 2, source_x = 8}
+	// A source origin outside the image.
+	placement := Terminal_Placement {
+		grid_cols     = 2,
+		grid_rows     = 2,
+		source_x      = 8,
+		source_width  = 8,
+		source_height = 8,
+	}
 	_, valid := kitty_placement_source_rect(resource, &placement, 0, 0)
 	testing.expect(t, !valid)
-	placement = {columns = 2, rows = 2, source_x = 2, source_y = 3}
+
+	// Source rectangles arrive resolved from libghostty-vt, so a zero extent is
+	// a malformed placement rather than shorthand for the rest of the image.
+	placement = {grid_cols = 2, grid_rows = 2, source_width = 0, source_height = 8}
+	_, valid = kitty_placement_source_rect(resource, &placement, 0, 0)
+	testing.expect(t, !valid)
+
+	placement = {
+		grid_cols     = 2,
+		grid_rows     = 2,
+		source_x      = 2,
+		source_y      = 3,
+		source_width  = 6,
+		source_height = 5,
+	}
 	source: [4]u32
 	source, valid = kitty_placement_source_rect(resource, &placement, 1, 1)
 	testing.expect(t, valid)

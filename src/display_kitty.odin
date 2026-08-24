@@ -172,22 +172,26 @@ kitty_placement_source_rect :: proc(
 	placement: ^Terminal_Placement,
 	row, column: u32,
 ) -> ([4]u32, bool) {
-	if placement.columns == 0 || placement.rows == 0 ||
-	   row >= placement.rows || column >= placement.columns ||
+	if placement.grid_cols == 0 || placement.grid_rows == 0 ||
+	   row >= placement.grid_rows || column >= placement.grid_cols ||
 	   placement.source_x >= resource.width || placement.source_y >= resource.height {
 		return {}, false
 	}
-	source_width := placement.source_width if placement.source_width != 0 else resource.width - placement.source_x
-	source_height := placement.source_height if placement.source_height != 0 else resource.height - placement.source_y
+	// libghostty-vt resolved the source rectangle against the image, but it did
+	// so against its own copy: the texture here can still be a generation behind
+	// while an upload is pending, so the bounds are re-checked against this
+	// resource rather than trusted.
+	source_width := placement.source_width
+	source_height := placement.source_height
 	if source_width == 0 || source_height == 0 ||
 	   source_width > resource.width - placement.source_x ||
 	   source_height > resource.height - placement.source_y {
 		return {}, false
 	}
-	x0 := u64(placement.source_x) + u64(column) * u64(source_width) / u64(placement.columns)
-	y0 := u64(placement.source_y) + u64(row) * u64(source_height) / u64(placement.rows)
-	x1 := u64(placement.source_x) + u64(column + 1) * u64(source_width) / u64(placement.columns)
-	y1 := u64(placement.source_y) + u64(row + 1) * u64(source_height) / u64(placement.rows)
+	x0 := u64(placement.source_x) + u64(column) * u64(source_width) / u64(placement.grid_cols)
+	y0 := u64(placement.source_y) + u64(row) * u64(source_height) / u64(placement.grid_rows)
+	x1 := u64(placement.source_x) + u64(column + 1) * u64(source_width) / u64(placement.grid_cols)
+	y1 := u64(placement.source_y) + u64(row + 1) * u64(source_height) / u64(placement.grid_rows)
 	if x1 <= x0 || y1 <= y0 || x1 > u64(resource.width) || y1 > u64(resource.height) do return {}, false
 	return {u32(x0), u32(y0), u32(x1 - x0), u32(y1 - y0)}, true
 }
@@ -227,8 +231,6 @@ compile_kitty_placeholder_row :: proc(
 			placeholder.column,
 		)
 		if !valid_source do continue
-		source_width := placement.source_width if placement.source_width != 0 else resource.width - placement.source_x
-		source_height := placement.source_height if placement.source_height != 0 else resource.height - placement.source_y
 		key := Image_Visual_Cache_Key {
 			image_id                 = placeholder.image_id,
 			placement_id             = placeholder.placement_id,
@@ -239,10 +241,10 @@ compile_kitty_placeholder_row :: proc(
 			image_height             = resource.height,
 			source_x                 = placement.source_x,
 			source_y                 = placement.source_y,
-			source_width             = source_width,
-			source_height            = source_height,
-			placement_columns        = placement.columns,
-			placement_rows           = placement.rows,
+			source_width             = placement.source_width,
+			source_height            = placement.source_height,
+			placement_columns        = placement.grid_cols,
+			placement_rows           = placement.grid_rows,
 			image_generation         = image_state.generation,
 			resource_slot_generation = resource.slot_generation,
 		}

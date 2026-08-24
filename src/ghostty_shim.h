@@ -64,18 +64,38 @@ typedef struct {
   size_t grapheme_count;
 } GrimalkinGhosttyRow;
 
+/* Placement geometry as libghostty-vt resolves it, rather than the raw
+   protocol fields: omitted source rectangles, grid extents, and pixel sizes
+   are already worked out against the image and the cell size. */
 typedef struct {
   uint32_t image_id;
   uint32_t placement_id;
+  /* Source rectangle in image pixels. An omitted width or height is already
+     expanded to the remainder of the image. */
   uint32_t source_x;
   uint32_t source_y;
   uint32_t source_width;
   uint32_t source_height;
-  uint32_t columns;
-  uint32_t rows;
+  /* Rendered size in pixels and the grid extent it covers. An omitted c= or
+     r= is computed from the image and cell size. */
+  uint32_t pixel_width;
+  uint32_t pixel_height;
+  uint32_t grid_cols;
+  uint32_t grid_rows;
+  /* Sub-cell offset within the origin cell. Not included in pixel_width or
+     pixel_height, but already counted in grid_cols and grid_rows. */
+  uint32_t x_offset;
+  uint32_t y_offset;
+  /* Top-left corner in viewport grid coordinates. The row is negative when the
+     placement has scrolled partly above the viewport. Both are meaningless
+     unless viewport_visible is set, which never happens for a virtual
+     placement. */
+  int32_t viewport_col;
+  int32_t viewport_row;
   int32_t z;
   uint8_t is_virtual;
-  uint8_t reserved[3];
+  uint8_t viewport_visible;
+  uint8_t reserved[2];
 } GrimalkinGhosttyPlacement;
 
 typedef struct {
