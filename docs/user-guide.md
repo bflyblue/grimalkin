@@ -93,6 +93,20 @@ Settings are stored as `settings.json` in the platform configuration directory:
 The live settings UI is the supported way to edit this file. Invalid values
 are repaired to safe defaults and reported on standard error.
 
+### File-only settings
+
+One setting has no entry in the live settings UI, because it is a memory budget
+rather than something worth adjusting on screen:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `kitty_image_storage_mb` | `320` | Megabytes of memory Kitty graphics images may occupy, from `0` to `4096`. Once the budget is full the oldest images are evicted to make room. `0` turns Kitty graphics off entirely and discards any images already received. |
+
+The default matches other terminals that implement the protocol. Raise it if you
+routinely display many or very large images; lower it to cap the memory a remote
+program can cause Grimalkin to hold. Changes take effect the next time Grimalkin
+starts.
+
 ## Developer overrides
 
 The following environment variables select exact font files and are primarily

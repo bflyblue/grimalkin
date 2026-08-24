@@ -289,14 +289,20 @@ register_kitty_png_decoder :: proc "contextless" () {
 	grimalkin_ghostty_set_png_decoder(grimalkin_decode_png_rgba)
 }
 
-terminal_core_init :: proc(cols, rows: u16, max_scrollback: int) -> Terminal_Core {
+// kitty_image_storage_mb bounds libghostty-vt's own image store, which evicts
+// oldest-first once it is exceeded. Zero disables Kitty graphics entirely.
+terminal_core_init :: proc(
+	cols, rows: u16,
+	max_scrollback: int,
+	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+) -> Terminal_Core {
 	terminal := Terminal_Core{}
 	result := int(
 		grimalkin_ghostty_new(
 			cols,
 			rows,
 			c.size_t(max_scrollback),
-			64 * 1024 * 1024,
+			u64(kitty_image_storage_mb) * 1024 * 1024,
 			&terminal.handle,
 		),
 	)
