@@ -281,6 +281,8 @@ Application_Input_State :: struct {
 	mouse_buttons:      u16,
 	selection_text_cursor:  glfw.CursorHandle,
 	selection_block_cursor: glfw.CursorHandle,
+	url_hover:              Url_Hover,
+	url_hover_cursor:       glfw.CursorHandle,
 }
 
 Application_Paste_State :: struct {

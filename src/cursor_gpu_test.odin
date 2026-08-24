@@ -143,6 +143,7 @@ run_cursor_gpu_tests :: proc(app: ^Grimalkin_App) {
 	cursor_gpu_test_subpixel_masks(app)
 	cursor_gpu_test_premultiplied_colour(app)
 	cursor_gpu_test_text_decorations_and_animation(app)
+	cursor_gpu_test_url_hover_underline(app)
 	cursor_gpu_test_selection_overlay(app)
 	cursor_gpu_test_padding_glow(app)
 	cursor_gpu_test_scroll_indicator(app)
@@ -152,5 +153,5 @@ run_cursor_gpu_tests :: proc(app: ^Grimalkin_App) {
 	cursor_gpu_test_repeated_text_resource_rebuilds(app)
 	cursor_gpu_test_image_tiers(app)
 	cursor_gpu_test_image_clipping(app)
-	fmt.println("GPU tests passed: cursor/text animation, decorations, selection overlays, subpixel and premultiplied-colour blending, padding glow, scroll indicator, OSD rendering, live window styles, repeated text-resource rebuilds, and Kitty image tier ordering and clipping")
+	fmt.println("GPU tests passed: cursor/text animation, decorations, URL hover underlines, selection overlays, subpixel and premultiplied-colour blending, padding glow, scroll indicator, OSD rendering, live window styles, repeated text-resource rebuilds, and Kitty image tier ordering and clipping")
 }

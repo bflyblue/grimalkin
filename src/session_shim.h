@@ -65,6 +65,13 @@ int grimalkin_session_resize(GrimalkinSession *session,
 void grimalkin_session_status(GrimalkinSession *session,
                               GrimalkinSessionStatus *out_status);
 
+/* Largest URL accepted by grimalkin_open_url, in bytes. */
+#define GRIMALKIN_URL_MAX_LENGTH 2048
+
+/* Hands a URL to the system browser without a shell. Only http, https, and
+   mailto are accepted; anything else is rejected. */
+int grimalkin_open_url(const char *url);
+
 /* Atomically replaces destination with a completed same-directory temp file. */
 int grimalkin_atomic_replace_file(const char *temporary, const char *destination);
 

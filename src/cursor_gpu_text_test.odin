@@ -296,3 +296,102 @@ cursor_gpu_test_selection_overlay :: proc(app: ^Grimalkin_App) {
 		)
 	}
 }
+
+// The hover underline is stamped into compiled cells rather than drawn by its
+// own pipeline, so what proves it works is that the stamped cells light the
+// text shader's decoration path and that lifting the stamp puts the row back
+// exactly as it was.
+cursor_gpu_test_url_hover_underline :: proc(app: ^Grimalkin_App) {
+	previous_cursor_visible := app.demo.snapshot.cursor_visible
+	defer {
+		app.demo.snapshot.cursor_visible = previous_cursor_visible
+		app.redraw = true
+	}
+	grid := &app.demo.grid
+	if grid.cols < 8 || grid.rows < 2 do return
+	app.demo.snapshot.cursor_visible = false
+	row := u32(1)
+	background := pack_rgba8(0, 0, 0, 255)
+	decoration := pack_rgba8(60, 200, 255, 255)
+	for column := 0; column < 8; column += 1 {
+		index := int(row * u32(grid.cols) + u32(column))
+		grid.cells[index] = {foreground = background, background = background}
+		grid.decorations[index] = decoration
+	}
+	// One cell already carries a curly underline, so the restore below has
+	// something other than "no underline" to put back.
+	grid.cells[int(row * u32(grid.cols) + 6)].flags = 3
+	display_grid_mark_row_dirty(grid, int(row))
+
+	hover := Url_Hover {
+		active = true,
+		cells  = {{row = u16(row), col = 2}, {row = u16(row), col = 3}, {row = u16(row), col = 4}},
+	}
+	defer delete(hover.saved)
+
+	_ = draw_frame_components(app, 0, true, text_opacity = max(u16))
+	before := read_framebuffer_pixels(app)
+	defer delete(before)
+	for column := u32(2); column <= 4; column += 1 {
+		if cursor_gpu_decoration_lit_pixels(app, before, column, row) != 0 {
+			fmt.panicf("column %d was already decorated before the hover stamp", column)
+		}
+	}
+
+	url_hover_stamp(&hover, grid)
+	_ = draw_frame_components(app, 0, true, text_opacity = max(u16))
+	stamped := read_framebuffer_pixels(app)
+	defer delete(stamped)
+	for column := u32(2); column <= 4; column += 1 {
+		if cursor_gpu_decoration_lit_pixels(app, stamped, column, row) == 0 {
+			fmt.panicf("hover stamp produced no underline pixels in column %d", column)
+		}
+	}
+	for column in ([]u32{1, 5}) {
+		if cursor_gpu_decoration_lit_pixels(app, stamped, column, row) != 0 {
+			fmt.panicf("hover stamp underlined column %d outside the address", column)
+		}
+	}
+	// A dotted underline must leave gaps along the underline row, which is what
+	// separates it from the solid style an application can ask for itself.
+	underline_y := min(
+		app.demo.resources.cell_metrics.cell_height - 1,
+		u32(app.demo.resources.cell_metrics.baseline + 1),
+	)
+	lit_run := 0
+	gap_run := 0
+	first_lit := [4]u8{}
+	for x := u32(0); x < app.demo.resources.cell_metrics.cell_width; x += 1 {
+		pixel := cursor_gpu_pixel_rgba(app, stamped, 3, row, x, underline_y)
+		if u32(pixel[0]) + u32(pixel[1]) + u32(pixel[2]) > 80 {
+			if lit_run == 0 do first_lit = pixel
+			lit_run += 1
+		} else {
+			gap_run += 1
+		}
+	}
+	if lit_run == 0 do fmt.panicf("hover underline drew nothing on the underline row")
+	if gap_run == 0 {
+		fmt.panicf("hover underline was solid across the cell; expected a dotted pattern")
+	}
+	if first_lit[2] < 180 || first_lit[0] > 120 {
+		fmt.panicf("hover underline did not use the cell decoration colour: %v", first_lit)
+	}
+
+	url_hover_unstamp(&hover, grid)
+	_ = draw_frame_components(app, 0, true, text_opacity = max(u16))
+	restored := read_framebuffer_pixels(app)
+	defer delete(restored)
+	for column := u32(0); column < 8; column += 1 {
+		lit_before := cursor_gpu_decoration_lit_pixels(app, before, column, row)
+		lit_after := cursor_gpu_decoration_lit_pixels(app, restored, column, row)
+		if lit_before != lit_after {
+			fmt.panicf(
+				"lifting the hover stamp did not restore column %d (%d then %d lit pixels)",
+				column,
+				lit_before,
+				lit_after,
+			)
+		}
+	}
+}
