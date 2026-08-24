@@ -9,7 +9,6 @@ the Nerd Fonts license is also shipped alongside the bundled font in `fonts`.
 | [Ghostty](https://github.com/ghostty-org/ghostty) | Terminal parser and state engine | MIT |
 | [Microsoft Terminal / ConPTY](https://github.com/microsoft/terminal) | Windows pseudoconsole runtime | MIT |
 | [Nerd Fonts Symbols Only](https://github.com/ryanoasis/nerd-fonts) | Optional symbol fallback font | SIL Open Font License 1.1; Nerd Fonts tooling is MIT |
-| [Noto Sans CJK](https://github.com/notofonts/noto-cjk) | Deterministic development and test font fixture | SIL Open Font License 1.1 |
 | [Odin](https://odin-lang.org/) | Language runtime and vendor bindings compiled into Grimalkin | zlib License |
 | [Zig](https://ziglang.org/) | Runtime code used by the Zig-built Ghostty library | MIT |
 | [GLFW](https://www.glfw.org/) | Native windowing and input | zlib License |
