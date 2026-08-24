@@ -101,7 +101,6 @@ Font_Instance_Key :: struct {
 	face_index:     i32,
 	pixel_height:   u16,
 	style:          Font_Style,
-	hinting:        Font_Hinting,
 	render_config:  Font_Render_Config,
 	require_colour: bool,
 }

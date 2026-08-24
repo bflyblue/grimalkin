@@ -248,7 +248,7 @@ settings_subpixel_layout_name :: proc(value: Subpixel_Layout) -> string {
 	case .QD_OLED_Square:  return "QD-OLED Square"
 	case .QD_OLED_Diamond: return "QD-OLED Diamond"
 	}
-	return "Standard RGB"
+	return "Standard RGB stripe"
 }
 
 settings_display_rotation_name :: proc(value: Display_Rotation) -> string {

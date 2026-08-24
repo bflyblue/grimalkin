@@ -46,7 +46,7 @@ clean:
 		$(GHOSTTY_OBJECT) $(GHOSTTY_SHIM) \
 		$(PNG_OBJECT) $(PNG_SHIM) \
 		$(SESSION_OBJECTS) $(SESSION_SHIM) $(SESSION_TEST) \
-		$(SHADER_OUTPUTS)
+		src/shaders/*.spv
 
 capture: shaders $(SUPPORT_LIBRARIES)
 	GRIMALKIN_CAPTURE_PATH="$(or $(CAPTURE_PATH),grimalkin-capture.png)" odin run ./src -define:DEMO_FRAME_LIMIT=1 $(ODIN_FLAGS) $(ODIN_GLFW_FLAGS) $(ODIN_LINK_FLAGS) -- --demo
