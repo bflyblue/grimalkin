@@ -320,9 +320,10 @@ grimalkin_terminal_init_configured :: proc(
 	render_config: Font_Render_Config,
 	nerd_font_symbols := true,
 	primary_family: ^Font_Family = nil,
+	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
 ) -> Grimalkin_Demo {
 	view := Grimalkin_Demo{}
-	view.terminal = terminal_core_init(GRID_COLUMNS, GRID_ROWS, 10_000)
+	view.terminal = terminal_core_init(GRID_COLUMNS, GRID_ROWS, 10_000, kitty_image_storage_mb)
 	view.resources = renderer_resources_init_configured(pixel_height, render_config, nerd_font_symbols, primary_family)
 	view.grid = display_grid_init(GRID_COLUMNS, GRID_ROWS)
 	_ = grimalkin_view_refresh(&view)

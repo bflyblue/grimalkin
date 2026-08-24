@@ -128,12 +128,18 @@ Application_Settings :: struct {
 	terminal_clipboard: Terminal_Clipboard_Policy,
 	block_selection_whitespace: Block_Selection_Whitespace,
 	selection_style: Selection_Style,
+	kitty_image_storage_mb: u16,
 }
 
 SETTINGS_VERSION :: 1
 SETTINGS_FONT_SIZE_MIN :: u16(8)
 SETTINGS_FONT_SIZE_MAX :: u16(48)
 SETTINGS_PADDING_MAX :: u16(32)
+// Kitty image storage, in megabytes, matching the 320 MB that Ghostty and
+// kitty both default to. Zero disables Kitty graphics outright: libghostty-vt
+// drops every stored image and placement when the limit is zero.
+SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT :: u16(320)
+SETTINGS_KITTY_IMAGE_STORAGE_MB_MAX :: u16(4096)
 
 settings_cycle_index :: proc(value, count, direction: int) -> int {
 	if count <= 0 do return 0
@@ -165,6 +171,7 @@ application_settings_default :: proc() -> Application_Settings {
 		terminal_clipboard = .Write_Only,
 		block_selection_whitespace = .Trim,
 		selection_style = .Solid,
+		kitty_image_storage_mb = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
 	}
 }
 
@@ -384,6 +391,7 @@ Settings_Disk_Current :: struct {
 	terminal_clipboard: string `json:"terminal_clipboard"`,
 	block_selection_whitespace: string `json:"block_selection_whitespace"`,
 	selection_style: string `json:"selection_style"`,
+	kitty_image_storage_mb: int `json:"kitty_image_storage_mb"`,
 }
 
 Settings_Disk_Decode :: struct {
@@ -411,6 +419,7 @@ Settings_Disk_Decode :: struct {
 	terminal_clipboard: string `json:"terminal_clipboard"`,
 	block_selection_whitespace: string `json:"block_selection_whitespace"`,
 	selection_style: string `json:"selection_style"`,
+	kitty_image_storage_mb: int `json:"kitty_image_storage_mb"`,
 }
 
 SETTINGS_TEXT_SMOOTHING_WIRE := [3]string{"grayscale", "subpixel", "monochrome"}
@@ -484,6 +493,7 @@ settings_to_disk :: proc(
 		terminal_clipboard = settings_wire_encode(int(settings.terminal_clipboard), SETTINGS_TERMINAL_CLIPBOARD_WIRE[:]),
 		block_selection_whitespace = settings_wire_encode(int(settings.block_selection_whitespace), SETTINGS_BLOCK_WHITESPACE_WIRE[:]),
 		selection_style = settings_wire_encode(int(settings.selection_style), SETTINGS_SELECTION_STYLE_WIRE[:]),
+		kitty_image_storage_mb = int(settings.kitty_image_storage_mb),
 	}
 }
 
@@ -569,6 +579,12 @@ settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings,
 	} else {
 		valid = false
 	}
+	if disk.kitty_image_storage_mb >= 0 &&
+	   disk.kitty_image_storage_mb <= int(SETTINGS_KITTY_IMAGE_STORAGE_MB_MAX) {
+		settings.kitty_image_storage_mb = u16(disk.kitty_image_storage_mb)
+	} else {
+		valid = false
+	}
 	glow := disk.padding_glow
 	if glow == "soft" do glow = "background"
 	if glow == "vivid" do glow = "tint"
@@ -643,6 +659,7 @@ settings_decode :: proc(data: []byte) -> (Application_Settings, bool) {
 		terminal_clipboard = "write_only",
 		block_selection_whitespace = "trim",
 		selection_style = "solid",
+		kitty_image_storage_mb = int(SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT),
 	}
 	if err := json.unmarshal(data, &disk, allocator = context.temp_allocator); err != nil {
 		return application_settings_default(), false
