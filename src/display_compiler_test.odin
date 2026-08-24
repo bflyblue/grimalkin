@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 test_texture_registry_clear_pending :: proc(registry: ^Texture_Registry) {
@@ -393,6 +394,11 @@ display_compiler_uses_styled_faces_cjk_fallback_and_row_revisions :: proc(t: ^te
 	// being forced through the first CJK fallback face.
 	testing.expect(t, len(resources.font_faces) >= 6)
 	testing.expect_value(t, len(resources.font_face_lookup), len(resources.font_faces) - 4)
+	when ODIN_OS == .Darwin {
+		for face in resources.font_faces[4:] {
+			testing.expect(t, !strings.contains(face.font.path, "LastResort"))
+		}
+	}
 	testing.expect_value(t, len(resources.textures.resources), 1)
 	testing.expect(t, grid.cells[2 * 40 + 39].visual_id != 0)
 	testing.expect(t, grid.cells[3 * 40].visual_id != 0)

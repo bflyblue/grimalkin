@@ -29,7 +29,6 @@ renderer_resources_init_configured :: proc(
 	if nerd_font_symbols {
 		if path, found := bundled_nerd_symbols_font_path(); found do resources.nerd_symbols_path = path
 	}
-
 	styles := [4]Font_Style{.Regular, .Bold, .Italic, .Bold_Italic}
 	for style, index in styles {
 		face := new(Font_Face)

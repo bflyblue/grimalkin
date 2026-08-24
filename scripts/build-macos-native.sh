@@ -53,6 +53,7 @@ source "$project_root/scripts/macos-toolchain.env"
 downloads="$cache_root/downloads"
 toolchains="$cache_root/toolchains"
 mkdir -p "$downloads" "$toolchains" "$(dirname -- "$app")"
+app=$(cd -- "$(dirname -- "$app")" && pwd -P)/$(basename -- "$app")
 if [[ -n ${VCPKG_DEFAULT_BINARY_CACHE:-} ]]; then
   mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 fi
@@ -210,18 +211,6 @@ if [[ ! -x "$dylibbundler_root/dylibbundler" ]]; then
   make -C "$dylibbundler_root"
 fi
 
-noto_font="$downloads/NotoSansCJK-Regular.ttc"
-noto_license="$downloads/NotoSansCJK-LICENSE.txt"
-download \
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/$NOTO_CJK_REVISION/Sans/OTC/NotoSansCJK-Regular.ttc" \
-  "$noto_font" \
-  "$NOTO_CJK_SHA256"
-download \
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/$NOTO_CJK_REVISION/LICENSE" \
-  "$noto_license" \
-  "$NOTO_CJK_LICENSE_SHA256"
-cmp "$noto_license" "$project_root/third_party/licenses/Noto-Sans-CJK.txt"
-
 vcpkg_root=${VCPKG_ROOT:-"$toolchains/vcpkg"}
 grimalkin_prepare_git_checkout \
   "$vcpkg_root" https://github.com/microsoft/vcpkg.git \
@@ -292,6 +281,13 @@ if [[ "$prepare_only" == true ]]; then
   exit 0
 fi
 
+"$cmake" -E remove_directory "$app"
+GRIMALKIN_APP_VERSION=$version \
+GRIMALKIN_BUNDLE_VERSION=$bundle_version \
+GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
+GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
+  "$project_root/scripts/stage-macos-assets.sh" "$app"
+
 work_tree="$build_root/work"
 grimalkin_stage_make_work_tree "$project_root" "$work_tree" "$cmake"
 
@@ -319,18 +315,35 @@ if [[ ! -f "$test_font" ]]; then
   exit 1
 fi
 
+# Put Odin's temporary test executable inside the staged application so it
+# discovers fonts.conf through the same app-relative path as the installed
+# executable. Leaving fallback overrides unset ensures Fontconfig selects
+# fonts supplied by macOS.
+fontconfig_test="$app/Contents/MacOS/grimalkin-fontconfig-test"
+test_runtime_links=("$app/Contents/MacOS/libghostty-vt.dylib")
+ln -sfn "$ghostty_library" "${test_runtime_links[0]}"
+for runtime_library in "$triplet_root"/lib/libvulkan*.dylib; do
+  test_runtime_link="$app/Contents/MacOS/$(basename -- "$runtime_library")"
+  ln -sfn "$runtime_library" "$test_runtime_link"
+  test_runtime_links+=("$test_runtime_link")
+done
 PATH="$pkgconf_root/bin:$triplet_root/tools/shaderc:$odin_root:$zig_root:$PATH" \
 PKG_CONFIG_PATH="$pkg_config_path" \
 GRIMALKIN_TEST_FONT_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_ITALIC_PATH="$test_font" \
 GRIMALKIN_TEST_FONT_BOLD_ITALIC_PATH="$test_font" \
-GRIMALKIN_TEST_CJK_FONT_PATH="$noto_font" \
-GRIMALKIN_NERD_FONT_PATH="$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
+GRIMALKIN_TEST_CJK_FONT_PATH='' \
 ODIN_ROOT="$odin_root" \
 ODIN_FLAGS="-o:speed" \
+ODIN_TEST_FLAGS="-out:'$fontconfig_test'" \
 ODIN_EXTRA_LINKER_FLAGS="-Lsrc -L$link_compat -L$triplet_root/lib ${static_link_flags[*]} $vulkan_link_flags" \
   make -C "$work_tree" "${make_targets[@]}"
+"$cmake" -E rm -f "$fontconfig_test"
+"$cmake" -E remove_directory "$fontconfig_test.dSYM"
+for test_runtime_link in "${test_runtime_links[@]}"; do
+  "$cmake" -E rm -f "$test_runtime_link"
+done
 
 if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' | \
     grep -E -q '^(/opt/homebrew|/usr/local)/'; then
@@ -338,15 +351,6 @@ if otool -L "$work_tree/grimalkin" | awk '/compatibility version/ { print $1 }' 
   otool -L "$work_tree/grimalkin" >&2
   exit 1
 fi
-
-"$cmake" -E remove_directory "$app"
-GRIMALKIN_APP_VERSION=$version \
-GRIMALKIN_BUNDLE_VERSION=$bundle_version \
-GRIMALKIN_NOTO_FONT=$noto_font \
-GRIMALKIN_NOTO_LICENSE=$noto_license \
-GRIMALKIN_MOLTENVK_LICENSE=$moltenvk_license \
-GRIMALKIN_DEPENDENCY_LICENSE_ROOT=$triplet_root \
-  "$project_root/scripts/stage-macos-assets.sh" "$app"
 
 bundle_inputs="$build_root/bundle-inputs"
 "$cmake" -E remove_directory "$bundle_inputs"

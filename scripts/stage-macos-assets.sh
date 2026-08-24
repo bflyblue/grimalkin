@@ -9,8 +9,6 @@ usage() {
 [[ $# -eq 1 ]] || usage
 : "${GRIMALKIN_APP_VERSION:?GRIMALKIN_APP_VERSION is required}"
 : "${GRIMALKIN_BUNDLE_VERSION:?GRIMALKIN_BUNDLE_VERSION is required}"
-: "${GRIMALKIN_NOTO_FONT:?GRIMALKIN_NOTO_FONT is required}"
-: "${GRIMALKIN_NOTO_LICENSE:?GRIMALKIN_NOTO_LICENSE is required}"
 : "${GRIMALKIN_MOLTENVK_LICENSE:?GRIMALKIN_MOLTENVK_LICENSE is required}"
 
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -36,10 +34,6 @@ install -m 644 "$project_root/assets/fonts/SymbolsNerdFontMono-Regular.ttf" \
   "$resources/fonts/SymbolsNerdFontMono-Regular.ttf"
 install -m 644 "$project_root/assets/fonts/NerdFonts-LICENSE.txt" \
   "$resources/fonts/NerdFonts-LICENSE.txt"
-install -m 644 "$GRIMALKIN_NOTO_FONT" \
-  "$resources/fonts/NotoSansCJK-Regular.ttc"
-install -m 644 "$GRIMALKIN_NOTO_LICENSE" \
-  "$resources/fonts/NotoSansCJK-LICENSE.txt"
 install -m 644 "$GRIMALKIN_MOLTENVK_LICENSE" \
   "$resources/licenses/MoltenVK-LICENSE.txt"
 install -m 644 "$project_root/LICENSE" \
@@ -68,16 +62,25 @@ fi
 
 required_notices=(
   "$resources/fonts/NerdFonts-LICENSE.txt"
-  "$resources/fonts/NotoSansCJK-LICENSE.txt"
   "$resources/licenses/Grimalkin-LICENSE.txt"
   "$resources/licenses/THIRD_PARTY_NOTICES.md"
   "$resources/licenses/MoltenVK-LICENSE.txt"
   "$resources/licenses/third-party/Ghostty.txt"
-  "$resources/licenses/third-party/Noto-Sans-CJK.txt"
 )
 for required_notice in "${required_notices[@]}"; do
   [[ -s "$required_notice" ]] || {
     echo "macOS bundle omitted required notice: $required_notice" >&2
+    exit 1
+  }
+done
+
+required_font_resources=(
+  "$resources/fonts.conf"
+  "$resources/fonts/SymbolsNerdFontMono-Regular.ttf"
+)
+for required_font_resource in "${required_font_resources[@]}"; do
+  [[ -s "$required_font_resource" ]] || {
+    echo "macOS bundle omitted required font resource: $required_font_resource" >&2
     exit 1
   }
 done

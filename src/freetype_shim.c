@@ -79,6 +79,29 @@ static bool fontconfig_printable_ascii(const FcPattern *pattern) {
   return true;
 }
 
+static bool fontconfig_coverage_codepoint(uint32_t codepoint) {
+  if (codepoint == 0 || codepoint == 0x200c || codepoint == 0x200d)
+    return false;
+  if (codepoint >= 0xfe00 && codepoint <= 0xfe0f) return false;
+  if (codepoint >= 0xe0100 && codepoint <= 0xe01ef) return false;
+  return true;
+}
+
+static bool fontconfig_covers_grapheme(const FcPattern *pattern,
+                                       const uint32_t *codepoints,
+                                       size_t codepoint_count) {
+  FcCharSet *charset = NULL;
+  if (FcPatternGetCharSet(pattern, FC_CHARSET, 0, &charset) != FcResultMatch)
+    return false;
+  for (size_t i = 0; i < codepoint_count; ++i) {
+    if (fontconfig_coverage_codepoint(codepoints[i]) &&
+        !FcCharSetHasChar(charset, codepoints[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static const FcChar8 *fontconfig_preferred_family(const FcPattern *pattern) {
   FcChar8 *fallback = NULL;
   for (int index = 0;; ++index) {
@@ -608,9 +631,9 @@ int grimalkin_font_match(const char *family,
   if (style != NULL && style[0] != '\0') {
     FcPatternAddString(pattern, FC_STYLE, (const FcChar8 *)style);
   }
-  for (size_t i = 0; i < codepoint_count; ++i) {
-    if (codepoints[i] != 0) FcCharSetAddChar(charset, codepoints[i]);
-  }
+  for (size_t i = 0; i < codepoint_count; ++i)
+    if (fontconfig_coverage_codepoint(codepoints[i]))
+      FcCharSetAddChar(charset, codepoints[i]);
   if (codepoint_count > 0) FcPatternAddCharSet(pattern, FC_CHARSET, charset);
   if (require_colour) {
     FcPatternAddBool(pattern, FC_COLOR, FcTrue);
@@ -633,24 +656,14 @@ int grimalkin_font_match(const char *family,
   size_t filtered_index = 0;
   for (int i = 0; i < matches->nfont; ++i) {
     FcPattern *candidate = matches->fonts[i];
+    if (!fontconfig_covers_grapheme(candidate, codepoints, codepoint_count))
+      continue;
     if (require_colour) {
       FcBool colour = FcFalse;
-      FcCharSet *candidate_charset = NULL;
       if (FcPatternGetBool(candidate, FC_COLOR, 0, &colour) != FcResultMatch ||
-          !colour ||
-          FcPatternGetCharSet(candidate, FC_CHARSET, 0, &candidate_charset) !=
-              FcResultMatch) {
+          !colour) {
         continue;
       }
-      bool complete = true;
-      for (size_t codepoint = 0; codepoint < codepoint_count; ++codepoint) {
-        if (codepoints[codepoint] != 0 &&
-            !FcCharSetHasChar(candidate_charset, codepoints[codepoint])) {
-          complete = false;
-          break;
-        }
-      }
-      if (!complete) continue;
     }
     if (filtered_index++ == candidate_index) {
       match = candidate;
