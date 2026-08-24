@@ -443,7 +443,7 @@ bundled_nerd_font_glyphs_are_fitted_individually :: proc(t: ^testing.T) {
 		)
 		gear := font_glyph_index(&font, rune(0xf013))
 		testing.expect(t, gear != 0)
-		full_size := font_rasterize(&font, gear)
+		full_size := font_rasterize_borrowed(&font, gear)
 		testing.expect(t, full_size.width > resources.cell_metrics.cell_width)
 		fitted, ink_bounds := glyph_rasterize_fitted(
 			&font,

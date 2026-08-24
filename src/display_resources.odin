@@ -55,7 +55,7 @@ renderer_resources_init_configured :: proc(
 		cap_glyph := font_glyph_index(&resources.font_faces[0].font, 'H')
 		cap_height := resources.cell_metrics.cell_height
 		if cap_glyph != 0 {
-			cap_height = font_rasterize(&resources.font_faces[0].font, cap_glyph).height
+			cap_height = font_rasterize_borrowed(&resources.font_faces[0].font, cap_glyph).height
 		}
 		// Match Nerd Fonts' monospaced target: icons may be taller than
 		// capitals, but should not occupy the entire line box.

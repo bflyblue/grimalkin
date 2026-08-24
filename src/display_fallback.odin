@@ -37,7 +37,7 @@ font_face_renders_colour_grapheme :: proc(face: ^Font_Face, graphemes: []u32) ->
 	has_ink := false
 	for glyph in shaped {
 		if glyph.glyph_index == 0 do return false
-		bitmap, result := font_try_rasterize(&face.font, glyph.glyph_index)
+		bitmap, result := font_try_rasterize_borrowed(&face.font, glyph.glyph_index)
 		if result != GRIMALKIN_FONT_OK do return false
 		if bitmap.bitmap_kind == .Empty do continue
 		if bitmap.bitmap_kind != .Colour do return false
@@ -147,7 +147,7 @@ glyph_rasterize_fitted :: proc(
 	requested_height := font.key.pixel_height
 	if requested_height <= 1 do return bitmap, bounds
 	for candidate := requested_height - 1; candidate >= 1; candidate -= 1 {
-		bitmap = font_rasterize_at_pixel_height(font, glyph_index, candidate)
+		bitmap = font_rasterize_at_pixel_height_borrowed(font, glyph_index, candidate)
 		bounds = glyph_ink_bounds(&bitmap, bytes_per_pixel)
 		if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds
 		if candidate == 1 do break

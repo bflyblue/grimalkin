@@ -295,20 +295,42 @@ font_glyph_index :: proc(font: ^Font_Instance, codepoint: rune) -> u32 {
 	return grimalkin_font_glyph_index(font.handle, u32(codepoint))
 }
 
-font_rasterize :: proc(font: ^Font_Instance, glyph_index: u32) -> Glyph_Bitmap {
-	bitmap, result := font_try_rasterize(font, glyph_index)
+// The `_borrowed` rasterizers return a Glyph_Bitmap whose `buffer` points into
+// a conversion scratch buffer owned by the C font instance, not into memory the
+// caller owns. FreeType renders into its own glyph slot; the shim then converts
+// that slot into the atlas pixel layout (BGRA premultiplied to straight RGBA,
+// 3x-wide LCD to RGBA with max-of-three alpha, packed mono to one byte per
+// pixel) and writes the result into `GrimalkinFont.scratch`. That buffer is
+// grown with realloc and reused by every rasterization on the same instance.
+//
+// So the borrow window is: valid until the next font_rasterize*_borrowed call
+// on this same Font_Instance, and until that instance is closed.
+//
+// The rule this imposes on callers is local and mechanically checkable:
+// between a font_rasterize*_borrowed call and the last read of its `.buffer`,
+// there must be no other font_rasterize*_borrowed call on the same instance.
+// Consuming one bitmap at a time is fine. Holding two bitmaps from the same
+// instance is not - the realloc can move the buffer, so the older pointer is
+// not merely stale but potentially freed. A caller that needs to accumulate
+// several bitmaps before using them must copy each one first; see
+// compose_colour_group in display_shaping.odin.
+//
+// Rasterizing on a different Font_Instance is always safe: every instance owns
+// a separate scratch buffer (and a separate FT_Library).
+font_rasterize_borrowed :: proc(font: ^Font_Instance, glyph_index: u32) -> Glyph_Bitmap {
+	bitmap, result := font_try_rasterize_borrowed(font, glyph_index)
 	if result == GRIMALKIN_FONT_OK do return bitmap
 	fmt.panicf("FreeType could not rasterize glyph %d (error %d)", glyph_index, result)
 }
 
-font_try_rasterize :: proc(font: ^Font_Instance, glyph_index: u32) -> (Glyph_Bitmap, int) {
+font_try_rasterize_borrowed :: proc(font: ^Font_Instance, glyph_index: u32) -> (Glyph_Bitmap, int) {
 	bitmap := Glyph_Bitmap{}
 	result := int(grimalkin_font_rasterize(font.handle, glyph_index, &bitmap))
 	if result == GRIMALKIN_FONT_OK do font.rasterization_count += 1
 	return bitmap, result
 }
 
-font_rasterize_at_pixel_height :: proc(
+font_rasterize_at_pixel_height_borrowed :: proc(
 	font: ^Font_Instance,
 	glyph_index: u32,
 	pixel_height: u16,
@@ -362,6 +384,9 @@ font_shape :: proc(
 	return shaped
 }
 
+// Borrows the bitmap's pixels. For a bitmap from a font_rasterize*_borrowed
+// call the result stays valid only inside that call's borrow window; clone it
+// before rasterizing again on the same Font_Instance.
 font_bitmap_bytes :: proc(bitmap: ^Glyph_Bitmap) -> []u8 {
 	if bitmap.buffer == nil || bitmap.width == 0 || bitmap.height == 0 {
 		return nil
