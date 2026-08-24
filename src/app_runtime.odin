@@ -42,12 +42,23 @@ refresh_display_rotation :: proc(app: ^Grimalkin_App) {
 run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	demo_mode := mode == .Demo
 	cursor_gpu_test := mode == .Cursor_Gpu_Test
+	if cursor_gpu_test {
+		// The GPU suite renders into an image it owns and never presents, so it
+		// asks GLFW for its null backend: no display server is involved, and the
+		// window below exists only to keep the shared setup path intact.
+		glfw.InitHint(glfw.PLATFORM, glfw.PLATFORM_NULL)
+	}
 	if !glfw.Init() {
 		description, code := glfw.GetError()
 		fmt.panicf("GLFW initialization failed (%d): %s", code, description)
 	}
 	defer glfw.Terminate()
-	xscale, yscale := glfw.GetMonitorContentScale(glfw.GetPrimaryMonitor())
+	// The null backend reports no monitors, and the suite pins scaling anyway so
+	// that captured pixel positions do not depend on the host display.
+	xscale, yscale := f32(1), f32(1)
+	if !cursor_gpu_test {
+		xscale, yscale = glfw.GetMonitorContentScale(glfw.GetPrimaryMonitor())
+	}
 	xscale = max(f32(1), xscale)
 	yscale = max(f32(1), yscale)
 	settings_path, has_settings_path := settings_config_path()
@@ -164,6 +175,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		focused              = true,
 		framebuffer_readback = cursor_gpu_test,
 		cursor_gpu_test      = cursor_gpu_test,
+		headless             = cursor_gpu_test,
 		settings             = settings,
 		applied_settings     = settings,
 		font_catalog         = &font_catalog,

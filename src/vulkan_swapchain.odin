@@ -15,16 +15,22 @@ init_vulkan :: proc(app: ^Grimalkin_App) {
 	vk.load_proc_addresses_instance(app.instance)
 	create_debug_messenger(app)
 
-	vk_must(
-		glfw.CreateWindowSurface(app.instance, app.window, nil, &app.surface),
-		"creating the GLFW window surface",
-	)
+	if !app.headless {
+		vk_must(
+			glfw.CreateWindowSurface(app.instance, app.window, nil, &app.surface),
+			"creating the GLFW window surface",
+		)
+	}
 
 	pick_physical_device(app)
 	create_logical_device(app)
 	vk.load_proc_addresses_device(app.device)
 
-	create_swapchain(&app.renderer, app.window, app.framebuffer_readback)
+	if app.headless {
+		create_headless_target(&app.renderer)
+	} else {
+		create_swapchain(&app.renderer, app.window, app.framebuffer_readback)
+	}
 	resize_terminal_to_extent(app, app.extent)
 	osd_prepare(app)
 	create_descriptor_layout(app)
@@ -202,6 +208,7 @@ destroy_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	for image_view in renderer.image_views do vk.DestroyImageView(renderer.device, image_view, nil)
 	delete(renderer.image_views)
 	delete(renderer.swapchain_images)
+	destroy_headless_target(renderer)
 	if renderer.swapchain != 0 do vk.DestroySwapchainKHR(renderer.device, renderer.swapchain, nil)
 	renderer.swapchain = 0
 }

@@ -53,9 +53,18 @@ Common targets are:
 | `make benchmark` | Run the deterministic renderer benchmark |
 | `make clean` | Remove generated local build products |
 
-On Linux, `make test-gpu` uses Xvfb when available and can run against
-llvmpipe. Visual renderer changes must also be exercised on a hardware Vulkan
-device with validation layers enabled.
+`make test-gpu` renders offscreen and never presents, so it needs no display
+server and runs unchanged over SSH or in a container. By default it picks a CPU
+device, which keeps results deterministic; two environment variables select
+otherwise:
+
+| Variable | Values | Effect |
+| --- | --- | --- |
+| `GRIMALKIN_GPU_TEST_DEVICE` | `cpu`, `hardware`, `any` | Which physical device to run on. Defaults to preferring a CPU device. |
+| `GRIMALKIN_GPU_TEST_FORMAT` | `srgb`, `unorm` | Render target format. `unorm` exercises the manual sRGB encoding path that an sRGB surface would otherwise hide. |
+
+Visual renderer changes must also be exercised on a hardware Vulkan device with
+validation layers enabled: `GRIMALKIN_GPU_TEST_DEVICE=hardware make test-gpu`.
 
 The Nix flake is optional. `nix develop`, `nix flake check path:.`, and
 `nix build path:.#grimalkin` provide local development and packaging

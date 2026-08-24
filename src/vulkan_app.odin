@@ -197,6 +197,10 @@ Vulkan_Device_Resources :: struct {
 
 Vulkan_Swapchain_Resources :: struct {
 	swapchain:          vk.SwapchainKHR,
+	// Set instead of the swapchain when rendering headless. The target still
+	// publishes itself through swapchain_images and image_views below.
+	headless_image:     vk.Image,
+	headless_memory:    vk.DeviceMemory,
 	swapchain_images:   []vk.Image,
 	image_views:        []vk.ImageView,
 	surface_format:     vk.SurfaceFormatKHR,
@@ -293,6 +297,9 @@ Grimalkin_App :: struct {
 	using input:          Application_Input_State,
 	using paste:          Application_Paste_State,
 	cursor_gpu_test:   bool,
+	// No surface, no swapchain, no display server. Implied by cursor_gpu_test,
+	// which renders into an image it owns so it never waits on a compositor.
+	headless:          bool,
 	framebuffer_dirty: bool,
 	minimized:         bool,
 	redraw:            bool,
