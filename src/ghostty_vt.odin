@@ -157,7 +157,8 @@ Grimalkin_Ghostty_Snapshot_View :: struct {
 	scroll_visible_rows:     u64,
 	viewport_active:         u8,
 	active_screen:           u8,
-	scroll_reserved:         [6]u8,
+	placements_changed:      u8,
+	scroll_reserved:         [5]u8,
 }
 
 #assert(size_of(Grimalkin_Ghostty_Cell) == 36)
@@ -295,6 +296,10 @@ Terminal_Snapshot_Update :: struct {
 	bridge_grapheme_bytes_updated: u64,
 	bridge_image_bytes_updated:    u64,
 	graphics_changed:              bool,
+	// Placement geometry was recollected: either the graphics changed, or the
+	// viewport moved under a placement. Distinct from graphics_changed, which
+	// stays false on a scroll so that cached image visuals survive it.
+	placement_geometry_changed:    bool,
 }
 
 Terminal_Core :: struct {
@@ -886,7 +891,12 @@ terminal_core_snapshot :: proc(
 	}
 
 	update.graphics_changed = resized || snapshot.graphics_generation != view.graphics_generation
-	if update.graphics_changed {
+	// Placement geometry also has to be recopied when the viewport moved under a
+	// placement, which does not change the graphics generation. The image copies
+	// inside are keyed on the image generation, so that path reuses the pixels
+	// and only the placement slice is rebuilt.
+	update.placement_geometry_changed = update.graphics_changed || view.placements_changed != 0
+	if update.placement_geometry_changed {
 		terminal_snapshot_replace_graphics(snapshot, &view, &update)
 	}
 	snapshot.graphics_generation = view.graphics_generation
