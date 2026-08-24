@@ -1,5 +1,6 @@
 fullscreen.vert
 text.frag
+image_quad.frag
 osd.frag
 padding_glow.frag
 padding_glow_background.frag

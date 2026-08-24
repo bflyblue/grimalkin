@@ -20,7 +20,7 @@ Text_Layout_Push :: struct {
 	grid:   [4]u32,
 	font:   [4]i32, // baseline, viewport x/y, manually encode output as sRGB
 	cursor: [4]u32, // cell x/y, style plus visibility, packed sRGB RGBA
-	effects: [4]u32, // blinking-text opacity, text contrast, reserved
+	effects: [4]u32, // blinking-text opacity, text contrast, below-text count, reserved
 }
 
 #assert(size_of(Text_Layout_Push) == 64)

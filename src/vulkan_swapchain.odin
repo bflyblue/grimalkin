@@ -28,6 +28,7 @@ init_vulkan :: proc(app: ^Grimalkin_App) {
 	resize_terminal_to_extent(app, app.extent)
 	osd_prepare(app)
 	create_descriptor_layout(app)
+	create_image_placement_descriptor_layout(app)
 	create_padding_glow_descriptor_layout(app)
 	create_swapchain_resources(&app.renderer)
 	create_commands(app)
@@ -49,6 +50,7 @@ create_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	create_osd_pipeline(renderer)
 	create_selection_pipeline(renderer)
 	create_scroll_indicator_pipeline(renderer)
+	create_image_quad_pipeline(renderer)
 	create_framebuffers(renderer)
 }
 
@@ -162,6 +164,8 @@ destroy_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	if renderer.osd_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.osd_pipeline_layout, nil)
 	if renderer.selection_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.selection_pipeline, nil)
 	if renderer.selection_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.selection_pipeline_layout, nil)
+	if renderer.image_quad_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.image_quad_pipeline, nil)
+	if renderer.image_quad_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.image_quad_pipeline_layout, nil)
 	if renderer.scroll_indicator_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.scroll_indicator_pipeline, nil)
 	if renderer.scroll_indicator_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.scroll_indicator_pipeline_layout, nil)
 	if renderer.render_pass != 0 do vk.DestroyRenderPass(renderer.device, renderer.render_pass, nil)
@@ -178,6 +182,8 @@ destroy_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	renderer.selection_pipeline_layout = 0
 	renderer.scroll_indicator_pipeline = 0
 	renderer.scroll_indicator_pipeline_layout = 0
+	renderer.image_quad_pipeline = 0
+	renderer.image_quad_pipeline_layout = 0
 	renderer.render_pass = 0
 	for image_view in renderer.image_views do vk.DestroyImageView(renderer.device, image_view, nil)
 	delete(renderer.image_views)
@@ -219,6 +225,7 @@ application_recreate_swapchain :: proc(app: ^Grimalkin_App) -> bool {
 }
 
 destroy_frame_text_buffers :: proc(device: vk.Device, frame: ^Frame_Context) {
+	destroy_buffer(device, &frame.image_placement_buffer)
 	destroy_buffer(device, &frame.visual_buffer)
 	destroy_buffer(device, &frame.cell_buffer)
 	destroy_buffer(device, &frame.decoration_buffer)
@@ -227,6 +234,8 @@ destroy_frame_text_buffers :: proc(device: vk.Device, frame: ^Frame_Context) {
 	frame.descriptor_set = 0
 	frame.osd_descriptor_set = 0
 	frame.selection_descriptor_set = 0
+	frame.image_placement_descriptor_set = 0
+	frame.image_placement_capacity = 0
 	frame.cell_capacity = 0
 	frame.decoration_capacity = 0
 	frame.osd_cell_capacity = 0
@@ -262,6 +271,9 @@ destroy_vulkan :: proc(app: ^Grimalkin_App) {
 			vk.DestroyDescriptorSetLayout(app.device, app.padding_glow_descriptor_layout, nil)
 		}
 		vk.DestroyDescriptorSetLayout(app.device, app.descriptor_layout, nil)
+		if app.image_placement_descriptor_layout != 0 {
+			vk.DestroyDescriptorSetLayout(app.device, app.image_placement_descriptor_layout, nil)
+		}
 		vk.DestroyDevice(app.device, nil)
 	}
 
