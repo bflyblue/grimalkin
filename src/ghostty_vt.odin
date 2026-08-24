@@ -169,6 +169,7 @@ foreign ghostty_shim {
 	grimalkin_ghostty_scroll_rows :: proc(terminal: Grimalkin_Ghostty, delta: i64) ---
 	grimalkin_ghostty_scroll_bottom :: proc(terminal: Grimalkin_Ghostty) ---
 	grimalkin_ghostty_set_write_pty :: proc(terminal: Grimalkin_Ghostty, callback: Grimalkin_Write_Pty_Proc, userdata: rawptr) ---
+	grimalkin_ghostty_set_png_decoder :: proc(decoder: Png_Decode_Proc) ---
 	grimalkin_ghostty_encode_glfw_key :: proc(terminal: Grimalkin_Ghostty, glfw_key, glfw_action: c.int, modifiers: u16, utf8: [^]u8, utf8_len: c.size_t, unshifted_codepoint: u32, out: [^]u8, out_capacity: c.size_t, out_len: ^c.size_t) -> c.int ---
 	grimalkin_ghostty_mouse_tracking :: proc(terminal: Grimalkin_Ghostty, out_tracking: ^u8) -> c.int ---
 	grimalkin_ghostty_encode_mouse :: proc(terminal: Grimalkin_Ghostty, action, button: u8, modifiers: u16, x, y: f32, screen_width, screen_height, cell_width, cell_height, padding_top, padding_bottom, padding_right, padding_left: u32, any_button_pressed: u8, out: [^]u8, out_capacity: c.size_t, out_len: ^c.size_t) -> c.int ---
@@ -278,6 +279,14 @@ Terminal_Snapshot_Update :: struct {
 
 Terminal_Core :: struct {
 	handle: Grimalkin_Ghostty,
+}
+
+// Kitty graphics rejects PNG payloads until a decoder is installed. The hook is
+// process-global rather than per terminal, so it is registered once at startup:
+// doing it per terminal would race the shim's install guard across test threads.
+@(init)
+register_kitty_png_decoder :: proc "contextless" () {
+	grimalkin_ghostty_set_png_decoder(grimalkin_decode_png_rgba)
 }
 
 terminal_core_init :: proc(cols, rows: u16, max_scrollback: int) -> Terminal_Core {

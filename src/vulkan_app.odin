@@ -10,9 +10,37 @@ when ODIN_OS == .Windows {
 	foreign import png_shim {"system:grimalkin_png", "system:png16"}
 }
 
+// Allocation hooks and decoder signature mirroring src/png_shim.h. The Kitty
+// graphics decoder is registered with the libghostty-vt shim from Odin so that
+// libpng stays inside the PNG shim.
+Png_Allocate_Proc :: #type proc "c" (allocator_context: rawptr, len: c.size_t) -> [^]u8
+Png_Release_Proc :: #type proc "c" (allocator_context: rawptr, pixels: [^]u8, len: c.size_t)
+Png_Decode_Proc :: #type proc "c" (
+	data: [^]u8,
+	len: c.size_t,
+	allocate: Png_Allocate_Proc,
+	release: Png_Release_Proc,
+	allocator_context: rawptr,
+	out_width: ^u32,
+	out_height: ^u32,
+	out_pixels: ^[^]u8,
+	out_len: ^c.size_t,
+) -> c.int
+
 @(default_calling_convention = "c")
 foreign png_shim {
 	grimalkin_write_png_rgba :: proc(path: cstring, width, height: u32, pixels: [^]u8, stride: c.size_t) -> c.int ---
+	grimalkin_decode_png_rgba :: proc(
+		data: [^]u8,
+		len: c.size_t,
+		allocate: Png_Allocate_Proc,
+		release: Png_Release_Proc,
+		allocator_context: rawptr,
+		out_width: ^u32,
+		out_height: ^u32,
+		out_pixels: ^[^]u8,
+		out_len: ^c.size_t,
+	) -> c.int ---
 }
 
 ENABLE_VALIDATION :: #config(ENABLE_VALIDATION, ODIN_DEBUG)

@@ -1,7 +1,10 @@
 package main
 
 import c "core:c"
+import "core:encoding/base64"
+import "core:fmt"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 import "vendor:glfw"
 
@@ -498,4 +501,82 @@ ghostty_direct_kitty_rgba_survives_multiple_protocol_chunks :: proc(t: ^testing.
 	testing.expect(t, deleted_update.graphics_changed)
 	testing.expect_value(t, len(snapshot.images), 0)
 	testing.expect_value(t, len(snapshot.placements), 0)
+}
+
+// A 2x2 PNG produced by grimalkin_write_png_rgba: opaque red, green, and blue
+// followed by a half-transparent white. Held as bytes rather than encoded in
+// the test so that a decode regression cannot be masked by a matching encode
+// regression.
+KITTY_TEST_PNG_2X2 :: [?]u8 {
+	137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13,
+	73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2,
+	8, 6, 0, 0, 0, 114, 182, 13, 36, 0, 0, 0,
+	1, 115, 82, 71, 66, 0, 174, 206, 28, 233, 0, 0,
+	0, 25, 73, 68, 65, 84, 8, 153, 5, 193, 1, 13,
+	0, 0, 8, 192, 32, 220, 44, 110, 242, 11, 34, 105,
+	71, 226, 30, 63, 128, 6, 129, 142, 131, 95, 38, 0,
+	0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+}
+
+ghostty_test_transmit_kitty_png :: proc(terminal: ^Terminal_Core, image_id: u32, payload: []u8) {
+	encoded, encode_error := base64.encode(payload)
+	if encode_error != nil do return
+	defer delete(encoded)
+	// No s= or v=: PNG carries its own dimensions, and libghostty-vt decodes
+	// before the dimension check.
+	command := fmt.aprintf("\x1b_Ga=t,f=100,i=%d,t=d,q=0;%s\x1b\\", image_id, encoded)
+	defer delete(command)
+	terminal_write_string(terminal, command)
+}
+
+@(test)
+ghostty_kitty_png_transmission_decodes_to_rgba :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+
+	png := KITTY_TEST_PNG_2X2
+	ghostty_test_transmit_kitty_png(&terminal, 51, png[:])
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=51,p=1,c=2,r=1,q=0\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.images), 1)
+	if len(snapshot.images) != 1 do return
+	image := &snapshot.images[0]
+	testing.expect_value(t, image.image_id, u32(51))
+	testing.expect_value(t, image.width, u32(2))
+	testing.expect_value(t, image.height, u32(2))
+	// PNG payloads are decoded before storage, so a stored image never reports
+	// the PNG format: RGBA is the only thing the renderer ever sees.
+	testing.expect_value(t, image.format, u32(1))
+	expected := [16]u8{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 128}
+	testing.expect_value(t, len(image.pixels), len(expected))
+	testing.expect(t, slice.equal(image.pixels, expected[:]))
+}
+
+@(test)
+ghostty_kitty_png_rejects_corrupt_payload :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	sink := Ghostty_Test_Sink{}
+	terminal_core_set_write_pty(&terminal, ghostty_test_write_pty, &sink)
+
+	// Valid base64 of a truncated PNG: the header parses, the payload does not.
+	png := KITTY_TEST_PNG_2X2
+	ghostty_test_transmit_kitty_png(&terminal, 52, png[:len(png) / 2])
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=52,p=1,c=2,r=1,q=0\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.images), 0)
+	testing.expect(t, sink.len > 0)
+	response := string(sink.bytes[:sink.len])
+	// "invalid data" is what libghostty-vt reports when an installed decoder
+	// rejects the payload. Without a decoder it answers "unsupported medium"
+	// instead, so this distinguishes a live decoder from an absent one.
+	testing.expect(t, strings.contains(response, "invalid data"))
 }

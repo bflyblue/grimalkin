@@ -94,7 +94,7 @@ $(FREETYPE_OBJECT): src/freetype_shim.c src/freetype_shim.h
 $(FREETYPE_SHIM): $(FREETYPE_OBJECT)
 	$(AR) rcs $@ $<
 
-$(GHOSTTY_OBJECT): src/ghostty_shim.c src/ghostty_shim.h
+$(GHOSTTY_OBJECT): src/ghostty_shim.c src/ghostty_shim.h src/png_shim.h
 	$(CC) $$(pkg-config --cflags libghostty-vt glfw3) -c $< -o $@
 
 $(GHOSTTY_SHIM): $(GHOSTTY_OBJECT)
