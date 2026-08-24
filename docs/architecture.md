@@ -107,6 +107,16 @@ falls back to grayscale. A screenshot cannot validate physical subpixel output:
 test packed atlas channels, Vulkan blending and zero-coverage pixels, and the
 target panel directly.
 
+Four layouts are selectable. RGB and BGR are the ordinary horizontal stripes.
+`QD_OLED_Square` is red `(-11, 16)`, green `(-11, -16)`, blue `(22, 0)`, which
+is FreeType's documented two-dimensional Harmony example and the geometry used
+for the ASUS PG32UCDMR. `QD_OLED_Diamond` is red `(-17, -10)`, green `(0, 20)`,
+blue `(17, -10)`, modelling first-generation 34-inch panels that place green
+above a wider red/blue pair. The two QD-OLED entries are named by panel
+generation rather than by arrangement shape, since both arrangements are
+triangular. All values are FreeType 26.6 colour centroids; Harmony models
+positions, not physical aperture shapes.
+
 ## Texture and image scope
 
 Texture resources are bounded and recycled. Kitty virtual Unicode-placeholder
