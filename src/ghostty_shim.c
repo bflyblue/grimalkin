@@ -495,22 +495,20 @@ static int snapshot_images(GrimalkinGhostty *terminal,
 
     GrimalkinGhosttyPlacement placement = {0};
     bool is_virtual = false;
+    /* Only the fields the render-info struct does not carry. The geometry is
+       resolved below instead of copied raw, so that omitted source rectangles
+       and grid extents arrive already worked out. */
     GhosttyKittyGraphicsPlacementData keys[] = {
         GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
         GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
-        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS,
+        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
+        GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
         GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z,
         GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
     };
     void *values[] = {
-        &placement.image_id, &placement.placement_id, &placement.source_x,
-        &placement.source_y, &placement.source_width, &placement.source_height,
-        &placement.columns, &placement.rows, &placement.z, &is_virtual,
+        &placement.image_id, &placement.placement_id, &placement.x_offset,
+        &placement.y_offset, &placement.z, &is_virtual,
     };
     result = ghostty_kitty_graphics_placement_get_multi(
         terminal->placement_iterator,
@@ -520,6 +518,29 @@ static int snapshot_images(GrimalkinGhostty *terminal,
         NULL);
     if (result != GHOSTTY_SUCCESS) goto snapshot_images_error;
     placement.is_virtual = is_virtual;
+
+    /* Resolving geometry needs the image, so a placement whose image is gone
+       is dropped here: it has no size and nothing to draw. */
+    GhosttyKittyGraphicsImage image =
+        ghostty_kitty_graphics_image(graphics, placement.image_id);
+    if (image == NULL) continue;
+
+    GhosttyKittyGraphicsPlacementRenderInfo info =
+        GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsPlacementRenderInfo);
+    result = ghostty_kitty_graphics_placement_render_info(
+        terminal->placement_iterator, image, terminal->terminal, &info);
+    if (result != GHOSTTY_SUCCESS) goto snapshot_images_error;
+    placement.source_x = info.source_x;
+    placement.source_y = info.source_y;
+    placement.source_width = info.source_width;
+    placement.source_height = info.source_height;
+    placement.pixel_width = info.pixel_width;
+    placement.pixel_height = info.pixel_height;
+    placement.grid_cols = info.grid_cols;
+    placement.grid_rows = info.grid_rows;
+    placement.viewport_col = info.viewport_col;
+    placement.viewport_row = info.viewport_row;
+    placement.viewport_visible = info.viewport_visible;
     placements[placement_count++] = placement;
 
     bool already_copied = false;
@@ -530,10 +551,6 @@ static int snapshot_images(GrimalkinGhostty *terminal,
       }
     }
     if (already_copied) continue;
-
-    GhosttyKittyGraphicsImage image =
-        ghostty_kitty_graphics_image(graphics, placement.image_id);
-    if (image == NULL) continue;
 
     size_t next_image_count;
     if (!size_add(image_count, 1, &next_image_count)) {

@@ -642,3 +642,145 @@ ghostty_kitty_storage_limit_admits_images_within_the_budget :: proc(t: ^testing.
 
 	testing.expect_value(t, len(snapshot.images), 1)
 }
+
+// Geometry below is the resolution libghostty-vt performs, not the raw protocol
+// fields: an omitted source rectangle or grid extent arrives worked out against
+// the image and the cell size. Cell dimensions come from a resize, because
+// libghostty-vt derives them from the terminal's pixel size.
+ghostty_test_place_kitty_image :: proc(
+	terminal: ^Terminal_Core,
+	image_id, width, height: u32,
+	placement_command: string,
+) {
+	terminal_core_resize(terminal, 20, 8, 10, 20)
+	pixels := demo_image_pixels(width, height, 0)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(terminal, image_id, width, height, pixels, 2)
+	terminal_write_string(terminal, placement_command)
+}
+
+@(test)
+ghostty_kitty_placement_geometry_arrives_resolved :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	ghostty_test_place_kitty_image(
+		&terminal,
+		71,
+		64,
+		32,
+		"\x1b_Ga=p,i=71,p=1,c=8,r=4,q=2\x1b\\",
+	)
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	placement := snapshot.placements[0]
+	testing.expect_value(t, placement.grid_cols, u32(8))
+	testing.expect_value(t, placement.grid_rows, u32(4))
+	// An explicit c= and r= scale the image to exactly that many cells.
+	testing.expect_value(t, placement.pixel_width, u32(80))
+	testing.expect_value(t, placement.pixel_height, u32(80))
+	// An omitted source rectangle covers the whole image rather than staying zero.
+	testing.expect_value(t, placement.source_x, u32(0))
+	testing.expect_value(t, placement.source_y, u32(0))
+	testing.expect_value(t, placement.source_width, u32(64))
+	testing.expect_value(t, placement.source_height, u32(32))
+}
+
+@(test)
+ghostty_kitty_placement_grid_extent_falls_back_to_the_image_size :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	ghostty_test_place_kitty_image(&terminal, 72, 64, 32, "\x1b_Ga=p,i=72,p=1,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	placement := snapshot.placements[0]
+	// Without c= or r= the image keeps its native pixel size and covers however
+	// many whole cells that needs: 64x32 pixels over 10x20 cells.
+	testing.expect_value(t, placement.pixel_width, u32(64))
+	testing.expect_value(t, placement.pixel_height, u32(32))
+	testing.expect_value(t, placement.grid_cols, u32(7))
+	testing.expect_value(t, placement.grid_rows, u32(2))
+}
+
+@(test)
+ghostty_kitty_placement_keeps_an_explicit_source_rectangle :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	ghostty_test_place_kitty_image(
+		&terminal,
+		73,
+		64,
+		32,
+		"\x1b_Ga=p,i=73,p=1,x=8,y=4,w=16,h=8,c=2,r=1,q=2\x1b\\",
+	)
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	placement := snapshot.placements[0]
+	testing.expect_value(t, placement.source_x, u32(8))
+	testing.expect_value(t, placement.source_y, u32(4))
+	testing.expect_value(t, placement.source_width, u32(16))
+	testing.expect_value(t, placement.source_height, u32(8))
+}
+
+@(test)
+ghostty_kitty_pin_placement_reports_its_viewport_position :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	// Park the cursor before placing: a direct placement pins to wherever the
+	// cursor is, which is what gives it a viewport position at all.
+	terminal_core_resize(&terminal, 20, 8, 10, 20)
+	terminal_write_string(&terminal, "\x1b[3;5H")
+	pixels := demo_image_pixels(64, 32, 0)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(&terminal, 74, 64, 32, pixels, 2)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=74,p=1,c=2,r=1,C=1,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	placement := snapshot.placements[0]
+	testing.expect(t, !placement.is_virtual)
+	testing.expect(t, placement.viewport_visible)
+	testing.expect_value(t, placement.viewport_col, i32(4))
+	testing.expect_value(t, placement.viewport_row, i32(2))
+}
+
+@(test)
+ghostty_kitty_virtual_placement_reports_no_viewport_position :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	// A virtual placement lives wherever its Unicode placeholders are written,
+	// so it has no pin and libghostty-vt reports no viewport position for it.
+	ghostty_test_place_kitty_image(&terminal, 75, 64, 32, "\x1b_Ga=p,i=75,p=1,U=1,c=8,r=4,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	placement := snapshot.placements[0]
+	testing.expect(t, placement.is_virtual)
+	testing.expect(t, !placement.viewport_visible)
+	// The grid extent is still resolved, which is what the placeholder renderer
+	// slices into per-cell tiles.
+	testing.expect_value(t, placement.grid_cols, u32(8))
+	testing.expect_value(t, placement.grid_rows, u32(4))
+}
