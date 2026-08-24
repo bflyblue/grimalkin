@@ -580,3 +580,65 @@ ghostty_kitty_png_rejects_corrupt_payload :: proc(t: ^testing.T) {
 	// instead, so this distinguishes a live decoder from an absent one.
 	testing.expect(t, strings.contains(response, "invalid data"))
 }
+
+@(test)
+ghostty_kitty_storage_limit_of_zero_disables_graphics :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32, 0)
+	defer terminal_core_destroy(&terminal)
+	pixels := demo_image_pixels(8, 8, 0)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(&terminal, 61, 8, 8, pixels, 0)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=61,p=1,c=2,r=1,q=0\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.images), 0)
+	testing.expect_value(t, len(snapshot.placements), 0)
+}
+
+@(test)
+ghostty_kitty_storage_limit_rejects_images_above_the_budget :: proc(t: ^testing.T) {
+	// One megabyte of storage against a 4 MiB image. The paired test below sends
+	// the same payload against a budget that fits it, so the difference between
+	// the two is the limit rather than anything about the image.
+	terminal := terminal_core_init(20, 8, 32, 1)
+	defer terminal_core_destroy(&terminal)
+	sink := Ghostty_Test_Sink{}
+	terminal_core_set_write_pty(&terminal, ghostty_test_write_pty, &sink)
+	pixels := demo_image_pixels(1024, 1024, 0)
+	defer delete(pixels)
+	// q=1 suppresses the per-chunk OK responses, so the fixed-size sink holds
+	// the failure rather than the acknowledgements that would precede it.
+	demo_transmit_kitty_rgba(&terminal, 62, 1024, 1024, pixels, 1)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=62,p=1,c=2,r=1,q=1\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.images), 0)
+	// The over-budget image is dropped during transmission, so the placement
+	// that follows it has nothing to refer to.
+	testing.expect(t, sink.len > 0)
+	testing.expect(t, strings.contains(string(sink.bytes[:sink.len]), "ENOENT"))
+}
+
+@(test)
+ghostty_kitty_storage_limit_admits_images_within_the_budget :: proc(t: ^testing.T) {
+	// The same image against a budget that fits it, so the rejection above is
+	// attributable to the limit rather than to the image itself.
+	terminal := terminal_core_init(20, 8, 32, 8)
+	defer terminal_core_destroy(&terminal)
+	pixels := demo_image_pixels(512, 512, 0)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(&terminal, 63, 512, 512, pixels, 0)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=63,p=1,c=2,r=1,q=0\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	testing.expect_value(t, len(snapshot.images), 1)
+}

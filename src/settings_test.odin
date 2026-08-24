@@ -38,6 +38,7 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, expected.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
 	testing.expect_value(t, expected.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, expected.selection_style, Selection_Style.Solid)
+	testing.expect_value(t, expected.kitty_image_storage_mb, u16(320))
 	data, ok := settings_encode(expected, context.temp_allocator)
 	testing.expect(t, ok)
 	testing.expect(t, !strings.contains(string(data), `"text_clarity"`))
@@ -138,7 +139,7 @@ settings_json_replaces_empty_or_oversized_font_family :: proc(t: ^testing.T) {
 
 @(test)
 settings_json_rejects_out_of_range_values_without_retaining_them :: proc(t: ^testing.T) {
-	text := `{"version":1,"text_clarity":"rgb","font_size":99,"cursor_animation":"steady","padding":200,"padding_glow":"neon","window_style":"floating","scroll_page_modifier":"super","scroll_line_modifier":"ctrl"}`
+	text := `{"version":1,"text_clarity":"rgb","font_size":99,"cursor_animation":"steady","padding":200,"kitty_image_storage_mb":100000,"padding_glow":"neon","window_style":"floating","scroll_page_modifier":"super","scroll_line_modifier":"ctrl"}`
 	data := transmute([]byte)text
 	actual, valid := settings_decode(data)
 	testing.expect(t, !valid)
@@ -147,6 +148,7 @@ settings_json_rejects_out_of_range_values_without_retaining_them :: proc(t: ^tes
 	testing.expect_value(t, actual.font_size, u16(16))
 	testing.expect_value(t, actual.cursor_animation, Cursor_Animation_Policy.Steady)
 	testing.expect_value(t, actual.padding, u16(0))
+	testing.expect_value(t, actual.kitty_image_storage_mb, SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT)
 	testing.expect_value(t, actual.padding_glow, Padding_Glow.Off)
 	testing.expect_value(t, actual.window_style, Window_Style.System)
 	testing.expect_value(t, actual.scroll_page_modifier, Scroll_Modifier.Shift)
@@ -349,4 +351,44 @@ settings_subpixel_rotation_transforms_geometry_and_unknown_auto_is_safe :: proc(
 		application_settings_render_config(settings, .Unknown).geometry,
 		[3]Font_Subpixel_Vector{{0, -21}, {0, 0}, {0, 21}},
 	)
+}
+
+@(test)
+settings_json_round_trips_kitty_image_storage_limits :: proc(t: ^testing.T) {
+	// Zero is a meaningful setting rather than an absent one: libghostty-vt
+	// deletes every stored image and placement when the limit is zero, which is
+	// how Kitty graphics is turned off altogether.
+	sizes := [?]u16 {
+		0,
+		1,
+		SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+		SETTINGS_KITTY_IMAGE_STORAGE_MB_MAX,
+	}
+	for megabytes in sizes {
+		expected := application_settings_default()
+		expected.kitty_image_storage_mb = megabytes
+		data, encoded := settings_encode(expected, context.temp_allocator)
+		testing.expect(t, encoded)
+		actual, valid := settings_decode(data)
+		testing.expect(t, valid)
+		testing.expect_value(t, actual.kitty_image_storage_mb, megabytes)
+	}
+}
+
+@(test)
+settings_json_rejects_kitty_image_storage_outside_range :: proc(t: ^testing.T) {
+	cases := [?]string {
+		`{"version":1,"kitty_image_storage_mb":100000}`,
+		`{"version":1,"kitty_image_storage_mb":-1}`,
+	}
+	for text in cases {
+		data := transmute([]byte)text
+		actual, valid := settings_decode(data)
+		testing.expect(t, !valid)
+		testing.expect_value(
+			t,
+			actual.kitty_image_storage_mb,
+			SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+		)
+	}
 }
