@@ -262,6 +262,9 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	app := app_from_window(window)
 	if app == nil do return
 	defer selection_update_mouse_cursor(app)
+	// Holding the modifier over a stationary pointer produces no cursor event,
+	// so the hover has to be recomputed when the modifier itself changes.
+	defer if url_hover_modifier_key(i32(key)) do url_hover_update(app)
 	if app.paste_confirmation {
 		app.pending_valid = false
 		if action == glfw.PRESS && key == glfw.KEY_ENTER {
@@ -395,6 +398,10 @@ selection_update_mouse_cursor :: proc(app: ^Grimalkin_App) {
 		glfw.SetCursor(app.window, nil)
 		return
 	}
+	if app.url_hover.active {
+		glfw.SetCursor(app.window, app.url_hover_cursor)
+		return
+	}
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
 	mods := current_mouse_modifiers(app)
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
@@ -516,6 +523,23 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
 	x, y := glfw.GetCursorPos(window)
 
+	// A modifier-click on a URL wins over both selection and mouse reporting;
+	// that is the point of holding the modifier. With nothing hovered it falls
+	// through and behaves exactly as before.
+	if button == glfw.MOUSE_BUTTON_LEFT {
+		if action == glfw.PRESS && i32(mods) & URL_HOVER_MODIFIER != 0 {
+			url_hover_update(app)
+			if url_hover_open(app) {
+				app.url_hover.click_consumed = true
+				return
+			}
+		}
+		if action == glfw.RELEASE && app.url_hover.click_consumed {
+			app.url_hover.click_consumed = false
+			return
+		}
+	}
+
 	if button == glfw.MOUSE_BUTTON_RIGHT && override {
 		if app.settings.right_click_paste && action == glfw.PRESS {
 			_ = paste_from_clipboard(app)
@@ -549,6 +573,7 @@ cursor_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
+	url_hover_update(app)
 	selection_update_mouse_cursor(app)
 	if app.paste_confirmation || app.osd.visible do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
@@ -618,6 +643,9 @@ window_focus_callback :: proc "c" (window: glfw.WindowHandle, focused: c.int) {
 	app.focused = focused != 0
 	if !app.focused {
 		font_size_shortcut_clear(&app.font_size_shortcut)
+		// The modifier release lands in another window, so nothing else would
+		// ever lift the underline.
+		url_hover_clear(app)
 	}
 	selection_update_mouse_cursor(app)
 	app.redraw = true
@@ -930,4 +958,14 @@ osd_handle_character :: proc(app: ^Grimalkin_App, codepoint: rune) {
 	osd_font_search_next(&app.osd, app.font_catalog)
 	osd_prepare(app)
 	app.redraw = true
+}
+
+// Leaving the window delivers no further motion, so nothing else would notice
+// that the pointer is no longer over the underlined address.
+cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: c.int) {
+	context = runtime.default_context()
+	app := app_from_window(window)
+	if app == nil || entered != 0 do return
+	url_hover_clear(app)
+	selection_update_mouse_cursor(app)
 }

@@ -210,8 +210,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 	app.selection_text_cursor = glfw.CreateStandardCursor(glfw.IBEAM_CURSOR)
 	app.selection_block_cursor = glfw.CreateStandardCursor(glfw.CROSSHAIR_CURSOR)
+	app.url_hover_cursor = glfw.CreateStandardCursor(glfw.POINTING_HAND_CURSOR)
 	defer if app.selection_text_cursor != nil do glfw.DestroyCursor(app.selection_text_cursor)
 	defer if app.selection_block_cursor != nil do glfw.DestroyCursor(app.selection_block_cursor)
+	defer if app.url_hover_cursor != nil do glfw.DestroyCursor(app.url_hover_cursor)
+	defer url_hover_destroy(&app.url_hover)
 	when ODIN_OS == .Darwin {
 		if grimalkin_macos_configure_window(
 			rawptr(app.window),
@@ -233,6 +236,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	glfw.SetCharCallback(app.window, char_callback)
 	glfw.SetMouseButtonCallback(app.window, mouse_button_callback)
 	glfw.SetCursorPosCallback(app.window, cursor_position_callback)
+	glfw.SetCursorEnterCallback(app.window, cursor_enter_callback)
 	glfw.SetScrollCallback(app.window, scroll_callback)
 	glfw.SetFramebufferSizeCallback(app.window, framebuffer_size_callback)
 	glfw.SetWindowPosCallback(app.window, window_position_callback)

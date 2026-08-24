@@ -33,6 +33,7 @@ foreign session_shim {
 	grimalkin_version :: proc() -> cstring ---
 	grimalkin_atomic_replace_file :: proc(temporary, destination: cstring) -> c.int ---
 	grimalkin_display_rotation :: proc(glfw_window: rawptr) -> c.int ---
+	grimalkin_open_url :: proc(url: cstring) -> c.int ---
 	when ODIN_OS == .Darwin {
 		grimalkin_macos_configure_window :: proc(glfw_window: rawptr, frameless: c.int) -> c.int ---
 	}

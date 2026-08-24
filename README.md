@@ -27,6 +27,8 @@ useful set of live visual controls.
 - 10,000 lines of scrollback with keyboard paging and a position indicator.
 - Linear and rectangular selection, system clipboard integration, bracketed
   paste, and configurable OSC 52 access.
+- Alt-hover (Command on macOS) to mark a URL with a dotted underline, and
+  Alt-click to open it in the system browser.
 - Kitty graphics: PNG and raw pixel transmission, direct and Unicode-placeholder
   placements, and the protocol's three z-index layers.
 - Live settings for fonts, text rendering, cursor animation, padding effects,

@@ -67,8 +67,8 @@ rectangular selection in that situation. Right-click pastes; use
 `Shift+right-click` in a mouse-aware application.
 
 Window movement, resizing, and maximizing use the operating system's standard
-window controls. Grimalkin does not assign those operations to `Alt` or the
-middle mouse button inside the terminal area.
+window controls. Inside the terminal area Grimalkin uses `Alt` only for opening
+links, described below, and assigns nothing to the middle mouse button.
 
 The **Copy & paste** settings control automatic copy on mouse release,
 right-click paste, Insert shortcuts, multiline paste confirmation, rectangular
@@ -79,6 +79,28 @@ defaults to **Write only**, which lets a terminal application copy text to the
 local clipboard but never read it back. Enabling **Read/write** lets a remote
 application query the local clipboard; use it only when you trust every program
 on the remote system. Choose **Blocked** to disable terminal clipboard access.
+
+## Opening links
+
+Hold `Alt` (`Command` on macOS) and move the pointer over a URL. The address is
+marked with a dotted underline and the pointer becomes a hand; click while the
+modifier is held to open it in the system browser. The click is consumed, so it
+neither starts a selection nor reaches a mouse-aware application.
+
+Only `http`, `https`, and `mailto` addresses are recognised, and that allowlist
+is enforced again when the link is opened: any program can print any text to a
+terminal, so no other scheme can be launched by clicking. The address is passed
+straight to the platform opener (`xdg-open`, `open`, or `ShellExecute`) and
+never through a shell.
+
+Some Linux window managers claim `Alt`+left-click for moving windows; if yours
+does, the click never reaches Grimalkin and the setting to change is in the
+window manager.
+
+Addresses are found by their scheme, so a bare `example.com` or `www.example.com`
+is not a link. Detection reads the visible viewport, so a URL whose scheme has
+scrolled above the top of the window does not match until you scroll it back
+into view. A URL wrapped across several rows is matched whole.
 
 ## Configuration files
 

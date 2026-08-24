@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <conpty.h>
 #include <processthreadsapi.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <winternl.h>
 #else
@@ -82,6 +83,80 @@ int grimalkin_atomic_replace_file(const char *temporary, const char *destination
   return result;
 #else
   return rename(temporary, destination) == 0;
+#endif
+}
+
+/* Opening a URL launches a program on behalf of whatever printed the text, so
+   the scheme allowlist and the byte check are enforced here as well as at
+   detection, and the address is never handed to a shell. */
+static int url_scheme_allowed(const char *url) {
+  static const char *const allowed[] = {"https://", "http://", "mailto:"};
+  for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); ++index) {
+    const char *scheme = allowed[index];
+    size_t length = strlen(scheme);
+    size_t position = 0;
+    for (; position < length; ++position) {
+      if (tolower((unsigned char)url[position]) != scheme[position]) break;
+    }
+    if (position == length && url[length] != '\0') return 1;
+  }
+  return 0;
+}
+
+static int url_is_safe(const char *url) {
+  size_t length = 0;
+  for (; url[length] != '\0'; ++length) {
+    unsigned char value = (unsigned char)url[length];
+    if (value <= 0x20 || value >= 0x7f) return 0;
+    if (length >= GRIMALKIN_URL_MAX_LENGTH) return 0;
+  }
+  return length > 0 && url_scheme_allowed(url);
+}
+
+int grimalkin_open_url(const char *url) {
+  if (url == NULL || !url_is_safe(url)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
+#ifdef _WIN32
+  int wide_length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url, -1, NULL, 0);
+  if (wide_length <= 0) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
+  wchar_t *wide = (wchar_t *)malloc((size_t)wide_length * sizeof(wchar_t));
+  if (wide == NULL) return GRIMALKIN_SESSION_OUT_OF_MEMORY;
+  MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url, -1, wide, wide_length);
+  HINSTANCE result = ShellExecuteW(NULL, L"open", wide, NULL, NULL, SW_SHOWNORMAL);
+  free(wide);
+  return (INT_PTR)result > 32 ? GRIMALKIN_SESSION_OK : GRIMALKIN_SESSION_SPAWN_FAILED;
+#else
+#if defined(__APPLE__)
+  const char *opener = "open";
+#else
+  const char *opener = "xdg-open";
+#endif
+  /* Double fork: the grandchild is orphaned, so the browser outlives us and
+     needs no reaping. Only the intermediate child is waited for, by pid, which
+     leaves the session's own waitpid(session->child) undisturbed. */
+  pid_t intermediate = fork();
+  if (intermediate < 0) return GRIMALKIN_SESSION_SPAWN_FAILED;
+  if (intermediate == 0) {
+    pid_t grandchild = fork();
+    if (grandchild < 0) _exit(127);
+    if (grandchild == 0) {
+      setsid();
+      int null_fd = open("/dev/null", O_RDWR);
+      if (null_fd >= 0) {
+        dup2(null_fd, STDIN_FILENO);
+        dup2(null_fd, STDOUT_FILENO);
+        if (null_fd > STDERR_FILENO) close(null_fd);
+      }
+      char *const arguments[] = {(char *)opener, (char *)url, NULL};
+      execvp(opener, arguments);
+      fprintf(stderr, "grimalkin: could not run %s\n", opener);
+      _exit(127);
+    }
+    _exit(0);
+  }
+  int status = 0;
+  while (waitpid(intermediate, &status, 0) < 0 && errno == EINTR) {
+  }
+  return GRIMALKIN_SESSION_OK;
 #endif
 }
 
