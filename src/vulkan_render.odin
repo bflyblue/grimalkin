@@ -61,21 +61,25 @@ draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_
 	)
 	gpu_draw_ms, has_gpu_time := read_gpu_draw_time(app, frame)
 
+	// Headless rendering owns its single target, so there is nothing to acquire
+	// and no compositor to wait on.
 	image_index: u32
-	acquire_result := vk.AcquireNextImageKHR(
-		app.device,
-		app.swapchain,
-		max(u64),
-		frame.image_available,
-		0,
-		&image_index,
-	)
-	if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
-		if acquire_result == .ERROR_OUT_OF_DATE_KHR {
-			_ = application_recreate_swapchain(app)
-			return {}
+	if !app.headless {
+		acquire_result := vk.AcquireNextImageKHR(
+			app.device,
+			app.swapchain,
+			max(u64),
+			frame.image_available,
+			0,
+			&image_index,
+		)
+		if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
+			if acquire_result == .ERROR_OUT_OF_DATE_KHR {
+				_ = application_recreate_swapchain(app)
+				return {}
+			}
+			fmt.panicf("acquiring a swapchain image failed: %v", acquire_result)
 		}
-		fmt.panicf("acquiring a swapchain image failed: %v", acquire_result)
 	}
 	if app.images_in_flight[image_index] != 0 && app.images_in_flight[image_index] != frame.in_flight {
 		vk_must(
@@ -113,6 +117,14 @@ draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_
 		signalSemaphoreCount = 1,
 		pSignalSemaphores    = &app.render_finished[image_index],
 	}
+	if app.headless {
+		// Neither semaphore has a counterpart without an acquire or a present, and
+		// a semaphore signalled with nothing waiting on it is invalid usage.
+		submit_info.waitSemaphoreCount = 0
+		submit_info.pWaitSemaphores = nil
+		submit_info.signalSemaphoreCount = 0
+		submit_info.pSignalSemaphores = nil
+	}
 	vk_must(
 		vk.QueueSubmit(app.graphics_queue, 1, &submit_info, frame.in_flight),
 		"submitting the draw commands",
@@ -129,20 +141,22 @@ draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_
 		app.capture_complete = true
 	}
 
-	present_info := vk.PresentInfoKHR {
-		sType              = .PRESENT_INFO_KHR,
-		waitSemaphoreCount = 1,
-		pWaitSemaphores    = &app.render_finished[image_index],
-		swapchainCount     = 1,
-		pSwapchains        = &app.swapchain,
-		pImageIndices      = &image_index,
-	}
-	present_result := vk.QueuePresentKHR(app.present_queue, &present_info)
-	if present_result != .SUCCESS && present_result != .SUBOPTIMAL_KHR {
-		if present_result == .ERROR_OUT_OF_DATE_KHR {
-			_ = application_recreate_swapchain(app)
-		} else {
-			fmt.panicf("presenting the swapchain image failed: %v", present_result)
+	if !app.headless {
+		present_info := vk.PresentInfoKHR {
+			sType              = .PRESENT_INFO_KHR,
+			waitSemaphoreCount = 1,
+			pWaitSemaphores    = &app.render_finished[image_index],
+			swapchainCount     = 1,
+			pSwapchains        = &app.swapchain,
+			pImageIndices      = &image_index,
+		}
+		present_result := vk.QueuePresentKHR(app.present_queue, &present_info)
+		if present_result != .SUCCESS && present_result != .SUBOPTIMAL_KHR {
+			if present_result == .ERROR_OUT_OF_DATE_KHR {
+				_ = application_recreate_swapchain(app)
+			} else {
+				fmt.panicf("presenting the swapchain image failed: %v", present_result)
+			}
 		}
 	}
 

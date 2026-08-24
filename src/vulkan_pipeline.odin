@@ -183,6 +183,10 @@ choose_extent :: proc(
 }
 
 create_render_pass :: proc(renderer: ^Vulkan_Renderer) {
+	// A headless target is never presented, and PRESENT_SRC_KHR is only valid
+	// for swapchain images, so it stays in the attachment layout instead.
+	final_layout: vk.ImageLayout =
+		renderer.headless_image != 0 ? .COLOR_ATTACHMENT_OPTIMAL : .PRESENT_SRC_KHR
 	colour_attachment := vk.AttachmentDescription {
 		format         = renderer.surface_format.format,
 		samples        = {._1},
@@ -191,7 +195,7 @@ create_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 		stencilLoadOp  = .DONT_CARE,
 		stencilStoreOp = .DONT_CARE,
 		initialLayout  = .UNDEFINED,
-		finalLayout    = .PRESENT_SRC_KHR,
+		finalLayout    = final_layout,
 	}
 	colour_reference := vk.AttachmentReference {
 		attachment = 0,

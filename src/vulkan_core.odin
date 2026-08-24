@@ -115,14 +115,16 @@ pick_physical_device :: proc(app: ^Grimalkin_App) {
 			families := find_queue_families(app, device)
 			if !families.has_graphics ||
 			   !families.has_present ||
-			   !supports_required_extensions(device) ||
+			   !supports_required_extensions(device, app.headless) ||
 			   !supports_descriptor_indexing(device) {
 				continue
 			}
 
-			format_count, present_mode_count := swapchain_option_counts(app, device)
-			if format_count == 0 || present_mode_count == 0 {
-				continue
+			if !app.headless {
+				format_count, present_mode_count := swapchain_option_counts(app, device)
+				if format_count == 0 || present_mode_count == 0 {
+					continue
+				}
 			}
 
 			app.physical_device = device
@@ -181,19 +183,26 @@ find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Q
 			result.has_graphics = true
 		}
 
-		present_supported: b32
-		vk_must(
-			vk.GetPhysicalDeviceSurfaceSupportKHR(
-				device,
-				u32(index),
-				app.surface,
-				&present_supported,
-			),
-			"querying presentation support",
-		)
-		if present_supported {
-			result.present = u32(index)
-			result.has_present = true
+		// A headless renderer has no surface to query. Nothing presents, so the
+		// graphics queue stands in and the search ends as soon as one is found.
+		if app.surface == 0 {
+			result.present = result.graphics
+			result.has_present = result.has_graphics
+		} else {
+			present_supported: b32
+			vk_must(
+				vk.GetPhysicalDeviceSurfaceSupportKHR(
+					device,
+					u32(index),
+					app.surface,
+					&present_supported,
+				),
+				"querying presentation support",
+			)
+			if present_supported {
+				result.present = u32(index)
+				result.has_present = true
+			}
 		}
 
 		if result.has_graphics && result.has_present {
@@ -204,7 +213,7 @@ find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Q
 	return result
 }
 
-supports_required_extensions :: proc(device: vk.PhysicalDevice) -> bool {
+supports_required_extensions :: proc(device: vk.PhysicalDevice, headless := false) -> bool {
 	count: u32
 	if vk.EnumerateDeviceExtensionProperties(device, nil, &count, nil) != .SUCCESS {
 		return false
@@ -216,7 +225,8 @@ supports_required_extensions :: proc(device: vk.PhysicalDevice) -> bool {
 		return false
 	}
 
-	if !has_extension(available, vk.KHR_SWAPCHAIN_EXTENSION_NAME) {
+	// Nothing is presented headless, so the swapchain extension is not needed.
+	if !headless && !has_extension(available, vk.KHR_SWAPCHAIN_EXTENSION_NAME) {
 		return false
 	}
 	when ODIN_OS == .Darwin {
@@ -270,11 +280,14 @@ create_logical_device :: proc(app: ^Grimalkin_App) {
 	}
 
 	device_extensions: [2]cstring
-	device_extensions[0] = vk.KHR_SWAPCHAIN_EXTENSION_NAME
-	device_extension_count: u32 = 1
+	device_extension_count: u32 = 0
+	if !app.headless {
+		device_extensions[device_extension_count] = vk.KHR_SWAPCHAIN_EXTENSION_NAME
+		device_extension_count += 1
+	}
 	when ODIN_OS == .Darwin {
-		device_extensions[1] = vk.KHR_PORTABILITY_SUBSET_EXTENSION_NAME
-		device_extension_count = 2
+		device_extensions[device_extension_count] = vk.KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+		device_extension_count += 1
 	}
 
 	indexing := vk.PhysicalDeviceDescriptorIndexingFeatures {
