@@ -122,6 +122,25 @@ done
 
 autotools_root="$toolchains/autotools"
 mkdir -p "$autotools_root"
+# GNU autotools bake their --prefix into the installed Perl scripts, so a
+# toolchain tree that was built under one root and then used from another
+# keeps searching the original path. That happens whenever the cache moves
+# relative to the build directory - setting GRIMALKIN_MACOS_CACHE_DIR after a
+# run without it is enough, because cache_root otherwise defaults to
+# build_root. The .installed-* markers below would then pin the broken tree
+# indefinitely, and it surfaces far from the cause: aclocal fails to load
+# Automake::Config partway through an unrelated vcpkg dependency build.
+# Detect the stale prefix here and rebuild the toolchain in place.
+if [[ -x "$autotools_root/bin/aclocal" ]]; then
+  baked_include_path=$(
+    sed -n "s/.*unshift (@INC, '\(.*\)').*/\1/p" "$autotools_root/bin/aclocal" | head -n 1
+  )
+  if [[ -n $baked_include_path && $baked_include_path != "$autotools_root"/* ]]; then
+    echo "Rebuilding autotools: $autotools_root/bin/aclocal still searches $baked_include_path" >&2
+    rm -rf -- "$autotools_root"
+    mkdir -p "$autotools_root"
+  fi
+fi
 build_gnu_tool() {
   local name=$1
   local version=$2
