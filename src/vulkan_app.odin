@@ -57,6 +57,7 @@ PADDING_GLOW_SOURCE_FORMAT :: vk.Format.R16G16B16A16_SFLOAT
 
 FULLSCREEN_VERTEX_SHADER :: #load("shaders/fullscreen.vert.spv")
 FRAGMENT_SHADER :: #load("shaders/text.frag.spv")
+IMAGE_QUAD_FRAGMENT_SHADER :: #load("shaders/image_quad.frag.spv")
 OSD_FRAGMENT_SHADER :: #load("shaders/osd.frag.spv")
 PADDING_GLOW_FRAGMENT_SHADER :: #load("shaders/padding_glow.frag.spv")
 PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER :: #load("shaders/padding_glow_background.frag.spv")
@@ -133,6 +134,10 @@ Frame_Context :: struct {
 	selection_mask_capacity: int,
 	visual_buffer:        Gpu_Buffer,
 	visual_capacity:      int,
+	image_placement_buffer: Gpu_Buffer,
+	image_placement_capacity: int,
+	image_placement_descriptor_set: vk.DescriptorSet,
+	image_placement_generation: u64,
 	visuals_uploaded:     int,
 	grid_generation:      u64,
 	visual_generation:    u64,
@@ -178,6 +183,7 @@ Vulkan_Device_Resources :: struct {
 	queue_families:     Queue_Families,
 	padding_glow_descriptor_layout: vk.DescriptorSetLayout,
 	descriptor_layout:  vk.DescriptorSetLayout,
+	image_placement_descriptor_layout: vk.DescriptorSetLayout,
 	descriptor_pool:    vk.DescriptorPool,
 	staging_buffer:     Gpu_Buffer,
 	texture_images:     [dynamic]Gpu_Texture_Image,
@@ -212,6 +218,8 @@ Vulkan_Swapchain_Resources :: struct {
 	scroll_indicator_pipeline:        vk.Pipeline,
 	selection_pipeline_layout: vk.PipelineLayout,
 	selection_pipeline:        vk.Pipeline,
+	image_quad_pipeline_layout: vk.PipelineLayout,
+	image_quad_pipeline:        vk.Pipeline,
 	framebuffers:       []vk.Framebuffer,
 	active_frame_count: int,
 	render_finished:    []vk.Semaphore,

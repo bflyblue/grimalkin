@@ -19,11 +19,20 @@ layout(set = 0, binding = 2, std430) readonly buffer DecorationBuffer {
 
 layout(set = 0, binding = 3) uniform sampler2DArray resources[];
 
+// Kitty placements with -1073741824 <= z < 0 draw above the cell background
+// and below the text, which no separate pass can express while this one writes
+// background and glyph together. They are composited here instead, between the
+// two. A second set keeps binding 3 above as the last binding of set 0, which
+// its variable descriptor count requires.
+layout(set = 1, binding = 0, std430) readonly buffer ImagePlacementBuffer {
+	VisualRecord below_text[];
+};
+
 layout(push_constant) uniform TextLayout {
 	uvec4 grid; // columns, rows, cell width, cell height
 	ivec4 font; // baseline, viewport x/y, manually encode output as sRGB
 	uvec4 cursor; // cell x/y, style plus visibility, packed sRGB RGBA
-	uvec4 effects; // blinking-text opacity, text contrast, reserved
+	uvec4 effects; // blinking-text opacity, text contrast, below-text count, reserved
 } layout_data;
 
 layout(location = 0) out vec4 output_colour;
@@ -50,6 +59,33 @@ void write_output(vec4 linear_premultiplied) {
 	output_colour = vec4(linear_rgb, linear_premultiplied.a);
 }
 
+// Walks the below-text placements in draw order. The list is bounded and the
+// count is zero for the overwhelming majority of frames, so this compiles down
+// to a single comparison whenever no such image is on screen.
+vec4 composite_below_text(vec4 destination, ivec2 pixel) {
+	uint count = layout_data.effects.z;
+	for (uint index = 0u; index < count; index += 1u) {
+		VisualRecord record = below_text[index];
+		ivec2 within = pixel - record.destination_rect.xy;
+		if (any(lessThan(within, ivec2(0))) ||
+		    any(greaterThanEqual(within, record.destination_rect.zw))) {
+			continue;
+		}
+		uint texture_index = record.texture.x;
+		ivec3 extent = textureSize(resources[nonuniformEXT(texture_index)], 0);
+		vec2 position = vec2(record.source_rect.xy) +
+			(vec2(within) + vec2(0.5)) * vec2(record.source_rect.zw) /
+			vec2(record.destination_rect.zw);
+		vec4 source_colour = textureLod(
+			resources[nonuniformEXT(texture_index)],
+			vec3(position / vec2(extent.xy), float(record.texture.y)),
+			0.0
+		);
+		destination = over(source_colour, destination);
+	}
+	return destination;
+}
+
 void main() {
 	ivec2 pixel = ivec2(gl_FragCoord.xy) - layout_data.font.yz;
 	ivec2 cell_size = ivec2(layout_data.grid.zw);
@@ -69,6 +105,7 @@ void main() {
 		float(layout_data.effects.x) / 65535.0 : 1.0;
 	foreground.a *= content_opacity;
 	vec4 colour = premultiply(background);
+	colour = composite_below_text(colour, pixel);
 	ivec2 within_cell = pixel - cell_position * cell_size;
 	uint visual_kind = visual.texture.z;
 

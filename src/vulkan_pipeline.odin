@@ -224,6 +224,32 @@ create_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 	)
 }
 
+// Set 1 for the text pipeline: the Kitty placements composited between the
+// cell background and the glyph. Its own set because set 0 ends with a variable
+// descriptor count binding, which Vulkan requires to be last.
+create_image_placement_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
+	binding := vk.DescriptorSetLayoutBinding {
+		binding = 0,
+		descriptorType = .STORAGE_BUFFER,
+		descriptorCount = 1,
+		stageFlags = {.FRAGMENT},
+	}
+	create_info := vk.DescriptorSetLayoutCreateInfo {
+		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		bindingCount = 1,
+		pBindings    = &binding,
+	}
+	vk_must(
+		vk.CreateDescriptorSetLayout(
+			renderer.device,
+			&create_info,
+			nil,
+			&renderer.image_placement_descriptor_layout,
+		),
+		"creating the image placement descriptor layout",
+	)
+}
+
 create_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
 	bindings := [4]vk.DescriptorSetLayoutBinding {
 		{
@@ -310,6 +336,10 @@ Fullscreen_Pipeline_Spec :: struct {
 	fragment_shader:   []byte,
 	render_pass:       vk.RenderPass,
 	descriptor_layout: vk.DescriptorSetLayout,
+	// Bound as set 1 when present. The text pipeline uses it for the Kitty
+	// below-text placements, which cannot join set 0: its bindless texture
+	// array has a variable descriptor count and so must stay the last binding.
+	second_descriptor_layout: vk.DescriptorSetLayout,
 	push_constant_size: u32,
 	blend:             bool,
 	pipeline_layout:   vk.PipelineLayout,
@@ -373,10 +403,10 @@ create_fullscreen_pipeline :: proc(
 	if layout == 0 {
 		push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = spec.push_constant_size}
 		layout_info := vk.PipelineLayoutCreateInfo{sType = .PIPELINE_LAYOUT_CREATE_INFO}
-		descriptor_layout := spec.descriptor_layout
+		set_layouts := [2]vk.DescriptorSetLayout{spec.descriptor_layout, spec.second_descriptor_layout}
 		if spec.descriptor_layout != 0 {
-			layout_info.setLayoutCount = 1
-			layout_info.pSetLayouts = &descriptor_layout
+			layout_info.setLayoutCount = spec.second_descriptor_layout != 0 ? 2 : 1
+			layout_info.pSetLayouts = &set_layouts[0]
 		}
 		if spec.push_constant_size > 0 {
 			layout_info.pushConstantRangeCount = 1
@@ -419,7 +449,23 @@ create_graphics_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 			fragment_shader = FRAGMENT_SHADER,
 			render_pass = renderer.render_pass,
 			descriptor_layout = renderer.descriptor_layout,
+			second_descriptor_layout = renderer.image_placement_descriptor_layout,
 			push_constant_size = u32(size_of(Text_Layout_Push)),
+		},
+	)
+}
+
+create_image_quad_pipeline :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.image_quad_pipeline_layout, renderer.image_quad_pipeline = create_fullscreen_pipeline(
+		renderer,
+		{
+			name = "image quad",
+			fragment_shader = IMAGE_QUAD_FRAGMENT_SHADER,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
+			push_constant_size = u32(size_of(Image_Quad_Push)),
+			// Images arrive premultiplied, matching the shared blend factors.
+			blend = true,
 		},
 	)
 }

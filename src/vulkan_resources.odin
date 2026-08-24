@@ -202,13 +202,16 @@ destroy_texture_images :: proc(device: vk.Device, textures: []Gpu_Texture_Image)
 
 create_descriptor_sets :: proc(app: ^Grimalkin_App) {
 	set_count := u32(len(app.frames) * 3)
+	// One more set per frame for the below-text placements, which is a single
+	// storage buffer in its own layout.
+	image_set_count := u32(len(app.frames))
 	pool_sizes := [2]vk.DescriptorPoolSize {
-		{type = .STORAGE_BUFFER, descriptorCount = set_count * 3},
+		{type = .STORAGE_BUFFER, descriptorCount = set_count * 3 + image_set_count},
 		{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = app.texture_capacity * set_count},
 	}
 	pool_info := vk.DescriptorPoolCreateInfo {
 		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
-		maxSets       = set_count,
+		maxSets       = set_count + image_set_count,
 		poolSizeCount = u32(len(pool_sizes)),
 		pPoolSizes    = &pool_sizes[0],
 	}
@@ -242,6 +245,55 @@ create_descriptor_sets :: proc(app: ^Grimalkin_App) {
 		frame.osd_descriptor_set = sets[index * 3 + 1]
 		frame.selection_descriptor_set = sets[index * 3 + 2]
 	}
+
+	// Allocated separately: a different layout, and no variable descriptor count.
+	image_layouts := make([]vk.DescriptorSetLayout, int(image_set_count), context.temp_allocator)
+	for &layout in image_layouts do layout = app.image_placement_descriptor_layout
+	image_sets := make([]vk.DescriptorSet, int(image_set_count), context.temp_allocator)
+	image_allocate_info := vk.DescriptorSetAllocateInfo {
+		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+		descriptorPool     = app.descriptor_pool,
+		descriptorSetCount = image_set_count,
+		pSetLayouts        = raw_data(image_layouts),
+	}
+	vk_must(
+		vk.AllocateDescriptorSets(app.device, &image_allocate_info, raw_data(image_sets)),
+		"allocating image placement descriptor sets",
+	)
+	for &frame, index in app.frames do frame.image_placement_descriptor_set = image_sets[index]
+}
+
+update_image_placement_descriptor_set :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) {
+	if frame.image_placement_descriptor_set == 0 || frame.image_placement_buffer.handle == 0 do return
+	info := vk.DescriptorBufferInfo {
+		buffer = frame.image_placement_buffer.handle,
+		range  = frame.image_placement_buffer.size,
+	}
+	write := vk.WriteDescriptorSet {
+		sType           = .WRITE_DESCRIPTOR_SET,
+		dstSet          = frame.image_placement_descriptor_set,
+		dstBinding      = 0,
+		descriptorCount = 1,
+		descriptorType  = .STORAGE_BUFFER,
+		pBufferInfo     = &info,
+	}
+	vk.UpdateDescriptorSets(app.device, 1, &write, 0, nil)
+}
+
+ensure_image_placement_buffer :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> bool {
+	// Sized to the cap rather than to the frame: the list is small and bounded,
+	// and a fixed allocation keeps the descriptor write out of the frame path.
+	recreated := ensure_mapped_buffer_capacity(
+		app,
+		&frame.image_placement_buffer,
+		&frame.image_placement_capacity,
+		DISPLAY_IMAGE_MAX_BELOW_TEXT,
+		DISPLAY_IMAGE_MAX_BELOW_TEXT,
+		size_of(Gpu_Image_Placement),
+		{.STORAGE_BUFFER},
+	)
+	if recreated do update_image_placement_descriptor_set(app, frame)
+	return recreated
 }
 
 update_selection_descriptor_set :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) {
@@ -791,6 +843,15 @@ flush_text_resources :: proc(app: ^Grimalkin_App, frame: ^Frame_Context) -> Gpu_
 		frame.visuals_uploaded = len(visuals)
 		frame.visual_generation = app.demo.resources.visuals.revision
 	}
+	image_recreated := ensure_image_placement_buffer(app, frame)
+	below_text := display_images_tier_slice(&app.demo.images, .Below_Text)
+	if image_recreated || frame.image_placement_generation != app.demo.images.revision {
+		if len(below_text) > 0 {
+			write_mapped_buffer(&frame.image_placement_buffer, slice.reinterpret([]u8, below_text))
+		}
+		frame.image_placement_generation = app.demo.images.revision
+	}
+
 	sync_texture_resources(app, frame)
 	osd_recreated := ensure_osd_cell_buffer(app, frame)
 	if app.osd.dirty do app.osd_generation += 1

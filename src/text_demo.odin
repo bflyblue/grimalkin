@@ -17,6 +17,7 @@ Grimalkin_Demo :: struct {
 	resources:    Renderer_Resources,
 	compiler:     Display_Compiler,
 	grid:         Display_Grid,
+	images:       Display_Images,
 	tile_atlases: [2]Raster_Atlas,
 	update_stage: u32,
 }
@@ -339,6 +340,7 @@ grimalkin_view_refresh :: proc(view: ^Grimalkin_Demo) -> Display_Compile_Stats {
 
 grimalkin_demo_destroy :: proc(demo: ^Grimalkin_Demo) {
 	terminal_session_destroy(&demo.session)
+	display_images_destroy(&demo.images)
 	display_grid_destroy(&demo.grid)
 	if demo.demo_mode {
 		for &atlas in demo.tile_atlases do raster_atlas_destroy(&atlas)

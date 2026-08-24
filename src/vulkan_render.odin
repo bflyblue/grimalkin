@@ -203,6 +203,9 @@ record_padding_glow_source :: proc(
 		0,
 		nil,
 	)
+	// Same shader as the main text pass, so set 1 has to be bound here too even
+	// though this pass reports no below-text placements.
+	bind_image_placement_set(app, frame, command_buffer)
 	push := Text_Layout_Push {
 		grid = {
 			u32(app.demo.grid.cols),
@@ -354,7 +357,6 @@ record_command_buffer :: proc(
 		}
 	}
 
-	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.pipeline)
 	viewport := vk.Viewport {
 		x        = f32(text_area.offset.x),
 		y        = f32(text_area.offset.y),
@@ -364,6 +366,11 @@ record_command_buffer :: proc(
 	}
 	vk.CmdSetViewport(command_buffer, 0, 1, &viewport)
 
+	// Kitty images below the cell backgrounds. Drawing them before the text pass
+	// is what puts them under it: that pass writes each background opaquely.
+	draw_image_quads(app, frame, command_buffer, text_area, viewport, .Below_Background)
+
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.pipeline)
 	vk.CmdSetScissor(command_buffer, 0, 1, &text_area)
 	vk.CmdBindDescriptorSets(
 		command_buffer,
@@ -375,6 +382,7 @@ record_command_buffer :: proc(
 		0,
 		nil,
 	)
+	bind_image_placement_set(app, frame, command_buffer)
 	push := Text_Layout_Push {
 		grid   = {
 			u32(app.demo.grid.cols),
@@ -398,7 +406,12 @@ record_command_buffer :: proc(
 			),
 			app.demo.snapshot.cursor_rgba,
 		},
-		effects = {u32(text_opacity), u32(app.settings.text_contrast), 0, 0},
+		effects = {
+			u32(text_opacity),
+			u32(app.settings.text_contrast),
+			app.demo.images.tier_count[int(Image_Tier.Below_Text)],
+			0,
+		},
 	}
 	vk.CmdPushConstants(
 		command_buffer,
@@ -409,6 +422,11 @@ record_command_buffer :: proc(
 		&push,
 	)
 	vk.CmdDraw(command_buffer, 4, 1, 0, 0)
+
+	// Kitty images above the text. They stay below the selection overlay and the
+	// OSD, which are Grimalkin chrome rather than terminal content.
+	draw_image_quads(app, frame, command_buffer, text_area, viewport, .Above_Text)
+
 	if app.selection.active && selection_mask_has_any(&app.selection) {
 		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.selection_pipeline)
 		vk.CmdSetViewport(command_buffer, 0, 1, &viewport)
@@ -539,4 +557,109 @@ record_command_buffer :: proc(
 	}
 
 	vk_must(vk.EndCommandBuffer(command_buffer), "ending command recording")
+}
+
+// Set 1 of the text pipeline layout. It is bound even when the below-text tier
+// is empty: the shader references the buffer statically, so leaving the set
+// unbound is invalid whether or not the loop over it ever runs.
+bind_image_placement_set :: proc(
+	app: ^Grimalkin_App,
+	frame: ^Frame_Context,
+	command_buffer: vk.CommandBuffer,
+) {
+	if frame.image_placement_descriptor_set == 0 do return
+	vk.CmdBindDescriptorSets(
+		command_buffer,
+		.GRAPHICS,
+		app.pipeline_layout,
+		1,
+		1,
+		&frame.image_placement_descriptor_set,
+		0,
+		nil,
+	)
+}
+
+// One draw per placement, bounding each to its own rectangle with the scissor.
+// This follows the padding glow pass, which already draws a list of regions
+// through the shared fullscreen vertex shader rather than building geometry.
+draw_image_quads :: proc(
+	app: ^Grimalkin_App,
+	frame: ^Frame_Context,
+	command_buffer: vk.CommandBuffer,
+	text_area: vk.Rect2D,
+	viewport: vk.Viewport,
+	tier: Image_Tier,
+) {
+	placements := display_images_tier_slice(&app.demo.images, tier)
+	if len(placements) == 0 || app.image_quad_pipeline == 0 do return
+
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.image_quad_pipeline)
+	local_viewport := viewport
+	vk.CmdSetViewport(command_buffer, 0, 1, &local_viewport)
+	vk.CmdBindDescriptorSets(
+		command_buffer,
+		.GRAPHICS,
+		app.image_quad_pipeline_layout,
+		0,
+		1,
+		&frame.descriptor_set,
+		0,
+		nil,
+	)
+
+	for placement in placements {
+		// Destination rectangles are grid-relative, so they are offset into the
+		// text area here rather than at compile time, where the padding is not
+		// yet known.
+		left := text_area.offset.x + placement.destination_rect.x
+		top := text_area.offset.y + placement.destination_rect.y
+		right := left + placement.destination_rect.z
+		bottom := top + placement.destination_rect.w
+		clipped := image_quad_clip(text_area, left, top, right, bottom)
+		if clipped.extent.width == 0 || clipped.extent.height == 0 do continue
+
+		scissor := clipped
+		vk.CmdSetScissor(command_buffer, 0, 1, &scissor)
+		push := Image_Quad_Push {
+			destination = {left, top, placement.destination_rect.z, placement.destination_rect.w},
+			source      = placement.source_rect,
+			slot        = {
+				placement.resource.x,
+				placement.resource.y,
+				app.manual_srgb_output ? 1 : 0,
+				0,
+			},
+		}
+		vk.CmdPushConstants(
+			command_buffer,
+			app.image_quad_pipeline_layout,
+			{.FRAGMENT},
+			0,
+			u32(size_of(push)),
+			&push,
+		)
+		vk.CmdDraw(command_buffer, 4, 1, 0, 0)
+	}
+}
+
+// Intersects a placement rectangle with the text area. A placement can hang off
+// any edge, and a scroll can put it entirely outside, so the result is clamped
+// rather than assumed to be non-empty.
+image_quad_clip :: proc(text_area: vk.Rect2D, left, top, right, bottom: i32) -> vk.Rect2D {
+	area_left := text_area.offset.x
+	area_top := text_area.offset.y
+	area_right := area_left + i32(text_area.extent.width)
+	area_bottom := area_top + i32(text_area.extent.height)
+	clipped_left := max(left, area_left)
+	clipped_top := max(top, area_top)
+	clipped_right := min(right, area_right)
+	clipped_bottom := min(bottom, area_bottom)
+	if clipped_right <= clipped_left || clipped_bottom <= clipped_top {
+		return {offset = {clipped_left, clipped_top}, extent = {0, 0}}
+	}
+	return {
+		offset = {clipped_left, clipped_top},
+		extent = {u32(clipped_right - clipped_left), u32(clipped_bottom - clipped_top)},
+	}
 }
