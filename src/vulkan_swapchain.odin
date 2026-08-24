@@ -124,7 +124,10 @@ resize_terminal_to_extent :: proc(app: ^Grimalkin_App, frame_extent: vk.Extent2D
 	if !force && same_grid && same_cell do return
 	app.terminal_cell_width = metrics.cell_width
 	app.terminal_cell_height = metrics.cell_height
-	selection_clear(&app.selection)
+	// A selection is addressed in cells, so only a change to the grid itself
+	// invalidates it. Telling the terminal about a new cell size must not cost
+	// the user their selection.
+	if force || !same_grid do selection_clear(&app.selection)
 	terminal_core_resize(&app.demo.terminal, cols, rows, metrics.cell_width, metrics.cell_height)
 	if app.demo.session.handle != nil {
 		_ = terminal_session_resize(
