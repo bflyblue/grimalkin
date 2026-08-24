@@ -7,6 +7,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include <ghostty/vt/allocator.h>
 #include <ghostty/vt/key.h>
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/modes.h>
@@ -17,7 +18,10 @@
 #include <ghostty/vt/render.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/style.h>
+#include <ghostty/vt/sys.h>
 #include <ghostty/vt/terminal.h>
+
+#include "png_shim.h"
 
 typedef struct {
   GrimalkinGhosttyCell *cells;
@@ -652,6 +656,69 @@ snapshot_images_error:
   free(placements);
   return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
                                         : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+}
+
+/* Set by grimalkin_ghostty_set_png_decoder. Kept as a registration so libpng
+   stays inside the PNG shim; see GrimalkinPngDecodeFn in png_shim.h. */
+static GrimalkinPngDecodeFn png_decoder = NULL;
+
+/* libghostty-vt owns the decoded pixels and frees them with the allocator it
+   handed us, so the buffer has to come from that allocator rather than
+   malloc. */
+static uint8_t *png_allocate(void *context, size_t len) {
+  return ghostty_alloc((const GhosttyAllocator *)context, len);
+}
+
+static void png_release(void *context, uint8_t *pixels, size_t len) {
+  ghostty_free((const GhosttyAllocator *)context, pixels, len);
+}
+
+static bool decode_png(void *userdata,
+                       const GhosttyAllocator *allocator,
+                       const uint8_t *data,
+                       size_t data_len,
+                       GhosttySysImage *out) {
+  (void)userdata;
+  if (out == NULL || png_decoder == NULL) return false;
+
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint8_t *pixels = NULL;
+  size_t pixels_len = 0;
+  /* A NULL allocator means libghostty-vt's default, which ghostty_alloc and
+     ghostty_free both accept, so it passes through as the context unchanged. */
+  if (png_decoder(data,
+                  data_len,
+                  png_allocate,
+                  png_release,
+                  (void *)allocator,
+                  &width,
+                  &height,
+                  &pixels,
+                  &pixels_len) != 0) {
+    return false;
+  }
+
+  out->width = width;
+  out->height = height;
+  out->data = pixels;
+  out->data_len = pixels_len;
+  return true;
+}
+
+void grimalkin_ghostty_set_png_decoder(GrimalkinPngDecodeFn decoder) {
+  /* The decode hook is process-global while terminals are not, so install it
+     once however many terminals the process builds. */
+  static bool installed = false;
+  png_decoder = decoder;
+  if (decoder == NULL) {
+    (void)ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, NULL);
+    installed = false;
+    return;
+  }
+  if (installed) return;
+  installed = ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG,
+                              (const void *)decode_png) == GHOSTTY_SUCCESS;
 }
 
 int grimalkin_ghostty_new(uint16_t cols,

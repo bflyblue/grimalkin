@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "png_shim.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -116,6 +118,10 @@ typedef struct {
   uint8_t active_screen;
   uint8_t scroll_reserved[6];
 } GrimalkinGhosttySnapshotView;
+
+/* Installs the PNG decoder used by the Kitty graphics protocol. Call before
+   creating a terminal; passing NULL disables PNG image support. */
+void grimalkin_ghostty_set_png_decoder(GrimalkinPngDecodeFn decoder);
 
 int grimalkin_ghostty_new(uint16_t cols,
                      uint16_t rows,

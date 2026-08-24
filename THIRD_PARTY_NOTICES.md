@@ -15,7 +15,7 @@ the Nerd Fonts license is also shipped alongside the bundled font in `fonts`.
 | [FreeType](https://freetype.org/) | Font rasterization | FreeType License or GPLv2 |
 | [HarfBuzz](https://harfbuzz.github.io/) | Text shaping | Old MIT |
 | [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/) | Font discovery and fallback | MIT-style |
-| [libpng](http://www.libpng.org/pub/png/libpng.html) | PNG decoding | PNG Reference Library License 2.0 |
+| [libpng](http://www.libpng.org/pub/png/libpng.html) | PNG encoding and decoding | PNG Reference Library License 2.0 |
 | [zlib](https://zlib.net/) | Compression used by libpng | zlib License |
 | [Brotli](https://github.com/google/brotli) | Fontconfig compression dependency | MIT |
 | [bzip2](https://sourceware.org/bzip2/) | Fontconfig compression dependency | bzip2 License |
