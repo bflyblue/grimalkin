@@ -160,8 +160,7 @@ compose_colour_group :: proc(
 	canvas: []u8,
 	canvas_width, canvas_height: u32,
 ) {
-	copies: [dynamic]Colour_Glyph_Copy
-	context.allocator = context.temp_allocator
+	copies := make([dynamic]Colour_Glyph_Copy, 0, len(glyphs), context.temp_allocator)
 	pen_x: i64
 	left, top := i32(0x7fffffff), i32(0x7fffffff)
 	right, bottom := i32(-0x7fffffff), i32(-0x7fffffff)

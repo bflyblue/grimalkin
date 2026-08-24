@@ -42,8 +42,7 @@ display_grid_dirty_ranges :: proc(
 	grid: ^Display_Grid,
 	allocator := context.allocator,
 ) -> [dynamic]Display_Dirty_Row_Range {
-	ranges: [dynamic]Display_Dirty_Row_Range
-	context.allocator = allocator
+	ranges := make([dynamic]Display_Dirty_Row_Range, 0, 0, allocator)
 	row := 0
 	for row < len(grid.row_states) {
 		if !grid.row_states[row].dirty {

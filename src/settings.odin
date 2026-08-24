@@ -91,6 +91,10 @@ font_family_setting_make :: proc(value: string) -> (Font_Family_Setting, bool) {
 	return result, true
 }
 
+// Borrows: the result is a slice into `value`, not a copy. Application_Settings
+// is normally passed by value, so callers take a local copy to have something
+// addressable - and the returned name dies with that local. Clone it before
+// letting it outlive the pointee; see settings_to_disk.
 font_family_setting_name :: proc(value: ^Font_Family_Setting) -> string {
 	if value == nil do return ""
 	return string(value.bytes[:value.length])
@@ -447,7 +451,14 @@ settings_wire_decode :: proc(value: string, names: []string) -> (int, bool) {
 	return 0, false
 }
 
-settings_to_disk :: proc(settings: Application_Settings) -> Settings_Disk_Current {
+// font_family in the returned struct is a fresh allocation, not a borrow:
+// font_family_setting_name returns a slice into its argument, so the name must
+// be cloned before the local copy dies. Callers own that string and pass the
+// allocator it should live in.
+settings_to_disk :: proc(
+	settings: Application_Settings,
+	allocator := context.allocator,
+) -> Settings_Disk_Current {
 	font_family := settings.font_family
 	return {
 		version          = SETTINGS_VERSION,
@@ -457,7 +468,7 @@ settings_to_disk :: proc(settings: Application_Settings) -> Settings_Disk_Curren
 		subpixel_layout  = settings_wire_encode(int(settings.subpixel_layout), SETTINGS_SUBPIXEL_LAYOUT_WIRE[:]),
 		subpixel_rotation = settings_wire_encode(int(settings.subpixel_rotation), SETTINGS_SUBPIXEL_ROTATION_WIRE[:]),
 		font_size        = int(settings.font_size),
-		font_family      = strings.clone(font_family_setting_name(&font_family), context.temp_allocator),
+		font_family      = strings.clone(font_family_setting_name(&font_family), allocator),
 		cursor_animation = settings_wire_encode(int(settings.cursor_animation), SETTINGS_CURSOR_ANIMATION_WIRE[:]),
 		padding          = int(settings.padding),
 		padding_glow     = settings_wire_encode(int(settings.padding_glow), SETTINGS_PADDING_GLOW_WIRE[:]),
@@ -641,7 +652,10 @@ settings_decode :: proc(data: []byte) -> (Application_Settings, bool) {
 
 settings_encode :: proc(settings: Application_Settings, allocator := context.allocator) -> ([]byte, bool) {
 	data, err := json.marshal(
-		settings_to_disk(settings),
+		// The wire struct is scratch consumed by this marshal; only the encoded
+		// bytes belong to the caller. Handing it `allocator` would strand its
+		// font_family clone whenever that allocator is a durable one.
+		settings_to_disk(settings, context.temp_allocator),
 		json.Marshal_Options{pretty = true, use_spaces = true, spaces = 2},
 		allocator,
 	)
