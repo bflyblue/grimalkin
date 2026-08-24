@@ -63,7 +63,6 @@ $requiredFiles = @(
     'THIRD_PARTY_NOTICES.md',
     'licenses\Ghostty.txt',
     'licenses\Microsoft-Terminal.txt',
-    'licenses\Noto-Sans-CJK.txt',
     'licenses\Odin.txt',
     'licenses\Zig.txt',
     'licenses\brotli.txt',

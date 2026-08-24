@@ -387,7 +387,6 @@ install(FILES
 install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/licenses/Ghostty.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/licenses/Microsoft-Terminal.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/licenses/Noto-Sans-CJK.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/licenses/Odin.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/licenses/Zig.txt"
   DESTINATION licenses
