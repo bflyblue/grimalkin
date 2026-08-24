@@ -163,8 +163,8 @@ harmony_raster_is_tightly_packed_logical_rgba_and_reverses_rgb_bgr :: proc(t: ^t
 
 	glyph_index := font_glyph_index(&rgb_font, 'M')
 	testing.expect(t, glyph_index != 0)
-	rgb := font_rasterize(&rgb_font, glyph_index)
-	bgr := font_rasterize(&bgr_font, font_glyph_index(&bgr_font, 'M'))
+	rgb := font_rasterize_borrowed(&rgb_font, glyph_index)
+	bgr := font_rasterize_borrowed(&bgr_font, font_glyph_index(&bgr_font, 'M'))
 	rgb_bytes := font_bitmap_bytes(&rgb)
 	bgr_bytes := font_bitmap_bytes(&bgr)
 
@@ -206,7 +206,7 @@ grayscale_raster_remains_available :: proc(t: ^testing.T) {
 		font_render_config_grayscale(),
 	)
 	defer font_instance_close(&font)
-	bitmap := font_rasterize(&font, font_glyph_index(&font, 'M'))
+	bitmap := font_rasterize_borrowed(&font, font_glyph_index(&font, 'M'))
 	testing.expect_value(t, bitmap.bitmap_kind, Glyph_Bitmap_Kind.Mask)
 	testing.expect_value(t, bitmap.pitch, bitmap.width)
 	testing.expect_value(t, len(font_bitmap_bytes(&bitmap)), int(bitmap.width * bitmap.height))
@@ -223,7 +223,7 @@ monochrome_raster_is_unpacked_to_a_tightly_packed_mask :: proc(t: ^testing.T) {
 		font_render_config_monochrome(),
 	)
 	defer font_instance_close(&font)
-	bitmap := font_rasterize(&font, font_glyph_index(&font, 'M'))
+	bitmap := font_rasterize_borrowed(&font, font_glyph_index(&font, 'M'))
 	bytes := font_bitmap_bytes(&bitmap)
 	testing.expect_value(t, bitmap.bitmap_kind, Glyph_Bitmap_Kind.Mask)
 	testing.expect_value(t, bitmap.pitch, bitmap.width)

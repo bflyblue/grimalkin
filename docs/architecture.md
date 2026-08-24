@@ -138,6 +138,16 @@ configuration strings, session state, and mapped buffers use durable allocators
 with explicit destruction. Odin collections inherit their allocator, so every
 `make`, `append`, clone, and returned slice needs an ownership review.
 
+Buffers borrowed from C libraries sit outside both categories: no Odin allocator
+owns them and the frame reset does not bound them. Each borrow ends at a
+specific next call and is usually `realloc`-grown, so a stale pointer can be
+freed rather than merely overwritten. Procedures returning one are suffixed
+`_borrowed` and state the window at their declaration. The rasterizers return a
+`Glyph_Bitmap` pointing into a per-instance conversion scratch owned by
+`GrimalkinFont`; the window ends at the next `font_rasterize*_borrowed` call on
+the same `Font_Instance`, so a caller accumulating several bitmaps must clone
+each one first. `font_shape` borrows equivalently but copies for the caller.
+
 ## Session and compatibility boundaries
 
 Unix starts the account shell as a login shell rooted at home. Windows uses

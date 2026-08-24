@@ -166,7 +166,7 @@ compose_colour_group :: proc(
 	left, top := i32(0x7fffffff), i32(0x7fffffff)
 	right, bottom := i32(-0x7fffffff), i32(-0x7fffffff)
 	for glyph in glyphs {
-		bitmap := font_rasterize(&face.font, glyph.glyph_index)
+		bitmap := font_rasterize_borrowed(&face.font, glyph.glyph_index)
 		x := i32((pen_x + i64(glyph.x_offset)) / 64) + bitmap.bearing_x
 		y := -bitmap.bitmap_top - glyph.y_offset / 64
 		pen_x += i64(glyph.x_advance)
@@ -176,6 +176,11 @@ compose_colour_group :: proc(
 			// changing or malformed system colour font fail closed.
 			continue
 		}
+		// This group is composited only after every glyph has been rasterized,
+		// so the borrowed pixels cannot be used in place: the next
+		// font_rasterize_borrowed call reuses (and may realloc) the same
+		// instance scratch buffer. Clone into the frame arena and repoint the
+		// bitmap at the copy so the accumulated glyphs stay independent.
 		bytes := font_bitmap_bytes(&bitmap)
 		owned := make([]u8, len(bytes), context.temp_allocator)
 		copy(owned, bytes)
@@ -290,7 +295,7 @@ resolve_shaped_group :: proc(
 		}
 	}
 	for glyph in render_glyphs {
-		bitmap := font_rasterize(&face.font, glyph.glyph_index)
+		bitmap := font_rasterize_borrowed(&face.font, glyph.glyph_index)
 		x_origin := i32((pen_x + i64(glyph.x_offset)) / 64) + bitmap.bearing_x
 		y_origin := resources.cell_metrics.baseline - bitmap.bitmap_top - glyph.y_offset / 64
 		if face.is_nerd_symbols && !nerd_font_powerline_glyph(&face.font, glyph.glyph_index) {
