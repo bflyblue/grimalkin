@@ -784,3 +784,63 @@ ghostty_kitty_virtual_placement_reports_no_viewport_position :: proc(t: ^testing
 	testing.expect_value(t, placement.grid_cols, u32(8))
 	testing.expect_value(t, placement.grid_rows, u32(4))
 }
+
+@(test)
+ghostty_kitty_placement_geometry_follows_the_viewport :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 4, 64)
+	defer terminal_core_destroy(&terminal)
+	terminal_core_resize(&terminal, 20, 4, 10, 20)
+	pixels := demo_image_pixels(64, 32, 0)
+	defer delete(pixels)
+	demo_transmit_kitty_rgba(&terminal, 76, 64, 32, pixels, 2)
+	terminal_write_string(&terminal, "\x1b[1;1H")
+	// Three rows tall, so it stays partly on screen while the viewport moves.
+	// C=1 leaves the cursor alone, so the rows scrolled below are only the ones
+	// this test writes.
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=76,p=1,c=2,r=3,C=1,q=2\x1b\\")
+	// Enough output to push the placement partly off the top and to leave
+	// scrollback to move through.
+	terminal_write_string(&terminal, "\r\n\r\n\r\n\r\n")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	initial := terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, initial.placement_geometry_changed)
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	before := snapshot.placements[0].viewport_row
+	generation := snapshot.graphics_generation
+
+	// Scrolling the viewport up by one row moves the placement down by one row
+	// in viewport coordinates. Nothing about the graphics changed.
+	terminal_core_scroll_rows(&terminal, -1)
+	scrolled := terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, scrolled.placement_geometry_changed)
+	// Geometry moved without the images being recopied or the graphics
+	// generation being bumped: those are keyed separately on purpose.
+	testing.expect_value(t, scrolled.image_bytes_copied, u64(0))
+	testing.expect_value(t, snapshot.graphics_generation, generation)
+	testing.expect(t, !scrolled.graphics_changed)
+	testing.expect_value(t, len(snapshot.placements), 1)
+	if len(snapshot.placements) != 1 do return
+	testing.expect_value(t, snapshot.placements[0].viewport_row, before + 1)
+	testing.expect(t, snapshot.placements[0].viewport_visible)
+}
+
+@(test)
+ghostty_kitty_placement_geometry_is_not_recollected_while_still :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 64)
+	defer terminal_core_destroy(&terminal)
+	ghostty_test_place_kitty_image(&terminal, 77, 64, 32, "\x1b_Ga=p,i=77,p=1,c=2,r=1,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+
+	// A second snapshot with nothing moving must not recollect: the viewport key
+	// exists to catch real movement, not to defeat the cache.
+	unchanged := terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, !unchanged.placement_geometry_changed)
+	testing.expect(t, !unchanged.graphics_changed)
+	testing.expect_value(t, unchanged.image_bytes_copied, u64(0))
+}

@@ -23,6 +23,27 @@
 
 #include "png_shim.h"
 
+/* Everything a placement's resolved geometry depends on besides the images
+   themselves. Scrolling, swapping screens, and resizing all move a direct
+   placement without touching the graphics generation, so the generation alone
+   is not enough to decide whether geometry can be reused. */
+typedef struct {
+  uint64_t scroll_offset;
+  uint32_t cell_width_px;
+  uint32_t cell_height_px;
+  uint16_t cols;
+  uint16_t rows;
+  uint8_t active_screen;
+} GrimalkinPlacementViewport;
+
+static bool placement_viewport_equal(GrimalkinPlacementViewport a,
+                                     GrimalkinPlacementViewport b) {
+  return a.scroll_offset == b.scroll_offset &&
+         a.cell_width_px == b.cell_width_px &&
+         a.cell_height_px == b.cell_height_px && a.cols == b.cols &&
+         a.rows == b.rows && a.active_screen == b.active_screen;
+}
+
 typedef struct {
   GrimalkinGhosttyCell *cells;
   size_t cell_capacity;
@@ -67,6 +88,9 @@ struct GrimalkinGhostty {
   uint8_t **image_allocations;
   size_t image_allocation_capacity;
   uint64_t graphics_generation;
+  GrimalkinPlacementViewport placement_viewport;
+  uint32_t cell_width_px;
+  uint32_t cell_height_px;
   GrimalkinGhosttyWritePtyFn write_pty;
   void *write_pty_userdata;
   uint8_t osc52_state;
@@ -443,7 +467,9 @@ static void clear_images(GrimalkinGhostty *terminal) {
 }
 
 static int snapshot_images(GrimalkinGhostty *terminal,
-                           size_t *out_bytes_updated) {
+                           GrimalkinPlacementViewport viewport,
+                           size_t *out_bytes_updated,
+                           bool *out_placements_changed) {
   GhosttyKittyGraphics graphics = NULL;
   GhosttyResult result = ghostty_terminal_get(
       terminal->terminal, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS, &graphics);
@@ -452,6 +478,8 @@ static int snapshot_images(GrimalkinGhostty *terminal,
         terminal->placement_count != 0) {
       clear_images(terminal);
       terminal->graphics_generation = 0;
+      terminal->placement_viewport = (GrimalkinPlacementViewport){0};
+      *out_placements_changed = true;
     }
     return GRIMALKIN_GHOSTTY_OK;
   }
@@ -461,7 +489,14 @@ static int snapshot_images(GrimalkinGhostty *terminal,
   result = ghostty_kitty_graphics_get(
       graphics, GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION, &graphics_generation);
   if (result != GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
-  if (graphics_generation == terminal->graphics_generation) {
+  /* Geometry has to be recollected when the viewport moves, but only if there
+     is any placement to move: with none stored, nothing can have changed. The
+     pixel copies below are keyed on the image generation independently, so a
+     viewport-only refresh reuses them and copies nothing. */
+  bool viewport_changed =
+      !placement_viewport_equal(terminal->placement_viewport, viewport);
+  if (graphics_generation == terminal->graphics_generation &&
+      (!viewport_changed || terminal->placement_count == 0)) {
     return GRIMALKIN_GHOSTTY_OK;
   }
 
@@ -661,6 +696,8 @@ static int snapshot_images(GrimalkinGhostty *terminal,
   terminal->image_allocations = image_allocations;
   terminal->image_allocation_capacity = image_allocation_capacity;
   terminal->graphics_generation = graphics_generation;
+  terminal->placement_viewport = viewport;
+  *out_placements_changed = true;
   return GRIMALKIN_GHOSTTY_OK;
 
 snapshot_images_error:
@@ -873,7 +910,13 @@ int grimalkin_ghostty_resize(GrimalkinGhostty *terminal,
   }
   GhosttyResult result = ghostty_terminal_resize(
       terminal->terminal, cols, rows, cell_width_px, cell_height_px);
-  if (result == GHOSTTY_SUCCESS) terminal->force_full_snapshot = true;
+  if (result == GHOSTTY_SUCCESS) {
+    terminal->force_full_snapshot = true;
+    /* Kept for the placement viewport key: cell size changes the grid extent
+       and pixel size libghostty-vt resolves for a placement. */
+    terminal->cell_width_px = cell_width_px;
+    terminal->cell_height_px = cell_height_px;
+  }
   return result == GHOSTTY_SUCCESS ? GRIMALKIN_GHOSTTY_OK
                                   : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
 }
@@ -1551,7 +1594,17 @@ int grimalkin_ghostty_snapshot(GrimalkinGhostty *terminal,
   if (row_index != rows) return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
 
   size_t image_bytes_updated = 0;
-  int image_result = snapshot_images(terminal, &image_bytes_updated);
+  bool placements_changed = false;
+  GrimalkinPlacementViewport viewport = {
+      .scroll_offset = scrollbar.offset,
+      .cell_width_px = terminal->cell_width_px,
+      .cell_height_px = terminal->cell_height_px,
+      .cols = cols,
+      .rows = rows,
+      .active_screen = (uint8_t)active_screen,
+  };
+  int image_result =
+      snapshot_images(terminal, viewport, &image_bytes_updated, &placements_changed);
   if (image_result != GRIMALKIN_GHOSTTY_OK) return image_result;
 
   out_snapshot->cols = cols;
@@ -1571,6 +1624,7 @@ int grimalkin_ghostty_snapshot(GrimalkinGhostty *terminal,
   out_snapshot->grapheme_bytes_updated = grapheme_bytes_updated;
   out_snapshot->graphics_generation = terminal->graphics_generation;
   out_snapshot->image_bytes_updated = image_bytes_updated;
+  out_snapshot->placements_changed = placements_changed ? 1 : 0;
   out_snapshot->row_data = terminal->rows;
   out_snapshot->placements = terminal->placements;
   out_snapshot->placement_count = terminal->placement_count;

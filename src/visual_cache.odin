@@ -135,6 +135,14 @@ visual_cache_add_image_tile :: proc(
 // drops its placeholder necessarily changes revision and is recompiled too -
 // there is no path that leaves an image visual_id in the grid while this hands
 // the same id to a later glyph. Preserve that coupling if either side changes.
+//
+// Note that placement_geometry_changed is deliberately not a trigger for this.
+// It fires when the viewport moves under a direct placement, which leaves every
+// cell-resident placeholder tile still valid: a placeholder is addressed by the
+// cell it sits in, so scrolling moves the cell and its row revision with it.
+// Only a direct placement floats over the grid independently, and it does not
+// own cell visual ids. Clearing on every scroll would throw away the whole image
+// cache for nothing.
 visual_cache_clear_images :: proc(cache: ^Visual_Cache) {
 	if len(cache.image_lookup) > 0 do cache.revision += 1
 	for _, visual_id in cache.image_lookup {

@@ -136,7 +136,11 @@ typedef struct {
   uint64_t scroll_visible_rows;
   uint8_t viewport_active;
   uint8_t active_screen;
-  uint8_t scroll_reserved[6];
+  /* Set when placement geometry was recollected for this snapshot, which
+     happens on a graphics change and whenever the viewport moves under a
+     placement. Images are keyed separately, on the graphics generation. */
+  uint8_t placements_changed;
+  uint8_t scroll_reserved[5];
 } GrimalkinGhosttySnapshotView;
 
 /* Installs the PNG decoder used by the Kitty graphics protocol. Call before
