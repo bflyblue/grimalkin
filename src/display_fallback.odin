@@ -146,6 +146,13 @@ glyph_rasterize_fitted :: proc(
 	if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds
 	requested_height := font.key.pixel_height
 	if requested_height <= 1 do return bitmap, bounds
+	// Descend one pixel at a time rather than bisecting. Ink extent is not
+	// reliably monotonic in pixel height - hinting can round a smaller size out
+	// to a wider or taller bitmap - so a binary search could both miss the
+	// largest fitting size and settle on one that does not fit. The linear walk
+	// returns the largest fitting height by construction, and the cost is
+	// bounded by the font size and paid once per glyph before the visual cache
+	// takes over.
 	for candidate := requested_height - 1; candidate >= 1; candidate -= 1 {
 		bitmap = font_rasterize_at_pixel_height_borrowed(font, glyph_index, candidate)
 		bounds = glyph_ink_bounds(&bitmap, bytes_per_pixel)

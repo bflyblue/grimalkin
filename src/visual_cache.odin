@@ -128,6 +128,13 @@ visual_cache_add_image_tile :: proc(
 	return visual_id
 }
 
+// Recycling these ids is safe only because no live grid cell can still name
+// one. The caller clears images when the graphics generation changes, and the
+// compile pass that follows recompiles every row whose snapshot reports a Kitty
+// placeholder. has_kitty_placeholder is derived from row content, so a row that
+// drops its placeholder necessarily changes revision and is recompiled too -
+// there is no path that leaves an image visual_id in the grid while this hands
+// the same id to a later glyph. Preserve that coupling if either side changes.
 visual_cache_clear_images :: proc(cache: ^Visual_Cache) {
 	if len(cache.image_lookup) > 0 do cache.revision += 1
 	for _, visual_id in cache.image_lookup {
@@ -135,6 +142,5 @@ visual_cache_clear_images :: proc(cache: ^Visual_Cache) {
 		cache.records[visual_id] = {}
 		append(&cache.free_records, visual_id)
 	}
-	delete(cache.image_lookup)
-	cache.image_lookup = make(map[Image_Visual_Cache_Key]u32)
+	clear(&cache.image_lookup)
 }

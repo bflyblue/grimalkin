@@ -277,7 +277,6 @@ font_instance_key :: proc(
 		face_index     = face_index,
 		pixel_height   = pixel_height,
 		style          = style,
-		hinting        = render_config.hinting,
 		render_config  = render_config,
 		require_colour = require_colour,
 	}
