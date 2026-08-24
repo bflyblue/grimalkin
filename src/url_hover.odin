@@ -18,9 +18,10 @@ import "vendor:glfw"
 // macOS puts this on Command; Alt is the convention everywhere else.
 URL_HOVER_MODIFIER :: glfw.MOD_SUPER when ODIN_OS == .Darwin else glfw.MOD_ALT
 
-// Underline style 4 in the text shader: dotted. A hover mark is an affordance,
-// so it deliberately does not look like text the application itself underlined.
-URL_HOVER_UNDERLINE_STYLE :: u32(4)
+// Underline style 6 in the text shader: widely spaced dots, and the one style
+// SGR cannot ask for, since it defines only 0-5. A hover mark is an affordance,
+// so it deliberately does not look like text the application underlined itself.
+URL_HOVER_UNDERLINE_STYLE :: u32(6)
 
 // Marks a hovered cell that was outside the grid when the stamp was applied,
 // so lifting the stamp skips it instead of writing a bogus underline style.

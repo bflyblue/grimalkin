@@ -352,8 +352,9 @@ cursor_gpu_test_url_hover_underline :: proc(app: ^Grimalkin_App) {
 			fmt.panicf("hover stamp underlined column %d outside the address", column)
 		}
 	}
-	// A dotted underline must leave gaps along the underline row, which is what
-	// separates it from the solid style an application can ask for itself.
+	// Widely spaced dots: the underline row must have gaps, and more gap than
+	// dot, which is what separates style 6 from both the solid style and the
+	// tight one-on-one-off dots of style 4.
 	underline_y := min(
 		app.demo.resources.cell_metrics.cell_height - 1,
 		u32(app.demo.resources.cell_metrics.baseline + 1),
@@ -373,6 +374,13 @@ cursor_gpu_test_url_hover_underline :: proc(app: ^Grimalkin_App) {
 	if lit_run == 0 do fmt.panicf("hover underline drew nothing on the underline row")
 	if gap_run == 0 {
 		fmt.panicf("hover underline was solid across the cell; expected a dotted pattern")
+	}
+	if gap_run <= lit_run {
+		fmt.panicf(
+			"hover underline dots were not widely spaced: %d lit, %d gap pixels",
+			lit_run,
+			gap_run,
+		)
 	}
 	if first_lit[2] < 180 || first_lit[0] > 120 {
 		fmt.panicf("hover underline did not use the cell decoration colour: %v", first_lit)

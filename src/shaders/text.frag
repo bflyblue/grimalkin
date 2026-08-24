@@ -196,6 +196,17 @@ void main() {
 	} else if (underline_style == 5u) {
 		decoration_pixel = (within_cell.x % 5) < 3 && within_cell.y >= underline_y &&
 			within_cell.y < underline_y + decoration_thickness;
+	} else if (underline_style == 6u) {
+		// Renderer-private: the widely spaced dots used to mark a hovered URL.
+		// SGR defines underline styles 0-5, so a terminal application cannot
+		// ask for this one. The period is measured along the text area rather
+		// than within the cell, so the dots stay evenly spaced across cell
+		// boundaries at any cell width, and it scales with the line thickness
+		// so a small cell still gets a dot.
+		int dot_period = decoration_thickness * 3;
+		decoration_pixel = (pixel.x % dot_period) < decoration_thickness &&
+			within_cell.y >= underline_y &&
+			within_cell.y < underline_y + decoration_thickness;
 	}
 	if ((cell.w & CELL_STRIKETHROUGH) != 0u) {
 		decoration_pixel = decoration_pixel ||
