@@ -81,6 +81,9 @@ Display_Grid :: struct {
 
 Display_Compiler :: struct {
 	graphics_generation:       u64,
+	placements_revision:       u64,
+	cell_width:                u32,
+	cell_height:               u32,
 	overflow_warning_generation: u64,
 	overflow_warning_emitted:    bool,
 	force_full_recompile:        bool,
@@ -119,6 +122,7 @@ display_compile :: proc(
 	snapshot: ^Terminal_Snapshot,
 	resources: ^Renderer_Resources,
 	grid: ^Display_Grid,
+	images: ^Display_Images = nil,
 ) -> Display_Compile_Stats {
 	resources.glyph_cache_full = false
 	resized := false
@@ -160,6 +164,23 @@ display_compile :: proc(
 		display_grid_mark_row_dirty(grid, row)
 		stats.rows_compiled += 1
 	}
+	// Direct placements float over the grid rather than living in a cell, so
+	// they are rebuilt as a list rather than per row. The revision covers both a
+	// graphics change and a scroll; cell size is compared too because it scales
+	// every destination rectangle.
+	if images != nil {
+		metrics_changed :=
+			compiler.cell_width != resources.cell_metrics.cell_width ||
+			compiler.cell_height != resources.cell_metrics.cell_height
+		if metrics_changed || compiler.placements_revision != snapshot.placements_revision {
+			compile_kitty_direct_placements(resources, snapshot, images)
+			compiler.placements_revision = snapshot.placements_revision
+			compiler.cell_width = resources.cell_metrics.cell_width
+			compiler.cell_height = resources.cell_metrics.cell_height
+			stats.images_dropped += images.dropped
+		}
+	}
+
 	after_shapes, after_rasters := font_counters(resources)
 	stats.shape_calls = after_shapes - before_shapes
 	stats.rasterizations = after_rasters - before_rasters
