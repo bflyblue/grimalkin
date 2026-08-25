@@ -423,6 +423,74 @@ display_compiler_uses_styled_faces_cjk_fallback_and_row_revisions :: proc(t: ^te
 }
 
 @(test)
+display_compiler_renders_real_cjk_and_braille_fallback_glyphs :: proc(t: ^testing.T) {
+	font_system_init()
+	primary_path, primary_found := bundled_nerd_symbols_font_path()
+	testing.expect(t, primary_found)
+	if !primary_found do return
+	defer delete(primary_path)
+
+	// A primary known to lack these blocks makes both scripts exercise the
+	// platform fallback cascade instead of passing through incidental coverage.
+	primary_family := Font_Family{name = "Fallback test primary"}
+	for &face in primary_family.faces do face.path = primary_path
+
+	terminal := terminal_core_init(8, 3, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_write_string(&terminal, "\x1b[1;1H漢\x1b[2;1H⠁\x1b[3;1H⣿")
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	resources := renderer_resources_init_configured(
+		FONT_PIXEL_HEIGHT,
+		font_render_config_grayscale(),
+		false,
+		&primary_family,
+	)
+	defer renderer_resources_destroy(&resources)
+	grid := display_grid_init(snapshot.cols, snapshot.rows)
+	defer display_grid_destroy(&grid)
+	compiler := Display_Compiler{}
+	_ = display_compile(&compiler, &snapshot, &resources, &grid)
+
+	codepoints := [3]u32{0x6f22, 0x2801, 0x28ff}
+	for codepoint in codepoints {
+		found := false
+		for &cell, cell_index in snapshot.cells {
+			row := cell_index / int(snapshot.cols)
+			graphemes := terminal_cell_graphemes(&snapshot, row, &cell)
+			if len(graphemes) == 0 || graphemes[0] != codepoint do continue
+			found = true
+
+			primary := resources.font_faces[int(Font_Style.Regular)]
+			testing.expect_value(t, font_glyph_index(&primary.font, rune(codepoint)), u32(0))
+			selection := font_selection_for_cell(&resources, &snapshot, row, &cell)
+			testing.expect(t, selection.face != nil)
+			if selection.face == nil do continue
+			testing.expect(t, selection.face.is_fallback)
+			testing.expect(t, !selection.forced_replacement)
+			testing.expect(t, !strings.contains(selection.face.font.path, "LastResort"))
+
+			glyph_index := font_glyph_index(&selection.face.font, rune(codepoint))
+			testing.expect(t, glyph_index != 0)
+			if glyph_index == 0 do continue
+			bitmap := font_rasterize_borrowed(&selection.face.font, glyph_index)
+			has_coverage := false
+			for value in font_bitmap_bytes(&bitmap) {
+				has_coverage = has_coverage || value != 0
+			}
+			testing.expect(t, bitmap.width > 0 && bitmap.height > 0 && has_coverage)
+
+			visual_id := grid.cells[cell_index].visual_id
+			testing.expect(t, visual_id != 0)
+			testing.expect(t, visual_mask_has_coverage(&resources, visual_id))
+			break
+		}
+		testing.expect(t, found)
+	}
+}
+
+@(test)
 bundled_nerd_font_glyphs_are_fitted_individually :: proc(t: ^testing.T) {
 	configs := [4]Font_Render_Config {
 		font_render_config_grayscale(),
