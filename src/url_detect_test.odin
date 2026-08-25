@@ -214,3 +214,38 @@ url_hover_stamp_underlines_only_the_address_and_restores_what_it_replaced :: pro
 	testing.expect(t, !hover.stamped)
 	for cell, index in grid.cells do testing.expect_value(t, cell.flags, before[index])
 }
+
+@(test)
+url_hover_click_survives_focus_loss_before_the_synthetic_release :: proc(t: ^testing.T) {
+	// GLFW runs the focus callback before it synthesizes releases for buttons it
+	// still holds pressed (_glfwInputWindowFocus in glfw/src/window.c), and it
+	// tracks that press in its own state, so the release always arrives. Clearing
+	// the consumed-click flag along with the hover therefore left the synthetic
+	// release unmatched, and a mouse-tracking application saw a release with no
+	// press. Dropping the match must not disturb the click bookkeeping.
+	hover := Url_Hover{}
+	url_hover_click_begin(&hover)
+	hover.active = true
+	hover.click_consumed = true
+
+	// What focus loss and pointer-leave do to the hover, minus the grid work.
+	url_hover_forget_match(&hover)
+	testing.expect(t, !hover.active)
+	testing.expect(t, hover.click_consumed)
+
+	testing.expect(t, url_hover_click_take_release(&hover))
+	testing.expect(t, !hover.click_consumed)
+	// The next release belongs to selection or mouse reporting, not to us.
+	testing.expect(t, !url_hover_click_take_release(&hover))
+}
+
+@(test)
+url_hover_click_flag_does_not_outlive_the_press_that_follows_it :: proc(t: ^testing.T) {
+	// If the OSD or the paste prompt opens between press and release,
+	// mouse_button_callback returns before the release can clear the flag. The
+	// next press must not inherit it, or that click's release is eaten instead.
+	hover := Url_Hover{click_consumed = true}
+	url_hover_click_begin(&hover)
+	testing.expect(t, !hover.click_consumed)
+	testing.expect(t, !url_hover_click_take_release(&hover))
+}

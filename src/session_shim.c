@@ -113,6 +113,53 @@ static int url_is_safe(const char *url) {
   return length > 0 && url_scheme_allowed(url);
 }
 
+#ifndef _WIN32
+/* pipe() hands back the lowest free descriptors, so a process launched with
+   stdio closed -- a desktop launcher, typically -- can be given 0, 1, or 2
+   here, which the /dev/null redirection below would then overwrite. Lift both
+   ends clear of the standard descriptors so the report survives it. */
+static int lift_above_stdio(int *descriptor) {
+  if (*descriptor > STDERR_FILENO) return 1;
+  int lifted = fcntl(*descriptor, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+  if (lifted < 0) return 0;
+  close(*descriptor);
+  *descriptor = lifted;
+  return 1;
+}
+
+static int open_report_pipe(int fds[2]) {
+#if defined(__linux__)
+  if (pipe2(fds, O_CLOEXEC) != 0) return 0;
+#else
+  if (pipe(fds) != 0) return 0;
+  if (fcntl(fds[0], F_SETFD, FD_CLOEXEC) != 0 ||
+      fcntl(fds[1], F_SETFD, FD_CLOEXEC) != 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+  }
+#endif
+  if (!lift_above_stdio(&fds[0]) || !lift_above_stdio(&fds[1])) {
+    close(fds[0]);
+    close(fds[1]);
+    return 0;
+  }
+  return 1;
+}
+
+/* Runs after fork() in a process that has threads, so only async-signal-safe
+   calls are legal here: one write(2) of a fixed-size value, and no stdio. A
+   write that fails costs the parent its diagnosis and nothing else, so the
+   result is discarded deliberately rather than by omission. */
+static void report_launch_error(int descriptor, int error) {
+  ssize_t written = 0;
+  do {
+    written = write(descriptor, &error, sizeof error);
+  } while (written < 0 && errno == EINTR);
+  (void)written;
+}
+#endif
+
 int grimalkin_open_url(const char *url) {
   if (url == NULL || !url_is_safe(url)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
 #ifdef _WIN32
@@ -132,12 +179,30 @@ int grimalkin_open_url(const char *url) {
 #endif
   /* Double fork: the grandchild is orphaned, so the browser outlives us and
      needs no reaping. Only the intermediate child is waited for, by pid, which
-     leaves the session's own waitpid(session->child) undisturbed. */
+     leaves the session's own waitpid(session->child) undisturbed.
+
+     That detachment is exactly why the launch verdict cannot come from an exit
+     status: by the time execvp fails, the only process that knows is a
+     grandchild nobody waits for, and the intermediate child has already exited
+     0. A close-on-exec pipe carries the verdict back instead. A successful
+     execvp closes the write end without writing anything, so the parent reads
+     EOF; every failure writes its errno first. The parent therefore blocks
+     until the opener execs, not until the browser exits. */
+  int report[2];
+  if (!open_report_pipe(report)) return GRIMALKIN_SESSION_SPAWN_FAILED;
   pid_t intermediate = fork();
-  if (intermediate < 0) return GRIMALKIN_SESSION_SPAWN_FAILED;
+  if (intermediate < 0) {
+    close(report[0]);
+    close(report[1]);
+    return GRIMALKIN_SESSION_SPAWN_FAILED;
+  }
   if (intermediate == 0) {
+    close(report[0]);
     pid_t grandchild = fork();
-    if (grandchild < 0) _exit(127);
+    if (grandchild < 0) {
+      report_launch_error(report[1], errno);
+      _exit(127);
+    }
     if (grandchild == 0) {
       setsid();
       int null_fd = open("/dev/null", O_RDWR);
@@ -148,13 +213,35 @@ int grimalkin_open_url(const char *url) {
       }
       char *const arguments[] = {(char *)opener, (char *)url, NULL};
       execvp(opener, arguments);
-      fprintf(stderr, "grimalkin: could not run %s\n", opener);
+      report_launch_error(report[1], errno);
       _exit(127);
     }
     _exit(0);
   }
+  close(report[1]);
+  int launch_error = 0;
+  ssize_t received = 0;
+  do {
+    received = read(report[0], &launch_error, sizeof launch_error);
+  } while (received < 0 && errno == EINTR);
+  close(report[0]);
   int status = 0;
   while (waitpid(intermediate, &status, 0) < 0 && errno == EINTR) {
+  }
+  /* Anything other than a clean EOF is a failed launch: a short or failed read
+     means the report itself broke, and the status check catches an intermediate
+     child that died before it could write one. The diagnosis is printed here
+     rather than in the child that produced it, both because stdio is legal here
+     and because this process still has the terminal's stderr. */
+  if (received != 0) {
+    if (received == (ssize_t)sizeof launch_error) {
+      fprintf(stderr, "grimalkin: could not run %s: %s\n", opener,
+              strerror(launch_error));
+    }
+    return GRIMALKIN_SESSION_SPAWN_FAILED;
+  }
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    return GRIMALKIN_SESSION_SPAWN_FAILED;
   }
   return GRIMALKIN_SESSION_OK;
 #endif

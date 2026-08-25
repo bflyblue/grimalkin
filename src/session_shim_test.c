@@ -28,7 +28,98 @@ static int drain_until_exit(GrimalkinSession *session,
   return 0;
 }
 
+/* grimalkin_open_url is never exercised on its success path: that would open a
+   real browser. Every case below runs with PATH pointing somewhere the opener
+   cannot be resolved, so an address that passes validation still fails to
+   launch -- which is precisely the path that used to report
+   GRIMALKIN_SESSION_OK regardless of what happened. */
+static int check_open_url_rejects_and_reports(void) {
+  static const char *const rejected[] = {
+      "ftp://example.com/",       /* scheme outside the allowlist */
+      "file:///etc/passwd",       /* ditto, and the reason there is one */
+      "https://",                 /* scheme with nothing after it */
+      "",                         /* empty */
+      "https://example.com/ x",   /* space: at 0x20 */
+      "https://example.com/\x7f", /* DEL: at 0x7f */
+  };
+  for (size_t index = 0; index < sizeof(rejected) / sizeof(rejected[0]);
+       ++index) {
+    if (grimalkin_open_url(rejected[index]) !=
+        GRIMALKIN_SESSION_INVALID_ARGUMENT) {
+      fprintf(stderr, "open_url accepted %s\n", rejected[index]);
+      return 0;
+    }
+  }
+  if (grimalkin_open_url(NULL) != GRIMALKIN_SESSION_INVALID_ARGUMENT) {
+    fprintf(stderr, "open_url accepted NULL\n");
+    return 0;
+  }
+
+  /* A well-formed address that cannot be launched must report the failure
+     rather than a successful start. This is the regression the double fork hid:
+     only the detached grandchild ever saw execvp fail. */
+  int missing = grimalkin_open_url("https://example.com/");
+  if (missing != GRIMALKIN_SESSION_SPAWN_FAILED) {
+    fprintf(stderr, "open_url reported %d for an unrunnable opener, wanted %d\n",
+            missing, GRIMALKIN_SESSION_SPAWN_FAILED);
+    return 0;
+  }
+
+  /* The length boundary: GRIMALKIN_URL_MAX_LENGTH bytes is the longest address
+     accepted, one more is rejected. Both reach the launcher, so the accepted
+     one reports a spawn failure rather than an invalid argument. */
+  static const char prefix[] = "https://example.com/";
+  size_t prefix_length = sizeof(prefix) - 1;
+  char *address = (char *)malloc(GRIMALKIN_URL_MAX_LENGTH + 2);
+  if (address == NULL) return 0;
+  memcpy(address, prefix, prefix_length);
+  memset(address + prefix_length, 'a',
+         GRIMALKIN_URL_MAX_LENGTH + 1 - prefix_length);
+  address[GRIMALKIN_URL_MAX_LENGTH] = '\0';
+  int at_limit = grimalkin_open_url(address);
+  address[GRIMALKIN_URL_MAX_LENGTH] = 'a';
+  address[GRIMALKIN_URL_MAX_LENGTH + 1] = '\0';
+  int over_limit = grimalkin_open_url(address);
+  free(address);
+  if (at_limit != GRIMALKIN_SESSION_SPAWN_FAILED) {
+    fprintf(stderr, "open_url reported %d at the length limit, wanted %d\n",
+            at_limit, GRIMALKIN_SESSION_SPAWN_FAILED);
+    return 0;
+  }
+  if (over_limit != GRIMALKIN_SESSION_INVALID_ARGUMENT) {
+    fprintf(stderr, "open_url accepted an address past the length limit\n");
+    return 0;
+  }
+  return 1;
+}
+
+static int check_open_url(void) {
+  /* An empty PATH makes execvp fall back to a confstr default that can still
+     resolve the opener, so point it somewhere that certainly cannot. */
+  const char *saved = getenv("PATH");
+  char *restore = NULL;
+  if (saved != NULL) {
+    restore = (char *)malloc(strlen(saved) + 1);
+    if (restore == NULL) return 0;
+    strcpy(restore, saved);
+  }
+  if (setenv("PATH", "/nonexistent/grimalkin-open-url-test", 1) != 0) {
+    free(restore);
+    return 0;
+  }
+  /* Each failed launch now prints its errno, which is the point of the fix.
+     Label them so the expected noise is not read as a failing test. */
+  fprintf(stderr, "-- expecting 'could not run' diagnostics below --\n");
+  int ok = check_open_url_rejects_and_reports();
+  fprintf(stderr, "-- end of expected diagnostics --\n");
+  if (restore == NULL) unsetenv("PATH"); else setenv("PATH", restore, 1);
+  free(restore);
+  return ok;
+}
+
 int main(void) {
+  if (!check_open_url()) return 1;
+
   if (setenv("SHELL", "/bin/sh", 1) != 0 ||
       setenv("HOME", "/", 1) != 0 ||
       setenv("LANG", "C", 1) != 0 ||

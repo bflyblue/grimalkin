@@ -527,15 +527,20 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	// that is the point of holding the modifier. With nothing hovered it falls
 	// through and behaves exactly as before.
 	if button == glfw.MOUSE_BUTTON_LEFT {
-		if action == glfw.PRESS && i32(mods) & URL_HOVER_MODIFIER != 0 {
-			url_hover_update(app)
-			if url_hover_open(app) {
-				app.url_hover.click_consumed = true
-				return
+		if action == glfw.PRESS {
+			url_hover_click_begin(&app.url_hover)
+			if i32(mods) & URL_HOVER_MODIFIER != 0 {
+				url_hover_update(app)
+				if url_hover_open(app) {
+					app.url_hover.click_consumed = true
+					return
+				}
 			}
 		}
-		if action == glfw.RELEASE && app.url_hover.click_consumed {
-			app.url_hover.click_consumed = false
+		// GLFW synthesizes this release itself when the launched browser takes
+		// focus, and delivers it after window_focus_callback, so the flag has to
+		// have survived that callback for the release to be matched here.
+		if action == glfw.RELEASE && url_hover_click_take_release(&app.url_hover) {
 			return
 		}
 	}
