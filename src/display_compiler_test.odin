@@ -641,7 +641,6 @@ kitty_source_rectangles_are_checked_before_creating_visuals :: proc(t: ^testing.
 	defer texture_registry_destroy(&registry)
 	resource_id := texture_registry_add(&registry, .Colour_RGBA8, .Linear, 8, 8, 1)
 	resource := texture_resource(&registry, resource_id)
-	// A source origin outside the image.
 	placement := Terminal_Placement {
 		grid_cols     = 2,
 		grid_rows     = 2,

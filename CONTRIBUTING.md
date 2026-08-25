@@ -11,6 +11,9 @@ documentation fixes, and focused code changes are all welcome.
 - Keep pull requests focused. Avoid mixing refactors with behaviour changes.
 - Never include credentials, private terminal output, or third-party material
   whose license is unclear.
+- Use comments to preserve context the code cannot express: intent, constraints,
+  ownership, platform behaviour, or the reason behind a surprising choice.
+  Avoid comments that merely restate a name or narrate the next operation.
 
 Security reports follow [SECURITY.md](SECURITY.md), not the public issue tracker.
 

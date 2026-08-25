@@ -23,6 +23,9 @@ glfw_key_is_printable :: proc(key: i32) -> bool {
 }
 
 glfw_key_modifiers :: proc(app: ^Grimalkin_App, mods: i32) -> u16 {
+	// GLFW reports only the aggregate modifier flags in callbacks. Ghostty's
+	// compatible low bits extend that layout with right-side identity in bits
+	// 6-9, so recover those bits from the live key state before encoding.
 	result := u16(mods & 0x3f)
 	if glfw.GetKey(app.window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS do result |= 1 << 6
 	if glfw.GetKey(app.window, glfw.KEY_RIGHT_CONTROL) == glfw.PRESS do result |= 1 << 7

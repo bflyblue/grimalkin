@@ -216,6 +216,8 @@ benchmark_print :: proc(app: ^Grimalkin_App, samples: ^Benchmark_Samples) {
 
 choose_present_mode :: proc(available: []vk.PresentModeKHR) -> vk.PresentModeKHR {
 	when BENCHMARK_MODE {
+		// Avoid a vertical-sync ceiling in benchmark measurements when the driver
+		// offers it. Normal rendering keeps universally supported FIFO.
 		for mode in available {
 			if mode == .IMMEDIATE do return mode
 		}

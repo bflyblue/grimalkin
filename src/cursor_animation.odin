@@ -45,6 +45,8 @@ cursor_quantize_opacity :: proc(opacity: f64) -> u16 {
 }
 
 cursor_next_sample_deadline :: proc(epoch, now, interval: f64) -> f64 {
+	// Anchor deadlines to the epoch rather than the previous frame. A delayed
+	// frame then skips to the current phase instead of accumulating timer drift.
 	elapsed := max(0.0, now - epoch)
 	step := math.floor(elapsed / interval) + 1.0
 	deadline := epoch + step * interval

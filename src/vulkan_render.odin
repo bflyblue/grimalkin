@@ -594,9 +594,8 @@ bind_image_placement_set :: proc(
 	)
 }
 
-// One draw per placement, bounding each to its own rectangle with the scissor.
-// This follows the padding glow pass, which already draws a list of regions
-// through the shared fullscreen vertex shader rather than building geometry.
+// Reuse the fullscreen vertex path already needed by padding glow; a scissor
+// bounds each placement without introducing a separate geometry buffer.
 draw_image_quads :: proc(
 	app: ^Grimalkin_App,
 	frame: ^Frame_Context,

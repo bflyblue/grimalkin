@@ -30,6 +30,8 @@ Pending_Texture_Upload :: struct {
 
 Texture_Resource :: struct {
 	id:               u32,
+	// Numeric ids are recycled. The generation prevents a visual-cache entry or
+	// GPU image left from the previous occupant from matching the new resource.
 	slot_generation:  u64,
 	format:           Texture_Format,
 	encoding:         Texture_Encoding,
@@ -43,6 +45,8 @@ Texture_Resource :: struct {
 	pixels:           []u8,
 	pending_uploads:  [dynamic]Pending_Texture_Upload,
 	full_upload:      bool,
+	// When an atlas array grows, the uploader can copy these existing layers
+	// into the replacement image and upload only the newly queued regions.
 	grew_from_layers: u32,
 }
 

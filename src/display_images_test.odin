@@ -208,11 +208,10 @@ kitty_direct_placements_compile_into_tiers :: proc(t: ^testing.T) {
 	snapshot.placements[0] = base
 	snapshot.placements[0].placement_id = 1
 	snapshot.placements[0].z = 5
-	// A virtual placement keeps going through the placeholder path.
+	// Virtual placements belong to the cell-resident placeholder path.
 	snapshot.placements[1] = base
 	snapshot.placements[1].placement_id = 2
 	snapshot.placements[1].is_virtual = true
-	// Scrolled entirely off screen.
 	snapshot.placements[2] = base
 	snapshot.placements[2].placement_id = 3
 	snapshot.placements[2].viewport_visible = false
@@ -275,7 +274,7 @@ kitty_direct_placements_skip_an_image_with_no_texture :: proc(t: ^testing.T) {
 	snapshot := Terminal_Snapshot{}
 	defer delete(snapshot.placements)
 	snapshot.placements = make([]Terminal_Placement, 1)
-	// Image 8 was never uploaded, so there is nothing to sample.
+	// Placements must not expose a texture that has not reached the registry.
 	snapshot.placements[0] = {
 		image_id         = 8,
 		placement_id     = 1,

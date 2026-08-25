@@ -5,6 +5,7 @@
 - Grimalkin is an Odin terminal emulator: native PTY/ConPTY -> `libghostty-vt` state -> Odin display compiler -> buffers/atlases -> one terminal-sized Vulkan quad. Start with `README.md`, `CONTRIBUTING.md`, and `docs/architecture.md`.
 - Keep the unstable `libghostty-vt` C ABI isolated in `src/ghostty_shim.{c,h}` / `src/ghostty_vt.odin`. Ghostty owns terminal state and input encoding, not process or PTY lifecycle.
 - The renderer is shared across Linux/Windows and macOS (MoltenVK). Preserve the single-quad, integer cell/atlas model unless a task explicitly changes that architecture.
+- Comments preserve information the code cannot express: intent, constraints, ownership, platform behaviour, or the reason for a surprising choice. Do not merely restate a symbol name or narrate the next operation.
 
 ## Cells, shaping, and text advance
 
