@@ -1,8 +1,5 @@
 package main
 
-// Modifier-held URL hover: the address under the pointer is underlined while
-// the modifier is down, and a click on it opens the system browser.
-//
 // The underline is not a second pipeline. It stamps the text shader's existing
 // single-underline bits into the compiled grid, and remembers the bits it
 // replaced so the stamp can be lifted again. The grid is only ever written by
@@ -23,8 +20,8 @@ URL_HOVER_MODIFIER :: glfw.MOD_SUPER when ODIN_OS == .Darwin else glfw.MOD_ALT
 // so it deliberately does not look like text the application underlined itself.
 URL_HOVER_UNDERLINE_STYLE :: u32(6)
 
-// Marks a hovered cell that was outside the grid when the stamp was applied,
-// so lifting the stamp skips it instead of writing a bogus underline style.
+// A resize can leave matched cells outside the replacement grid. This sentinel
+// prevents the later unstamp from treating those cells as saved style bits.
 URL_HOVER_NOT_STAMPED :: u8(0xff)
 
 Url_Hover :: struct {
@@ -144,8 +141,8 @@ url_hover_cells_equal :: proc(left, right: []Url_Cell) -> bool {
 	return true
 }
 
-// Recomputes what is hovered and reapplies the stamp. Detection scratch lives
-// in the frame arena; only a changed match is cloned into durable storage.
+// Detection scratch lives in the frame arena; only a changed match is cloned
+// into durable storage.
 url_hover_update :: proc(app: ^Grimalkin_App, force := false) {
 	if app == nil || app.demo == nil do return
 	hover := &app.url_hover
@@ -209,10 +206,9 @@ url_hover_after_compile :: proc(app: ^Grimalkin_App) {
 	selection_update_mouse_cursor(app)
 }
 
-// Drops the hovered match and its underline. Deliberately leaves
-// `click_consumed` alone: focus loss and pointer-leave both still owe us a
-// button release, and `url_hover_click_begin` bounds the flag's lifetime
-// instead. See the comment on the field itself.
+// Deliberately leaves `click_consumed` alone: focus loss and pointer-leave still
+// owe us a button release, and `url_hover_click_begin` bounds the flag's
+// lifetime instead. See the comment on the field itself.
 url_hover_clear :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil do return
 	hover := &app.url_hover
@@ -223,8 +219,7 @@ url_hover_clear :: proc(app: ^Grimalkin_App) {
 	app.redraw = true
 }
 
-// Releases the matched address without touching the stamp or the click state.
-// The caller lifts the stamp first, since only it holds the grid.
+// The caller must lift the stamp first because only it has access to the grid.
 url_hover_forget_match :: proc(hover: ^Url_Hover) {
 	delete(hover.text)
 	delete(hover.cells)
@@ -233,25 +228,20 @@ url_hover_forget_match :: proc(hover: ^Url_Hover) {
 	hover.active = false
 }
 
-// Starts a fresh left-button click. A flag left over from an earlier click is
-// stale by definition, which is what keeps a release that never arrived --
+// A consumed flag from an earlier click is stale by definition. Resetting it
+// here keeps a release that never arrived --
 // dropped by the OSD or paste-prompt guard in `mouse_button_callback` -- from
 // eating the release of the click after it.
 url_hover_click_begin :: proc(hover: ^Url_Hover) {
 	hover.click_consumed = false
 }
 
-// Consumes the release half of a modifier-click. False means the release
-// belongs to someone else and must fall through to selection or mouse
-// reporting.
 url_hover_click_take_release :: proc(hover: ^Url_Hover) -> bool {
 	if !hover.click_consumed do return false
 	hover.click_consumed = false
 	return true
 }
 
-// Consumes a modifier-click on a hovered URL. Returns false when there is
-// nothing to open, so the caller falls through to selection or mouse reporting.
 url_hover_open :: proc(app: ^Grimalkin_App) -> bool {
 	if app == nil || !app.url_hover.active || len(app.url_hover.text) == 0 do return false
 	text := string(app.url_hover.text)

@@ -319,8 +319,7 @@ kitty_direct_destination_rect :: proc(
 	}
 }
 
-// Turns the snapshot's direct (pin) placements into the renderer's image list.
-// Virtual placements are skipped: they are cell-resident and keep going through
+// Virtual placements are cell-resident and keep going through
 // the placeholder path, which addresses them by the cell they sit in.
 compile_kitty_direct_placements :: proc(
 	resources: ^Renderer_Resources,

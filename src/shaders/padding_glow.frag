@@ -260,6 +260,8 @@ void main() {
 	}
 
 	vec3 encoded = linear_to_srgb(colour);
+	// One zero-mean encoded 8-bit step suppresses visible gradient bands without
+	// biasing the result; screen-space noise also stays stable between frames.
 	float dither = (interleaved_gradient_noise(gl_FragCoord.xy) - 0.5) / 255.0;
 	encoded = clamp(encoded + vec3(dither), 0.0, 1.0);
 	colour = layout_data.frame.z != 0u ? encoded : srgb_to_linear(encoded);

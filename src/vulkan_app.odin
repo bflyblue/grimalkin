@@ -50,6 +50,9 @@ BENCHMARK_WARMUP_FRAMES :: #config(BENCHMARK_WARMUP_FRAMES, 60)
 BENCHMARK_SAMPLE_FRAMES :: #config(BENCHMARK_SAMPLE_FRAMES, 300)
 MAX_TEXTURE_RESOURCES_CAP :: u32(1024)
 MAX_FRAMES_IN_FLIGHT :: 3
+// Glow subtracts background from full terminal colour. A linear float
+// intermediate preserves faint residuals that an 8-bit target would quantize
+// away before the final output encoding and dither.
 PADDING_GLOW_SOURCE_FORMAT :: vk.Format.R16G16B16A16_SFLOAT
 
 #assert(BENCHMARK_WARMUP_FRAMES >= 0)

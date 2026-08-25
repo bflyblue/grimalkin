@@ -1,14 +1,8 @@
 package main
 
-// URL detection over a terminal snapshot.
-//
-// Detection is a pure function of the snapshot: the logical line under a cell
-// is flattened into an ASCII byte buffer with a parallel array of the cell each
-// byte came from, a scheme-anchored scan finds the candidate span, and the span
-// is mapped back to cells. Only viewport rows exist in a snapshot, so a URL
-// whose scheme has scrolled above the top of the viewport does not match; no
-// match is the right failure mode, because the alternative is opening a
-// truncated address.
+// Detection is deliberately a pure function of the snapshot. Only viewport
+// rows exist there, so an address whose scheme has scrolled off the top does
+// not match; opening nothing is safer than opening a truncated address.
 
 import "core:strings"
 
@@ -109,8 +103,7 @@ url_trimmed_length :: proc(span: []u8) -> int {
 	return length
 }
 
-// Finds the URL span covering `index`, or reports no match. Exposed separately
-// from the snapshot walk so the matcher itself is directly testable.
+// Kept separate from the snapshot walk so matching policy is directly testable.
 url_span_in_line :: proc(line: []u8, index: int) -> (start, end: int, ok: bool) {
 	position := 0
 	for position < len(line) {
@@ -142,10 +135,9 @@ url_logical_line_bounds :: proc(snapshot: ^Terminal_Snapshot, row: int) -> (firs
 	return
 }
 
-// Flattens the logical line containing `row` into ASCII bytes plus the cell
-// each byte came from. Non-ASCII text and empty cells become spaces so they
-// terminate a URL, and Ghostty's wide-character spacers are skipped so a wide
-// glyph contributes exactly one byte.
+// Non-ASCII text and empty cells become spaces so they terminate a URL.
+// Ghostty's wide-character spacers are skipped so one wide glyph contributes
+// one candidate byte while the parallel coordinates retain its cell position.
 url_flatten_logical_line :: proc(
 	snapshot: ^Terminal_Snapshot,
 	row: int,
@@ -175,8 +167,8 @@ url_flatten_logical_line :: proc(
 	return bytes[:], coordinates[:]
 }
 
-// Returns the URL under a viewport cell. The match owns its text and cells in
-// `allocator`; scratch flattening uses the frame arena and is never retained.
+// The match owns its text and cells in `allocator`; scratch flattening uses the
+// frame arena and is never retained.
 url_find_at :: proc(
 	snapshot: ^Terminal_Snapshot,
 	row, column: int,

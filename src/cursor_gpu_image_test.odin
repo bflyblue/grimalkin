@@ -213,7 +213,6 @@ cursor_gpu_test_image_clipping :: proc(app: ^Grimalkin_App) {
 	magenta := image_gpu_test_texture(app, 8, 8, 255, 0, 255)
 
 	display_images_reset(&app.demo.images)
-	// Starts inside the last column and runs well past the right edge.
 	_ = display_images_add(
 		&app.demo.images,
 		image_gpu_test_placement(
@@ -223,7 +222,6 @@ cursor_gpu_test_image_clipping :: proc(app: ^Grimalkin_App) {
 			source,
 		),
 	)
-	// Entirely below the grid.
 	_ = display_images_add(
 		&app.demo.images,
 		image_gpu_test_placement(
@@ -241,14 +239,14 @@ cursor_gpu_test_image_clipping :: proc(app: ^Grimalkin_App) {
 
 	middle_x := u32(cell_width / 2)
 	middle_y := u32(cell_height / 2)
-	// The part inside the grid still draws.
+	// The clipped portion inside the grid must remain visible.
 	image_gpu_expect_channel(
 		"a placement clipped at the right edge",
 		cursor_gpu_pixel_rgba(app, pixels, u32(app.demo.grid.cols) - 1, 0, middle_x, middle_y),
 		0,
 		128,
 	)
-	// The padding to the right of the grid is untouched by it.
+	// Placement clipping must not spill into the surrounding padding.
 	area := text_render_area(app)
 	right_edge := u32(area.offset.x) + u32(area.extent.width)
 	if right_edge + 1 < app.extent.width {

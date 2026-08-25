@@ -56,6 +56,8 @@ Terminal_Selection :: struct {
 	focus:              Selection_Point,
 	origin_start:       Selection_Point,
 	origin_end:         Selection_Point,
+	// Owned Ghostty tracking handles keep endpoints attached to terminal content
+	// as scrollback moves. Deactivation must release both explicitly.
 	anchor_ref:         rawptr,
 	focus_ref:          rawptr,
 	click_count:        u8,
