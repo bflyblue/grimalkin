@@ -448,7 +448,7 @@ cursor_gpu_test_repeated_text_resource_rebuilds :: proc(app: ^Grimalkin_App) {
 }
 
 cursor_gpu_test_lazy_fallback_growth :: proc(app: ^Grimalkin_App) {
-	terminal_write_string(&app.demo.terminal, "\x1b[6;1Hfallback: 漢字 العربية ☃ \ue0b0")
+	terminal_write_string(&app.demo.terminal, "\x1b[6;1Hfallback: 漢字 ⠁⠿⣿ العربية ☃ \ue0b0")
 	_ = grimalkin_view_refresh(app.demo)
 	_ = draw_frame_components(app, 0, true)
 	pixels := read_framebuffer_pixels(app)

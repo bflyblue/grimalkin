@@ -102,6 +102,18 @@ static bool fontconfig_covers_grapheme(const FcPattern *pattern,
   return true;
 }
 
+static bool fontconfig_is_last_resort(const FcPattern *pattern) {
+  for (int index = 0;; ++index) {
+    FcChar8 *family = NULL;
+    if (FcPatternGetString(pattern, FC_FAMILY, index, &family) != FcResultMatch)
+      break;
+    const char *name = (const char *)family;
+    while (*name == '.') ++name;
+    if (ascii_casecmp(name, "LastResort") == 0) return true;
+  }
+  return false;
+}
+
 static const FcChar8 *fontconfig_preferred_family(const FcPattern *pattern) {
   FcChar8 *fallback = NULL;
   for (int index = 0;; ++index) {
@@ -658,6 +670,9 @@ int grimalkin_font_match(const char *family,
     FcPattern *candidate = matches->fonts[i];
     if (!fontconfig_covers_grapheme(candidate, codepoints, codepoint_count))
       continue;
+    // Apple's sentinel advertises universal coverage, so accepting it would
+    // stop the cascade before real system fallback faces are considered.
+    if (fontconfig_is_last_resort(candidate)) continue;
     if (require_colour) {
       FcBool colour = FcFalse;
       if (FcPatternGetBool(candidate, FC_COLOR, 0, &colour) != FcResultMatch ||
