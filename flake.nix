@@ -190,6 +190,7 @@
                   --set VK_ICD_FILENAMES "${pkgs.moltenvk}/share/vulkan/icd.d/MoltenVK_icd.json"
 
                 app="$out/Applications/Grimalkin.app"
+                mkdir -p "$app/Contents"
                 substitute "${./assets/macos/Info.plist.in}" "$app/Contents/Info.plist" \
                   --replace-fail '@GRIMALKIN_VERSION@' '${appVersion}' \
                   --replace-fail '@GRIMALKIN_BUNDLE_VERSION@' '${macosBundleVersion}'
