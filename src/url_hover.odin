@@ -40,6 +40,12 @@ Url_Hover :: struct {
 	probe_col:      int,
 	probe_inside:   bool,
 	probe_modifier: bool,
+	// Set when a modifier-click opened an address, so the matching release is
+	// swallowed too. It has to outlive `url_hover_clear`: GLFW runs the focus
+	// callback *before* it synthesizes releases for buttons it still holds
+	// pressed (`_glfwInputWindowFocus`), and it tracks that press itself, so
+	// clearing the flag on focus loss left the synthetic release unmatched and
+	// it reached the application as a release with no press.
 	click_consumed: bool,
 }
 
@@ -172,10 +178,7 @@ url_hover_update :: proc(app: ^Grimalkin_App, force := false) {
 	if !found && !hover.active do return
 
 	url_hover_unstamp(&app.url_hover, &app.demo.grid)
-	delete(hover.text)
-	delete(hover.cells)
-	hover.text = nil
-	hover.cells = nil
+	url_hover_forget_match(hover)
 	hover.active = found
 	if found {
 		hover.text = make([]u8, len(match.text))
@@ -198,23 +201,53 @@ url_hover_after_compile :: proc(app: ^Grimalkin_App) {
 	// probe result says nothing about the new snapshot.
 	url_hover_update(app, force = true)
 	url_hover_stamp(&app.url_hover, &app.demo.grid)
+	// Terminal output can move an address under a stationary pointer, or
+	// overwrite the one already there, so this path changes `active` with no
+	// mouse or key event behind it. Every other writer of `active` pairs itself
+	// with the cursor update; without this the pointing hand outlives the
+	// underline, or never appears under it, until the pointer or modifier moves.
+	selection_update_mouse_cursor(app)
 }
 
+// Drops the hovered match and its underline. Deliberately leaves
+// `click_consumed` alone: focus loss and pointer-leave both still owe us a
+// button release, and `url_hover_click_begin` bounds the flag's lifetime
+// instead. See the comment on the field itself.
 url_hover_clear :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil do return
 	hover := &app.url_hover
 	hover.probe_valid = false
-	// A launch that takes focus can swallow the matching release, and a flag
-	// left set would eat the next one, stranding a selection mid-drag.
-	hover.click_consumed = false
 	if !hover.active do return
 	url_hover_unstamp(&app.url_hover, &app.demo.grid)
+	url_hover_forget_match(hover)
+	app.redraw = true
+}
+
+// Releases the matched address without touching the stamp or the click state.
+// The caller lifts the stamp first, since only it holds the grid.
+url_hover_forget_match :: proc(hover: ^Url_Hover) {
 	delete(hover.text)
 	delete(hover.cells)
 	hover.text = nil
 	hover.cells = nil
 	hover.active = false
-	app.redraw = true
+}
+
+// Starts a fresh left-button click. A flag left over from an earlier click is
+// stale by definition, which is what keeps a release that never arrived --
+// dropped by the OSD or paste-prompt guard in `mouse_button_callback` -- from
+// eating the release of the click after it.
+url_hover_click_begin :: proc(hover: ^Url_Hover) {
+	hover.click_consumed = false
+}
+
+// Consumes the release half of a modifier-click. False means the release
+// belongs to someone else and must fall through to selection or mouse
+// reporting.
+url_hover_click_take_release :: proc(hover: ^Url_Hover) -> bool {
+	if !hover.click_consumed do return false
+	hover.click_consumed = false
+	return true
 }
 
 // Consumes a modifier-click on a hovered URL. Returns false when there is
