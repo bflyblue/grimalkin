@@ -236,3 +236,37 @@ monochrome_raster_is_unpacked_to_a_tightly_packed_mask :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, has_on && has_off)
 }
+
+@(test)
+font_rasterize_borrowed_reuses_one_scratch_per_instance :: proc(t: ^testing.T) {
+	// The borrow window documented on font_rasterize*_borrowed exists because
+	// the shim hands back a pointer into a single per-instance scratch buffer.
+	// Rasterize the wide glyph first so the narrow one fits without a realloc,
+	// which makes the aliasing observable rather than merely likely.
+	font := font_instance_open_configured(
+		font_path(),
+		0,
+		FONT_PIXEL_HEIGHT,
+		.Regular,
+		font_render_config_grayscale(),
+	)
+	defer font_instance_close(&font)
+
+	wide := font_rasterize_borrowed(&font, font_glyph_index(&font, 'M'))
+	testing.expect(t, wide.buffer != nil)
+	// Cloning is the documented mitigation for holding more than one bitmap.
+	kept := make([]u8, len(font_bitmap_bytes(&wide)))
+	defer delete(kept)
+	copy(kept, font_bitmap_bytes(&wide))
+	wide_width, wide_height, wide_pitch := wide.width, wide.height, wide.pitch
+
+	narrow := font_rasterize_borrowed(&font, font_glyph_index(&font, 'i'))
+	testing.expect(t, narrow.buffer != nil)
+
+	// Same address: the second call has already overwritten the first bitmap, so
+	// any read of `wide.buffer` from here on is a read of the narrow glyph.
+	testing.expect(t, wide.buffer == narrow.buffer)
+	// The clone taken before the second call is unaffected.
+	testing.expect_value(t, len(kept), int(wide_pitch * wide_height))
+	testing.expect(t, wide_width > 0 && wide_height > 0)
+}

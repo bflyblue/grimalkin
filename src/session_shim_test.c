@@ -155,6 +155,7 @@ int main(void) {
       "printf '__GRIMALKIN_CWD__'; pwd -P; "
       "printf '__GRIMALKIN_SIZE__'; stty size; "
       "printf '__GRIMALKIN_CHARMAP__'; locale charmap; "
+      "printf '__GRIMALKIN_TERM__%s/%s\\n' \"$TERM\" \"$COLORTERM\"; "
       "read line; printf '__GRIMALKIN_INPUT__%s\\n' \"$line\"; exit 7\n";
   static const char input[] = "ordered-input\n";
   if (grimalkin_session_write(session, (const uint8_t *)script,
@@ -175,6 +176,7 @@ int main(void) {
       strstr(output, "__GRIMALKIN_CWD__/") != NULL &&
       strstr(output, "__GRIMALKIN_SIZE__37 91") != NULL &&
       strstr(output, "__GRIMALKIN_CHARMAP__UTF-8") != NULL &&
+      strstr(output, "__GRIMALKIN_TERM__xterm-256color/truecolor") != NULL &&
       strstr(output, "__GRIMALKIN_INPUT__ordered-input") != NULL;
   if (!valid) {
     fprintf(stderr,
