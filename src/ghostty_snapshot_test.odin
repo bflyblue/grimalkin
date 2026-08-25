@@ -844,3 +844,40 @@ ghostty_kitty_placement_geometry_is_not_recollected_while_still :: proc(t: ^test
 	testing.expect(t, !unchanged.graphics_changed)
 	testing.expect_value(t, unchanged.image_bytes_copied, u64(0))
 }
+
+@(test)
+terminal_resize_is_not_skipped_when_only_the_cell_size_changed :: proc(t: ^testing.T) {
+	// libghostty-vt derives its pixel dimensions from the cell size and resolves
+	// Kitty placement geometry against them, so a resize skipped because the
+	// column and row counts happen to match strands every direct placement at a
+	// stale pixel size.
+	unchanged := terminal_resize_plan(80, 24, 10, 22, 80, 24, 10, 22)
+	testing.expect(t, !unchanged.resize)
+	testing.expect(t, !unchanged.clear_selection)
+
+	wider_cell := terminal_resize_plan(80, 24, 10, 22, 80, 24, 11, 22)
+	testing.expect(t, wider_cell.resize)
+	taller_cell := terminal_resize_plan(80, 24, 10, 22, 80, 24, 10, 23)
+	testing.expect(t, taller_cell.resize)
+
+	// A selection is addressed in cells, so a new cell size alone must not cost
+	// the user their selection.
+	testing.expect(t, !wider_cell.clear_selection)
+	testing.expect(t, !taller_cell.clear_selection)
+}
+
+@(test)
+terminal_resize_clears_the_selection_only_when_the_grid_changes :: proc(t: ^testing.T) {
+	grew := terminal_resize_plan(80, 24, 10, 22, 100, 24, 10, 22)
+	testing.expect(t, grew.resize)
+	testing.expect(t, grew.clear_selection)
+
+	shorter := terminal_resize_plan(80, 24, 10, 22, 80, 30, 10, 22)
+	testing.expect(t, shorter.resize)
+	testing.expect(t, shorter.clear_selection)
+
+	// Both at once still counts as a grid change.
+	both := terminal_resize_plan(80, 24, 10, 22, 100, 30, 12, 26)
+	testing.expect(t, both.resize)
+	testing.expect(t, both.clear_selection)
+}

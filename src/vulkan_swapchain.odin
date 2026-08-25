@@ -118,22 +118,20 @@ resize_terminal_to_extent :: proc(app: ^Grimalkin_App, frame_extent: vk.Extent2D
 		u32(f32(app.settings.padding) * app.content_scale_y + 0.5),
 	)
 	if !valid do return
-	// Cell size is part of what the terminal is told, not just the column and
-	// row counts: libghostty-vt derives its pixel dimensions from it, and Kitty
-	// placement geometry is resolved against those. Skipping the resize because
-	// the grid happens to match would leave the terminal at a zero pixel size,
-	// which resolves every direct placement to nothing.
-	same_grid := cols == app.demo.grid.cols && rows == app.demo.grid.rows
-	same_cell :=
-		app.terminal_cell_width == metrics.cell_width &&
-		app.terminal_cell_height == metrics.cell_height
-	if !force && same_grid && same_cell do return
+	plan := terminal_resize_plan(
+		app.demo.grid.cols,
+		app.demo.grid.rows,
+		app.terminal_cell_width,
+		app.terminal_cell_height,
+		cols,
+		rows,
+		metrics.cell_width,
+		metrics.cell_height,
+	)
+	if !force && !plan.resize do return
 	app.terminal_cell_width = metrics.cell_width
 	app.terminal_cell_height = metrics.cell_height
-	// A selection is addressed in cells, so only a change to the grid itself
-	// invalidates it. Telling the terminal about a new cell size must not cost
-	// the user their selection.
-	if force || !same_grid do selection_clear(&app.selection)
+	if force || plan.clear_selection do selection_clear(&app.selection)
 	terminal_core_resize(&app.demo.terminal, cols, rows, metrics.cell_width, metrics.cell_height)
 	if app.demo.session.handle != nil {
 		_ = terminal_session_resize(

@@ -354,6 +354,30 @@ terminal_core_write :: proc(terminal: ^Terminal_Core, data: []u8) {
 	grimalkin_ghostty_write(terminal.handle, raw_data(data), c.size_t(len(data)))
 }
 
+Terminal_Resize_Plan :: struct {
+	// False only when the terminal already knows this exact geometry.
+	resize:          bool,
+	// A selection is addressed in cells, so a new cell size alone must not
+	// cost the user their selection.
+	clear_selection: bool,
+}
+
+// Decides what a geometry change owes the terminal. Cell size is part of that
+// geometry, not just the column and row counts: libghostty-vt derives its pixel
+// dimensions from it and resolves Kitty placement geometry against them, so
+// skipping a resize because the grid happens to match would leave the terminal
+// at a stale pixel size and resolve every direct placement to nothing.
+terminal_resize_plan :: proc(
+	current_cols, current_rows: u16,
+	current_cell_width, current_cell_height: u32,
+	cols, rows: u16,
+	cell_width, cell_height: u32,
+) -> Terminal_Resize_Plan {
+	same_grid := cols == current_cols && rows == current_rows
+	same_cell := cell_width == current_cell_width && cell_height == current_cell_height
+	return {resize = !same_grid || !same_cell, clear_selection = !same_grid}
+}
+
 terminal_core_resize :: proc(
 	terminal: ^Terminal_Core,
 	cols, rows: u16,
