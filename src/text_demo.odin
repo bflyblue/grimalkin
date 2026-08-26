@@ -291,11 +291,15 @@ grimalkin_demo_init_configured :: proc(
 	render_config: Font_Render_Config,
 	nerd_font_symbols := true,
 	primary_family: ^Font_Family = nil,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Grimalkin_Demo {
 	demo := Grimalkin_Demo {
 		demo_mode = true,
 	}
 	demo.terminal = terminal_core_init(GRID_COLUMNS, GRID_ROWS, 10_000)
+	if !terminal_core_set_colour_theme(&demo.terminal, colour_theme) {
+		fmt.panicf("libghostty-vt could not apply the initial colour theme")
+	}
 	demo.resources = renderer_resources_init_configured(pixel_height, render_config, nerd_font_symbols, primary_family)
 	demo.grid = display_grid_init(GRID_COLUMNS, GRID_ROWS)
 	demo.tile_atlases[0] = raster_atlas_init(&demo.resources.textures, .Colour_RGBA8)
@@ -335,6 +339,7 @@ grimalkin_terminal_init_configured :: proc(
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
 	scrollback_limit_bytes: i128 = SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT,
 	scrollback_limit_lines: i128 = SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Grimalkin_Demo {
 	view := Grimalkin_Demo{}
 	view.terminal = terminal_core_init_configured(
@@ -344,6 +349,9 @@ grimalkin_terminal_init_configured :: proc(
 		scrollback_limit_lines,
 		kitty_image_storage_mb,
 	)
+	if !terminal_core_set_colour_theme(&view.terminal, colour_theme) {
+		fmt.panicf("libghostty-vt could not apply the initial colour theme")
+	}
 	view.resources = renderer_resources_init_configured(pixel_height, render_config, nerd_font_symbols, primary_family)
 	view.grid = display_grid_init(GRID_COLUMNS, GRID_ROWS)
 	_ = grimalkin_view_refresh(&view)

@@ -107,6 +107,7 @@ font_family_setting_auto :: proc() -> Font_Family_Setting {
 }
 
 Application_Settings :: struct {
+	colour_theme:    Colour_Theme,
 	text_smoothing:  Text_Smoothing,
 	text_contrast:   Text_Contrast,
 	font_hinting:    Font_Hinting,
@@ -166,6 +167,7 @@ settings_cycle_index :: proc(value, count, direction: int) -> int {
 
 application_settings_default :: proc() -> Application_Settings {
 	return {
+		colour_theme    = .Ghostty,
 		text_smoothing  = .Grayscale,
 		text_contrast   = .Balanced,
 		font_hinting    = .Normal,
@@ -389,6 +391,7 @@ settings_scroll_modifier_name :: proc(value: Scroll_Modifier) -> string {
 
 Settings_Disk_Current :: struct {
 	version:          int    `json:"version"`,
+	colour_theme:     string `json:"colour_theme"`,
 	text_smoothing:   string `json:"text_smoothing"`,
 	text_contrast:    string `json:"text_contrast"`,
 	font_hinting:     string `json:"font_hinting"`,
@@ -419,6 +422,7 @@ Settings_Disk_Current :: struct {
 
 Settings_Disk_Decode :: struct {
 	version:          int    `json:"version"`,
+	colour_theme:     string `json:"colour_theme"`,
 	text_clarity:     string `json:"text_clarity"`,
 	text_smoothing:   string `json:"text_smoothing"`,
 	text_contrast:    string `json:"text_contrast"`,
@@ -497,6 +501,7 @@ settings_to_disk :: proc(
 	font_family := settings.font_family
 	return {
 		version          = SETTINGS_VERSION,
+		colour_theme     = colour_theme_wire_name(settings.colour_theme),
 		text_smoothing   = settings_wire_encode(int(settings.text_smoothing), SETTINGS_TEXT_SMOOTHING_WIRE[:]),
 		text_contrast    = settings_wire_encode(int(settings.text_contrast), SETTINGS_TEXT_CONTRAST_WIRE[:]),
 		font_hinting     = settings_wire_encode(int(settings.font_hinting), SETTINGS_FONT_HINTING_WIRE[:]),
@@ -529,6 +534,11 @@ settings_to_disk :: proc(
 settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings, bool) {
 	settings := application_settings_default()
 	valid := disk.version == SETTINGS_VERSION
+	if value, ok := colour_theme_from_wire(disk.colour_theme); ok {
+		settings.colour_theme = value
+	} else {
+		valid = false
+	}
 	if parsed, ok := font_family_setting_make(disk.font_family); ok {
 		settings.font_family = parsed
 	} else {
@@ -676,6 +686,7 @@ settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings,
 settings_decode :: proc(data: []byte) -> (Application_Settings, bool) {
 	disk := Settings_Disk_Decode {
 		version          = SETTINGS_VERSION,
+		colour_theme     = "ghostty",
 		text_clarity     = "",
 		text_smoothing   = "",
 		text_contrast    = "balanced",

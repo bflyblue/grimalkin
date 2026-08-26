@@ -115,7 +115,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 
 	render_config := application_settings_render_config(settings, detected_rotation)
-	demo := grimalkin_demo_init_configured(font_pixel_height, render_config, settings.nerd_font_symbols, primary_family) if demo_mode else grimalkin_terminal_init_configured(
+	demo := grimalkin_demo_init_configured(font_pixel_height, render_config, settings.nerd_font_symbols, primary_family, settings.colour_theme) if demo_mode else grimalkin_terminal_init_configured(
 		font_pixel_height,
 		render_config,
 		settings.nerd_font_symbols,
@@ -123,6 +123,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		settings.kitty_image_storage_mb,
 		settings.scrollback_limit_bytes,
 		settings.scrollback_limit_lines,
+		settings.colour_theme,
 	)
 	demo.session = session
 	defer grimalkin_demo_destroy(&demo)

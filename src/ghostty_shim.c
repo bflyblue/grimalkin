@@ -384,6 +384,14 @@ static uint32_t pack_rgb(GhosttyColorRgb color) {
          ((uint32_t)color.b << 16) | 0xff000000u;
 }
 
+static GhosttyColorRgb unpack_rgb(uint32_t rgb) {
+  return (GhosttyColorRgb){
+      .r = (uint8_t)(rgb >> 16),
+      .g = (uint8_t)(rgb >> 8),
+      .b = (uint8_t)rgb,
+  };
+}
+
 static uint32_t pack_style_color(GhosttyStyleColor color) {
   if (color.tag == GHOSTTY_STYLE_COLOR_RGB) {
     /* Kitty interprets an RGB style as a big-endian 24-bit protocol ID. */
@@ -864,6 +872,44 @@ int grimalkin_ghostty_new(uint16_t cols,
 
 ghostty_error:
   grimalkin_ghostty_free(terminal);
+  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
+                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+}
+
+int grimalkin_ghostty_set_colour_theme(GrimalkinGhostty *terminal,
+                                       uint32_t foreground_rgb,
+                                       uint32_t background_rgb,
+                                       uint32_t cursor_rgb,
+                                       const uint32_t *palette16_rgb) {
+  if (terminal == NULL) return GRIMALKIN_GHOSTTY_INVALID_ARGUMENT;
+
+  GhosttyColorRgb foreground = unpack_rgb(foreground_rgb);
+  GhosttyColorRgb background = unpack_rgb(background_rgb);
+  GhosttyColorRgb cursor = unpack_rgb(cursor_rgb);
+  GhosttyColorRgb palette[256];
+  const GhosttyColorRgb *palette_value = NULL;
+  if (palette16_rgb != NULL) {
+    ghostty_color_palette_default(palette);
+    for (size_t i = 0; i < 16; ++i) {
+      palette[i] = unpack_rgb(palette16_rgb[i]);
+    }
+    palette_value = palette;
+  }
+
+  GhosttyResult result = ghostty_terminal_set(
+      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  result = ghostty_terminal_set(
+      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  result = ghostty_terminal_set(
+      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, &cursor);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  result = ghostty_terminal_set(
+      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, palette_value);
+  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
+
+ghostty_error:
   return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
                                         : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
 }

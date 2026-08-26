@@ -63,6 +63,11 @@ osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.
 	testing.expect_value(t, settings.window_style, Window_Style.System)
 	testing.expect(t, .Window_Style in change)
 
+	settings.colour_theme = .Dracula
+	change = osd_reset_setting(&settings, .Colour_Themes)
+	testing.expect_value(t, settings.colour_theme, Colour_Theme.Ghostty)
+	testing.expect(t, .Colour_Theme in change)
+
 	change = osd_adjust_key_binding(&settings, .Page_Scrolling, 1)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Ctrl)
 	testing.expect(t, .Persist in change)
@@ -162,6 +167,11 @@ osd_footer_help_fits_the_preferred_panel_width :: proc(t: ^testing.T) {
 		osd_footer_text(.Font_List),
 		"↕ Navigate  Enter Apply  Esc Cancel",
 	)
+	testing.expect_value(
+		t,
+		osd_footer_text(.Colour_Theme_List),
+		"↕ Navigate  R Reset  Esc Back",
+	)
 	testing.expect_value(t, osd_footer_text(.Paste_Confirm), "Enter Paste  Esc Cancel")
 }
 
@@ -180,10 +190,18 @@ osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testin
 	font_list := osd_page_metadata(.Font_List)
 	testing.expect_value(t, font_list.parent, Osd_Page.Font)
 	testing.expect_value(t, font_list.return_row, int(Osd_Font_Row.Family))
+	themes := osd_page_metadata(.Colour_Theme_List)
+	testing.expect_value(t, themes.parent, Osd_Page.Main)
+	testing.expect_value(t, themes.return_row, int(Osd_Main_Row.Colour_Themes))
 
 	testing.expect_value(
 		t,
 		osd_page_row_presentation(.Main, int(Osd_Main_Row.Font), true),
+		Osd_Row_Presentation_Kind.Submenu,
+	)
+	testing.expect_value(
+		t,
+		osd_page_row_presentation(.Main, int(Osd_Main_Row.Colour_Themes), true),
 		Osd_Row_Presentation_Kind.Submenu,
 	)
 	testing.expect_value(
@@ -216,8 +234,8 @@ osd_padding_glow_is_inactive_without_padding_and_retains_its_profile :: proc(t: 
 	testing.expect(t, !osd_main_row_enabled(settings, .Padding_Glow))
 	_, value := osd_row_text(settings, .Padding_Glow)
 	testing.expect_value(t, value, "Inactive")
-	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 3, 1), 5)
-	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 5, -1), 3)
+	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 4, 1), 6)
+	testing.expect_value(t, osd_page_move_selection(.Main, settings, nil, 6, -1), 4)
 	change := osd_adjust_setting(&settings, .Padding_Glow, 1)
 	testing.expect(t, change == {})
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Tint)
@@ -238,6 +256,41 @@ osd_padding_glow_is_inactive_without_padding_and_retains_its_profile :: proc(t: 
 	settings.padding_glow = .Background
 	settings.padding = 0
 	testing.expect_value(t, settings.padding_glow, Padding_Glow.Background)
+}
+
+@(test)
+osd_colour_theme_browser_applies_navigation_and_keeps_latest_on_escape :: proc(t: ^testing.T) {
+	app := Grimalkin_App {
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		osd = {
+			visible = true,
+			page = .Main,
+			selected = int(Osd_Main_Row.Colour_Themes),
+			rows = OSD_COLOUR_THEME_LIST_PREFERRED_ROWS,
+			cols = OSD_PREFERRED_COLUMNS,
+		},
+	}
+	defer osd_state_destroy(&app.osd)
+
+	osd_handle_key(&app, glfw.KEY_ENTER, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Colour_Theme_List)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+	osd_handle_key(&app, glfw.KEY_DOWN, 0)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Dracula)
+	testing.expect(t, app.settings_save_pending)
+	testing.expect_value(t, app.applied_settings.colour_theme, Colour_Theme.Dracula)
+
+	osd_handle_key(&app, glfw.KEY_ESCAPE, 0)
+	testing.expect_value(t, app.osd.page, Osd_Page.Main)
+	testing.expect_value(t, app.osd.selected, int(Osd_Main_Row.Colour_Themes))
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Dracula)
+
+	osd_handle_key(&app, glfw.KEY_ENTER, 0)
+	osd_handle_key(&app, glfw.KEY_END, 0)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Rose_Pine_Dawn)
+	osd_handle_key(&app, glfw.KEY_R, 0)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Ghostty)
 }
 
 @(test)
@@ -438,9 +491,9 @@ osd_panel_is_centered_and_constrained_to_the_framebuffer :: proc(t: ^testing.T) 
 	testing.expect_value(t, rows, OSD_PREFERRED_ROWS)
 	rect := osd_panel_rect(1200, 880, 10, 22, cols, rows)
 	testing.expect_value(t, rect.extent.width, u32(480))
-	testing.expect_value(t, rect.extent.height, u32(308))
+	testing.expect_value(t, rect.extent.height, u32(330))
 	testing.expect_value(t, rect.offset.x, i32(360))
-	testing.expect_value(t, rect.offset.y, i32(286))
+	testing.expect_value(t, rect.offset.y, i32(275))
 
 	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Text_Rendering)
 	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)

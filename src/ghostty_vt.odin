@@ -174,6 +174,7 @@ Grimalkin_Ghostty_Snapshot_View :: struct {
 @(default_calling_convention = "c")
 foreign ghostty_shim {
 	grimalkin_ghostty_new :: proc(cols, rows: u16, max_scrollback_bytes, max_scrollback_lines: ^c.size_t, kitty_storage_limit: u64, out_terminal: ^Grimalkin_Ghostty) -> c.int ---
+	grimalkin_ghostty_set_colour_theme :: proc(terminal: Grimalkin_Ghostty, foreground_rgb, background_rgb, cursor_rgb: u32, palette16_rgb: rawptr) -> c.int ---
 	grimalkin_ghostty_free :: proc(terminal: Grimalkin_Ghostty) ---
 	grimalkin_ghostty_write :: proc(terminal: Grimalkin_Ghostty, data: rawptr, len: c.size_t) ---
 	grimalkin_ghostty_resize :: proc(terminal: Grimalkin_Ghostty, cols, rows: u16, cell_width_px, cell_height_px: u32) -> c.int ---
@@ -384,6 +385,23 @@ terminal_core_destroy :: proc(terminal: ^Terminal_Core) {
 		grimalkin_ghostty_free(terminal.handle)
 		terminal.handle = nil
 	}
+}
+
+terminal_core_set_colour_theme :: proc(
+	terminal: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> bool {
+	if terminal == nil || terminal.handle == nil do return false
+	theme_data := colour_theme_data(theme)
+	palette_pointer: rawptr
+	if !theme_data.use_ghostty_palette do palette_pointer = raw_data(theme_data.palette[:])
+	return grimalkin_ghostty_set_colour_theme(
+		terminal.handle,
+		theme_data.foreground,
+		theme_data.background,
+		theme_data.cursor,
+		palette_pointer,
+	) == GRIMALKIN_GHOSTTY_OK
 }
 
 terminal_core_write :: proc(terminal: ^Terminal_Core, data: []u8) {

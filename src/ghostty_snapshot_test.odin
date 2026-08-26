@@ -32,6 +32,93 @@ ghostty_test_write_scrollback :: proc(terminal: ^Terminal_Core, lines: int) {
 	for _ in 0 ..< lines do terminal_write_string(terminal, "row\r\n")
 }
 
+ghostty_test_theme_rgba :: proc(rgb: u32) -> u32 {
+	return ((rgb >> 16) & 0xff) | (rgb & 0x00ff00) | ((rgb & 0xff) << 16) | 0xff000000
+}
+
+@(test)
+ghostty_colour_themes_update_defaults_ansi_palette_and_existing_rows :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 2, 32)
+	defer terminal_core_destroy(&terminal)
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Dracula))
+	terminal_write_string(&terminal, "A\x1b[31mB\x1b[38;5;16mC\x1b[38;2;1;2;3mD")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	dracula := colour_theme_data(.Dracula)
+	testing.expect_value(t, snapshot.default_foreground_rgba, ghostty_test_theme_rgba(dracula.foreground))
+	testing.expect_value(t, snapshot.default_background_rgba, ghostty_test_theme_rgba(dracula.background))
+	testing.expect_value(t, snapshot.cursor_rgba, ghostty_test_theme_rgba(dracula.cursor))
+	testing.expect_value(t, snapshot.cells[0].foreground_rgba, ghostty_test_theme_rgba(dracula.foreground))
+	testing.expect_value(t, snapshot.cells[1].foreground_rgba, ghostty_test_theme_rgba(dracula.palette[1]))
+	extended_colour := snapshot.cells[2].foreground_rgba
+	truecolour := snapshot.cells[3].foreground_rgba
+	testing.expect_value(t, truecolour, ghostty_test_theme_rgba(0x010203))
+
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Nord))
+	update := terminal_core_snapshot(&terminal, &snapshot)
+	nord := colour_theme_data(.Nord)
+	testing.expect(t, update.rows_copied > 0)
+	testing.expect_value(t, snapshot.default_foreground_rgba, ghostty_test_theme_rgba(nord.foreground))
+	testing.expect_value(t, snapshot.default_background_rgba, ghostty_test_theme_rgba(nord.background))
+	testing.expect_value(t, snapshot.cursor_rgba, ghostty_test_theme_rgba(nord.cursor))
+	testing.expect_value(t, snapshot.cells[0].foreground_rgba, ghostty_test_theme_rgba(nord.foreground))
+	testing.expect_value(t, snapshot.cells[1].foreground_rgba, ghostty_test_theme_rgba(nord.palette[1]))
+	testing.expect_value(t, snapshot.cells[2].foreground_rgba, extended_colour)
+	testing.expect_value(t, snapshot.cells[3].foreground_rgba, truecolour)
+}
+
+@(test)
+ghostty_colour_theme_restores_original_grimalkin_defaults :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 2, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_write_string(&terminal, "A\x1b[31mB")
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	original_foreground := snapshot.default_foreground_rgba
+	original_background := snapshot.default_background_rgba
+	original_cursor := snapshot.cursor_rgba
+	original_red := snapshot.cells[1].foreground_rgba
+
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Dracula))
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, snapshot.default_background_rgba != original_background)
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Ghostty))
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect_value(t, snapshot.default_foreground_rgba, original_foreground)
+	testing.expect_value(t, snapshot.default_background_rgba, original_background)
+	testing.expect_value(t, snapshot.cursor_rgba, original_cursor)
+	testing.expect_value(t, snapshot.cells[1].foreground_rgba, original_red)
+}
+
+@(test)
+ghostty_colour_theme_changes_preserve_osc_colour_overrides :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 2, 32)
+	defer terminal_core_destroy(&terminal)
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Dracula))
+	terminal_write_string(
+		&terminal,
+		"\x1b]10;#010203\x1b\\" +
+		"\x1b]11;#040506\x1b\\" +
+		"\x1b]12;#070809\x1b\\" +
+		"\x1b]4;1;#0a0b0c\x1b\\" +
+		"A\x1b[31mB",
+	)
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, terminal_core_set_colour_theme(&terminal, .Nord))
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect_value(t, snapshot.default_foreground_rgba, ghostty_test_theme_rgba(0x010203))
+	testing.expect_value(t, snapshot.default_background_rgba, ghostty_test_theme_rgba(0x040506))
+	testing.expect_value(t, snapshot.cursor_rgba, ghostty_test_theme_rgba(0x070809))
+	testing.expect_value(t, snapshot.cells[0].foreground_rgba, ghostty_test_theme_rgba(0x010203))
+	testing.expect_value(t, snapshot.cells[1].foreground_rgba, ghostty_test_theme_rgba(0x0a0b0c))
+}
+
 @(test)
 ghostty_snapshot_owns_a_complete_fixed_grid :: proc(t: ^testing.T) {
 	terminal := terminal_core_init(12, 4, 32)

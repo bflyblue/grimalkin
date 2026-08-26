@@ -32,8 +32,9 @@ useful set of live visual controls.
   Alt-click to open it in the system browser.
 - Kitty graphics: PNG and raw pixel transmission, direct and Unicode-placeholder
   placements, and the protocol's three z-index layers.
-- Live settings for fonts, text rendering, cursor animation, padding effects,
-  key bindings, clipboard behaviour, and window style.
+- Live settings for built-in colour themes, fonts, text rendering, cursor
+  animation, padding effects, key bindings, clipboard behaviour, and window
+  style.
 - Optional Nerd Font symbols without requiring a patched primary font.
 
 ## Install
