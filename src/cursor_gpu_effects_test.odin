@@ -7,11 +7,13 @@ import "vendor:glfw"
 cursor_gpu_test_padding_glow :: proc(app: ^Grimalkin_App) {
 	previous_settings := app.settings
 	previous_cursor_visible := app.demo.snapshot.cursor_visible
+	previous_default_background := app.demo.snapshot.default_background_rgba
 	defer {
 		app.settings = previous_settings
 		app.settings_layout_pending = true
 		apply_pending_settings(app)
 		app.demo.snapshot.cursor_visible = previous_cursor_visible
+		app.demo.snapshot.default_background_rgba = previous_default_background
 	}
 
 	app.osd.visible = false
@@ -24,9 +26,18 @@ cursor_gpu_test_padding_glow :: proc(app: ^Grimalkin_App) {
 	if area.offset.x < 4 || area.offset.y < 4 {
 		fmt.panicf("padding glow GPU test needs at least four pixels of padding; got %v", area)
 	}
+	app.demo.snapshot.default_background_rgba = pack_rgba8(251, 241, 199, 255)
+	_ = draw_frame_components(app, 0, true)
+	theme_pixels := read_framebuffer_pixels(app)
+	defer delete(theme_pixels)
+	theme_padding := gpu_framebuffer_pixel(app, theme_pixels, u32(area.offset.x - 1), u32(area.offset.y))
+	if gpu_pixel_rgb_distance(theme_padding, [4]u8{251, 241, 199, 255}) > 3 {
+		fmt.panicf("disabled padding glow ignored the terminal background: %v", theme_padding)
+	}
 
 	grid := &app.demo.grid
 	base := pack_rgba8(6, 9, 18, 255)
+	app.demo.snapshot.default_background_rgba = base
 	edge_background := pack_rgba8(220, 55, 25, 255)
 	edge_foreground := pack_rgba8(20, 80, 255, 255)
 	for row := 0; row < int(grid.rows); row += 1 {
