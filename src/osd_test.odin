@@ -291,6 +291,30 @@ osd_colour_theme_browser_applies_navigation_and_keeps_latest_on_escape :: proc(t
 	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Rose_Pine_Dawn)
 	osd_handle_key(&app, glfw.KEY_R, 0)
 	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Ghostty)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+}
+
+@(test)
+osd_global_reset_resynchronizes_the_colour_theme_browser :: proc(t: ^testing.T) {
+	app := Grimalkin_App {
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		osd = {
+			visible = true,
+			page = .Colour_Theme_List,
+			selected = int(Colour_Theme.Rose_Pine_Dawn),
+			rows = OSD_COLOUR_THEME_LIST_PREFERRED_ROWS,
+			cols = OSD_PREFERRED_COLUMNS,
+			colour_theme_list_top = int(Colour_Theme.Rose_Pine),
+		},
+	}
+	defer osd_state_destroy(&app.osd)
+
+	osd_global_reset_selection(&app.osd, app.settings)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+	testing.expect_value(t, app.osd.colour_theme_list_top, 0)
+	osd_handle_key(&app, glfw.KEY_DOWN, 0)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Dracula)
 }
 
 @(test)
