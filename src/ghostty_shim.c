@@ -831,18 +831,9 @@ int grimalkin_ghostty_new(uint16_t cols,
       NULL, &terminal->placement_iterator);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
 
-  GhosttyColorRgb foreground = {0xe7, 0xea, 0xf0};
-  GhosttyColorRgb background = {0x06, 0x09, 0x12};
-  GhosttyColorRgb cursor = {0xff, 0xd7, 0x5f};
   GhosttyTerminalCursorStyle default_cursor_style =
       GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE;
   bool default_cursor_blink = true;
-  ghostty_terminal_set(
-      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground);
-  ghostty_terminal_set(
-      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background);
-  ghostty_terminal_set(
-      terminal->terminal, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, &cursor);
   ghostty_terminal_set(terminal->terminal,
                        GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
                        &default_cursor_style);

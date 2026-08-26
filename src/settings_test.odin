@@ -53,12 +53,12 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 
 @(test)
 settings_json_round_trips_every_colour_theme :: proc(t: ^testing.T) {
-	for theme_data, index in COLOUR_THEMES {
+	for wire_name, index in SETTINGS_COLOUR_THEME_WIRE {
 		expected := application_settings_default()
 		expected.colour_theme = Colour_Theme(index)
 		data, encoded := settings_encode(expected, context.temp_allocator)
 		testing.expect(t, encoded)
-		testing.expect(t, strings.contains(string(data), fmt.tprintf(`"colour_theme": "%s"`, theme_data.wire_name)))
+		testing.expect(t, strings.contains(string(data), fmt.tprintf(`"colour_theme": "%s"`, wire_name)))
 		actual, valid := settings_decode(data)
 		testing.expect(t, valid)
 		testing.expect_value(t, actual.colour_theme, expected.colour_theme)

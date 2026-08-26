@@ -70,6 +70,20 @@ ghostty_colour_themes_update_defaults_ansi_palette_and_existing_rows :: proc(t: 
 }
 
 @(test)
+ghostty_configured_initialization_applies_the_requested_theme :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 2, 32, colour_theme = .Dracula)
+	defer terminal_core_destroy(&terminal)
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+
+	terminal_core_snapshot(&terminal, &snapshot)
+	dracula := colour_theme_data(.Dracula)
+	testing.expect_value(t, snapshot.default_foreground_rgba, ghostty_test_theme_rgba(dracula.foreground))
+	testing.expect_value(t, snapshot.default_background_rgba, ghostty_test_theme_rgba(dracula.background))
+	testing.expect_value(t, snapshot.cursor_rgba, ghostty_test_theme_rgba(dracula.cursor))
+}
+
+@(test)
 ghostty_colour_theme_restores_original_grimalkin_defaults :: proc(t: ^testing.T) {
 	terminal := terminal_core_init(8, 2, 32)
 	defer terminal_core_destroy(&terminal)

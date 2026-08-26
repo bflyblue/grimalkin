@@ -221,6 +221,34 @@ osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testin
 }
 
 @(test)
+osd_scrollable_lists_share_navigation_clamping_and_utf8_safe_truncation :: proc(t: ^testing.T) {
+	osd := Osd_State{rows = 6}
+	selected, top := 0, 0
+	testing.expect_value(t, osd_scrollable_list_visible_rows(&osd), 3)
+	testing.expect(t, osd_scrollable_list_navigate(&osd, glfw.KEY_PAGE_DOWN, 6, &selected))
+	testing.expect_value(t, selected, 3)
+	osd_scrollable_list_clamp(&osd, 6, &selected, &top)
+	testing.expect_value(t, top, 1)
+	testing.expect(t, osd_scrollable_list_navigate(&osd, glfw.KEY_END, 6, &selected))
+	osd_scrollable_list_clamp(&osd, 6, &selected, &top)
+	testing.expect_value(t, selected, 5)
+	testing.expect_value(t, top, 3)
+	testing.expect(t, !osd_scrollable_list_navigate(&osd, glfw.KEY_ENTER, 6, &selected))
+	testing.expect_value(t, osd_scrollable_list_truncate_label("123é56789", 7), "123...")
+	testing.expect_value(t, osd_scrollable_list_truncate_label("abcdef", 2), "..")
+}
+
+@(test)
+application_settings_reset_change_covers_every_runtime_dependency :: proc(t: ^testing.T) {
+	testing.expect(t, .Font_Resources in APPLICATION_SETTINGS_RESET_CHANGES)
+	testing.expect(t, .Layout in APPLICATION_SETTINGS_RESET_CHANGES)
+	testing.expect(t, .Cursor in APPLICATION_SETTINGS_RESET_CHANGES)
+	testing.expect(t, .Window_Style in APPLICATION_SETTINGS_RESET_CHANGES)
+	testing.expect(t, .Colour_Theme in APPLICATION_SETTINGS_RESET_CHANGES)
+	testing.expect(t, .Persist not_in APPLICATION_SETTINGS_RESET_CHANGES)
+}
+
+@(test)
 osd_main_title_includes_the_build_version :: proc(t: ^testing.T) {
 	version := application_version()
 	testing.expect(t, version != "")

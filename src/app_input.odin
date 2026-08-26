@@ -820,38 +820,33 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
-		change = {.Font_Resources, .Layout, .Cursor, .Window_Style, .Colour_Theme}
+		change = APPLICATION_SETTINGS_RESET_CHANGES
 		settings_changed(app, change)
 		return
 	}
 	if app.osd.page == .Colour_Theme_List {
 		count := len(COLOUR_THEMES)
-		visible := osd_colour_theme_list_visible_rows(&app.osd)
 		before := app.osd.selected
 		switch key {
 		case glfw.KEY_ESCAPE, glfw.KEY_LEFT:
-			app.osd.page = .Main
-			app.osd.selected = int(Osd_Main_Row.Colour_Themes)
-		case glfw.KEY_UP:
-			app.osd.selected = max(0, app.osd.selected - 1)
-		case glfw.KEY_DOWN:
-			app.osd.selected = min(count - 1, app.osd.selected + 1)
-		case glfw.KEY_PAGE_UP:
-			app.osd.selected = max(0, app.osd.selected - visible)
-		case glfw.KEY_PAGE_DOWN:
-			app.osd.selected = min(count - 1, app.osd.selected + visible)
-		case glfw.KEY_HOME:
-			app.osd.selected = 0
-		case glfw.KEY_END:
-			app.osd.selected = count - 1
+			_ = osd_close_submenu(&app.osd)
 		case glfw.KEY_R:
 			app.osd.selected = int(Colour_Theme.Ghostty)
+		case:
+			_ = osd_scrollable_list_navigate(&app.osd, key, count, &app.osd.selected)
 		}
 		if app.osd.page == .Colour_Theme_List && app.osd.selected != before {
 			app.settings.colour_theme = Colour_Theme(app.osd.selected)
 			change = {.Colour_Theme}
 		}
-		osd_colour_theme_list_clamp_top(&app.osd)
+		if app.osd.page == .Colour_Theme_List {
+			osd_scrollable_list_clamp(
+				&app.osd,
+				count,
+				&app.osd.selected,
+				&app.osd.colour_theme_list_top,
+			)
+		}
 		settings_changed(app, change)
 		if change == {} do osd_prepare(app)
 		app.redraw = true
@@ -859,55 +854,54 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	}
 	if app.osd.page == .Font_List {
 		count := osd_font_list_count(app.font_catalog)
-		visible := osd_font_list_visible_rows(&app.osd)
-		switch key {
-		case glfw.KEY_ESCAPE:
-			if app.osd.font_search != "" {
-				delete(app.osd.font_search)
-				app.osd.font_search = ""
+		if !osd_scrollable_list_navigate(
+			&app.osd,
+			key,
+			count,
+			&app.osd.font_list_candidate,
+		) {
+			switch key {
+			case glfw.KEY_ESCAPE:
+				if app.osd.font_search != "" {
+					delete(app.osd.font_search)
+					app.osd.font_search = ""
 				}
 				app.osd.page = .Font
 				app.osd.selected = int(Osd_Font_Row.Family)
-		case glfw.KEY_UP:
-			app.osd.font_list_candidate = max(0, app.osd.font_list_candidate - 1)
-		case glfw.KEY_DOWN:
-			app.osd.font_list_candidate = min(count - 1, app.osd.font_list_candidate + 1)
-		case glfw.KEY_PAGE_UP:
-			app.osd.font_list_candidate = max(0, app.osd.font_list_candidate - visible)
-		case glfw.KEY_PAGE_DOWN:
-			app.osd.font_list_candidate = min(count - 1, app.osd.font_list_candidate + visible)
-		case glfw.KEY_HOME:
-			app.osd.font_list_candidate = 0
-		case glfw.KEY_END:
-			app.osd.font_list_candidate = count - 1
-		case glfw.KEY_BACKSPACE:
-			if app.osd.font_search != "" {
-				end := len(app.osd.font_search) - 1
-				for end > 0 && (u8(app.osd.font_search[end]) & 0xc0) == 0x80 do end -= 1
-				replacement := strings.clone(app.osd.font_search[:end])
-				delete(app.osd.font_search)
-				app.osd.font_search = replacement
-				app.osd.font_search_deadline = glfw.GetTime() + 1.25
-				osd_font_search_next(&app.osd, app.font_catalog)
-			}
-		case glfw.KEY_ENTER:
-			if app.osd.font_list_candidate == 0 {
-				app.settings.font_family = font_family_setting_auto()
-			} else {
-				index := app.osd.font_list_candidate - 1
-				if index >= 0 && index < len(app.font_catalog.families) {
-					app.settings.font_family, _ = font_family_setting_make(
-						app.font_catalog.families[index].name,
-					)
+			case glfw.KEY_BACKSPACE:
+				if app.osd.font_search != "" {
+					end := len(app.osd.font_search) - 1
+					for end > 0 && (u8(app.osd.font_search[end]) & 0xc0) == 0x80 do end -= 1
+					replacement := strings.clone(app.osd.font_search[:end])
+					delete(app.osd.font_search)
+					app.osd.font_search = replacement
+					app.osd.font_search_deadline = glfw.GetTime() + 1.25
+					osd_font_search_next(&app.osd, app.font_catalog)
 				}
-			}
-			delete(app.osd.font_error)
+			case glfw.KEY_ENTER:
+				if app.osd.font_list_candidate == 0 {
+					app.settings.font_family = font_family_setting_auto()
+				} else {
+					index := app.osd.font_list_candidate - 1
+					if index >= 0 && index < len(app.font_catalog.families) {
+						app.settings.font_family, _ = font_family_setting_make(
+							app.font_catalog.families[index].name,
+						)
+					}
+				}
+				delete(app.osd.font_error)
 				app.osd.font_error = ""
 				app.osd.page = .Font
 				app.osd.selected = int(Osd_Font_Row.Family)
-			change = {.Font_Resources, .Layout}
+				change = {.Font_Resources, .Layout}
+			}
 		}
-		osd_font_list_clamp_top(&app.osd, app.font_catalog)
+		osd_scrollable_list_clamp(
+			&app.osd,
+			count,
+			&app.osd.font_list_candidate,
+			&app.osd.font_list_top,
+		)
 		settings_changed(app, change)
 		if change == {} do osd_prepare(app)
 		app.redraw = true
