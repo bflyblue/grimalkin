@@ -24,7 +24,8 @@ useful set of live visual controls.
 - Unicode shaping, programming ligatures, wide characters, colour emoji, and
   system font fallback through HarfBuzz, FreeType, and Fontconfig.
 - A shared Vulkan renderer on all three platforms, using MoltenVK on macOS.
-- 10,000 lines of scrollback with keyboard paging and a position indicator.
+- Memory-bounded scrollback with keyboard, mouse-wheel, and high-resolution
+  trackpad navigation plus a position indicator.
 - Linear and rectangular selection, system clipboard integration, bracketed
   paste, and configurable OSC 52 access.
 - Alt-hover (Command on macOS) to mark a URL with a dotted underline, and

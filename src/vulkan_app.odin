@@ -282,6 +282,7 @@ Application_Input_State :: struct {
 	selection:          Terminal_Selection,
 	clipboard_insert_suppressed: bool,
 	mouse_buttons:      u16,
+	scroll_remainder:   f64,
 	selection_text_cursor:  glfw.CursorHandle,
 	selection_block_cursor: glfw.CursorHandle,
 	url_hover:              Url_Hover,
@@ -311,6 +312,7 @@ Grimalkin_App :: struct {
 	focused:           bool,
 	cursor_animation:  Cursor_Animation_State,
 	scroll_indicator:  Scroll_Indicator_State,
+	compression:       Scrollback_Compression_Scheduler,
 	osd:               Osd_State,
 }
 

@@ -39,6 +39,9 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, expected.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, expected.selection_style, Selection_Style.Solid)
 	testing.expect_value(t, expected.kitty_image_storage_mb, u16(320))
+	testing.expect_value(t, expected.scrollback_limit_bytes, 50_000_000)
+	testing.expect_value(t, expected.scrollback_limit_lines, -1)
+	testing.expect(t, expected.scrollback_compression)
 	data, ok := settings_encode(expected, context.temp_allocator)
 	testing.expect(t, ok)
 	testing.expect(t, !strings.contains(string(data), `"text_clarity"`))
@@ -83,6 +86,9 @@ settings_json_accepts_partial_and_unknown_fields :: proc(t: ^testing.T) {
 	testing.expect_value(t, actual.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
 	testing.expect_value(t, actual.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, actual.selection_style, Selection_Style.Solid)
+	testing.expect_value(t, actual.scrollback_limit_bytes, 50_000_000)
+	testing.expect_value(t, actual.scrollback_limit_lines, -1)
+	testing.expect(t, actual.scrollback_compression)
 }
 
 @(test)
@@ -231,6 +237,56 @@ settings_json_round_trips_scroll_key_modifiers :: proc(t: ^testing.T) {
 		testing.expect_value(t, actual.scroll_page_modifier, modifier)
 		testing.expect_value(t, actual.scroll_line_modifier, Scroll_Modifier.Off)
 	}
+}
+
+@(test)
+settings_json_migrates_old_files_to_scrollback_defaults :: proc(t: ^testing.T) {
+	text := `{"version":1,"font_size":23}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, valid)
+	testing.expect_value(t, actual.scrollback_limit_bytes, SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT)
+	testing.expect_value(t, actual.scrollback_limit_lines, SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT)
+	testing.expect(t, actual.scrollback_compression)
+	encoded, ok := settings_encode(actual, context.temp_allocator)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(string(encoded), `"scrollback_limit_bytes": 50000000`))
+	testing.expect(t, strings.contains(string(encoded), `"scrollback_limit_lines": -1`))
+	testing.expect(t, strings.contains(string(encoded), `"scrollback_compression": true`))
+}
+
+@(test)
+settings_json_round_trips_scrollback_limits_and_compression :: proc(t: ^testing.T) {
+	limits := [?]i128{-1, 0, 1, 12_345_678}
+	for byte_limit in limits {
+		for line_limit in limits {
+			expected := application_settings_default()
+			expected.scrollback_limit_bytes = byte_limit
+			expected.scrollback_limit_lines = line_limit
+			expected.scrollback_compression = false
+			data, encoded := settings_encode(expected, context.temp_allocator)
+			testing.expect(t, encoded)
+			actual, valid := settings_decode(data)
+			testing.expect(t, valid)
+			testing.expect_value(t, actual.scrollback_limit_bytes, byte_limit)
+			testing.expect_value(t, actual.scrollback_limit_lines, line_limit)
+			testing.expect(t, !actual.scrollback_compression)
+		}
+	}
+}
+
+@(test)
+settings_json_repairs_invalid_scrollback_limits_individually :: proc(t: ^testing.T) {
+	text := `{"version":1,"scrollback_limit_bytes":-2,"scrollback_limit_lines":-99,"scrollback_compression":false}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, !valid)
+	testing.expect_value(t, actual.scrollback_limit_bytes, SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT)
+	testing.expect_value(t, actual.scrollback_limit_lines, SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT)
+	testing.expect(t, !actual.scrollback_compression)
+
+	too_large := `{"version":1,"scrollback_limit_bytes":18446744073709551616}`
+	actual, valid = settings_decode(transmute([]byte)too_large)
+	testing.expect(t, !valid)
+	testing.expect_value(t, actual.scrollback_limit_bytes, SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT)
 }
 
 @(test)

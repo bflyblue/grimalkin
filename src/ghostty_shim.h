@@ -20,6 +20,12 @@ enum {
   GRIMALKIN_GHOSTTY_OUT_OF_SPACE = -103,
 };
 
+enum {
+  GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED = 0,
+  GRIMALKIN_GHOSTTY_COMPRESSION_PENDING = 1,
+  GRIMALKIN_GHOSTTY_COMPRESSION_COMPLETE = 2,
+};
+
 typedef int (*GrimalkinGhosttyWritePtyFn)(void *userdata,
                                            const uint8_t *data,
                                            size_t len);
@@ -149,7 +155,8 @@ void grimalkin_ghostty_set_png_decoder(GrimalkinPngDecodeFn decoder);
 
 int grimalkin_ghostty_new(uint16_t cols,
                      uint16_t rows,
-                     size_t max_scrollback,
+                     const size_t *max_scrollback_bytes,
+                     const size_t *max_scrollback_lines,
                      uint64_t kitty_storage_limit,
                      GrimalkinGhostty **out_terminal);
 void grimalkin_ghostty_free(GrimalkinGhostty *terminal);
@@ -161,6 +168,15 @@ int grimalkin_ghostty_resize(GrimalkinGhostty *terminal,
                             uint32_t cell_height_px);
 void grimalkin_ghostty_scroll_rows(GrimalkinGhostty *terminal, int64_t delta);
 void grimalkin_ghostty_scroll_bottom(GrimalkinGhostty *terminal);
+int grimalkin_ghostty_scrollback_limits(GrimalkinGhostty *terminal,
+                                        uint8_t *out_has_bytes,
+                                        size_t *out_bytes,
+                                        uint8_t *out_has_lines,
+                                        size_t *out_lines);
+int grimalkin_ghostty_compression_activity(GrimalkinGhostty *terminal,
+                                           uint64_t *out_activity);
+int grimalkin_ghostty_compress_incremental(GrimalkinGhostty *terminal,
+                                           uint8_t *out_result);
 void grimalkin_ghostty_set_write_pty(GrimalkinGhostty *terminal,
                                     GrimalkinGhosttyWritePtyFn callback,
                                     void *userdata);

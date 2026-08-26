@@ -600,22 +600,6 @@ cursor_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	}
 }
 
-scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
-	context = runtime.default_context()
-	app := app_from_window(window)
-	if app == nil || app.osd.visible || app.paste_confirmation do return
-	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
-	mods := current_mouse_modifiers(app)
-	if !mouse_tracking || mods & glfw.MOD_SHIFT != 0 do return
-	x, y := glfw.GetCursorPos(window)
-	button := Terminal_Mouse_Button.Four
-	if yoffset < 0 do button = .Five
-	steps := max(1, int(abs(yoffset)))
-	for _ in 0 ..< steps {
-		send_mouse_event(app, .Press, button, mods, x, y)
-	}
-}
-
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)

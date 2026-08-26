@@ -28,6 +28,10 @@ ghostty_test_first_rune :: proc(snapshot: ^Terminal_Snapshot) -> u32 {
 	return graphemes[0]
 }
 
+ghostty_test_write_scrollback :: proc(terminal: ^Terminal_Core, lines: int) {
+	for _ in 0 ..< lines do terminal_write_string(terminal, "row\r\n")
+}
+
 @(test)
 ghostty_snapshot_owns_a_complete_fixed_grid :: proc(t: ^testing.T) {
 	terminal := terminal_core_init(12, 4, 32)
@@ -183,6 +187,84 @@ ghostty_scrollback_pages_detach_and_reattach_the_viewport :: proc(t: ^testing.T)
 	testing.expect(t, snapshot.viewport_active)
 	testing.expect_value(t, snapshot.scroll_offset_rows, u64(0))
 	terminal_write_string(&terminal, "\x1b[?1049l")
+}
+
+@(test)
+ghostty_scrollback_limits_preserve_unlimited_zero_and_finite_values :: proc(t: ^testing.T) {
+	unlimited := terminal_core_init_configured(80, 4, -1, -1)
+	defer terminal_core_destroy(&unlimited)
+	bytes, lines, ok := terminal_core_scrollback_limits(&unlimited)
+	testing.expect(t, ok)
+	testing.expect_value(t, bytes, -1)
+	testing.expect_value(t, lines, -1)
+	ghostty_test_write_scrollback(&unlimited, 2_000)
+	unlimited_snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&unlimited_snapshot)
+	_ = terminal_core_snapshot(&unlimited, &unlimited_snapshot)
+	testing.expect(t, unlimited_snapshot.scroll_total_rows > 1_000)
+
+	zero_bytes := terminal_core_init_configured(80, 4, 0, -1)
+	defer terminal_core_destroy(&zero_bytes)
+	bytes, lines, ok = terminal_core_scrollback_limits(&zero_bytes)
+	testing.expect(t, ok)
+	testing.expect_value(t, bytes, 0)
+	testing.expect_value(t, lines, -1)
+	ghostty_test_write_scrollback(&zero_bytes, 100)
+	zero_snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&zero_snapshot)
+	_ = terminal_core_snapshot(&zero_bytes, &zero_snapshot)
+	testing.expect_value(t, zero_snapshot.scroll_total_rows, zero_snapshot.scroll_visible_rows)
+
+	zero_lines := terminal_core_init_configured(80, 4, -1, 0)
+	defer terminal_core_destroy(&zero_lines)
+	bytes, lines, ok = terminal_core_scrollback_limits(&zero_lines)
+	testing.expect(t, ok)
+	testing.expect_value(t, bytes, -1)
+	testing.expect_value(t, lines, 0)
+}
+
+@(test)
+ghostty_scrollback_byte_and_line_caps_prune_history_independently :: proc(t: ^testing.T) {
+	byte_capped := terminal_core_init_configured(80, 4, 1, -1)
+	defer terminal_core_destroy(&byte_capped)
+	ghostty_test_write_scrollback(&byte_capped, 2_000)
+	byte_snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&byte_snapshot)
+	_ = terminal_core_snapshot(&byte_capped, &byte_snapshot)
+	testing.expect(t, byte_snapshot.scroll_total_rows < 1_000)
+	terminal_core_scroll_rows(&byte_capped, -10_000)
+	_ = terminal_core_snapshot(&byte_capped, &byte_snapshot)
+	testing.expect_value(t, byte_snapshot.scroll_offset_rows, u64(0))
+
+	line_capped := terminal_core_init_configured(80, 4, -1, 32)
+	defer terminal_core_destroy(&line_capped)
+	ghostty_test_write_scrollback(&line_capped, 2_000)
+	line_snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&line_snapshot)
+	_ = terminal_core_snapshot(&line_capped, &line_snapshot)
+	testing.expect(t, line_snapshot.scroll_total_rows < 1_000)
+	testing.expect(t, line_snapshot.scroll_total_rows >= line_snapshot.scroll_visible_rows)
+}
+
+@(test)
+ghostty_compression_activity_changes_without_changing_logical_history :: proc(t: ^testing.T) {
+	terminal := terminal_core_init_configured(80, 4, -1, -1)
+	defer terminal_core_destroy(&terminal)
+	before, ok := terminal_core_compression_activity(&terminal)
+	testing.expect(t, ok)
+	ghostty_test_write_scrollback(&terminal, 1_000)
+	after: u64
+	after, ok = terminal_core_compression_activity(&terminal)
+	testing.expect(t, ok)
+	testing.expect(t, before != after)
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	total := snapshot.scroll_total_rows
+	result := terminal_core_compress_incremental(&terminal)
+	testing.expect(t, result != .Error)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect_value(t, snapshot.scroll_total_rows, total)
 }
 
 @(test)

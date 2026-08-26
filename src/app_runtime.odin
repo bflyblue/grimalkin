@@ -115,7 +115,15 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 
 	render_config := application_settings_render_config(settings, detected_rotation)
-	demo := grimalkin_demo_init_configured(font_pixel_height, render_config, settings.nerd_font_symbols, primary_family) if demo_mode else grimalkin_terminal_init_configured(font_pixel_height, render_config, settings.nerd_font_symbols, primary_family, settings.kitty_image_storage_mb)
+	demo := grimalkin_demo_init_configured(font_pixel_height, render_config, settings.nerd_font_symbols, primary_family) if demo_mode else grimalkin_terminal_init_configured(
+		font_pixel_height,
+		render_config,
+		settings.nerd_font_symbols,
+		primary_family,
+		settings.kitty_image_storage_mb,
+		settings.scrollback_limit_bytes,
+		settings.scrollback_limit_lines,
+	)
 	demo.session = session
 	defer grimalkin_demo_destroy(&demo)
 	if !demo_mode && !cursor_gpu_test {
@@ -186,6 +194,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		content_scale_x      = xscale,
 		content_scale_y      = yscale,
 		detected_display_rotation = detected_rotation,
+		compression          = scrollback_compression_scheduler_init(settings.scrollback_compression),
 	}
 	defer osd_state_destroy(&app.osd)
 	defer selection_destroy(&app.selection)
@@ -255,6 +264,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	init_vulkan(&app)
 	defer destroy_vulkan(&app)
 	defer settings_flush(&app)
+	scrollback_compression_capture_baseline(&app)
 
 	benchmark_samples := Benchmark_Samples{}
 	defer benchmark_samples_destroy(&benchmark_samples)
@@ -307,6 +317,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 				}
 				process_terminal_clipboard(&app)
 			}
+			scrollback_compression_service(&app, glfw.GetTime())
 			if app.display_rotation_check_pending &&
 			   glfw.GetTime() >= app.display_rotation_check_deadline {
 				app.display_rotation_check_pending = false
@@ -342,7 +353,13 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			}
 			if app.minimized {
 				app.redraw = false
-				glfw.WaitEvents()
+				wait_deadline := scrollback_compression_wait_deadline(app.compression)
+				if wait_deadline != max(f64) {
+					timeout := max(0.001, wait_deadline - glfw.GetTime())
+					glfw.WaitEventsTimeout(timeout)
+				} else {
+					glfw.WaitEvents()
+				}
 				flush_pending_key(&app)
 				continue
 			}
@@ -422,6 +439,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			if app.selection.dragging && app.selection.autoscroll_rows != 0 {
 				wait_deadline = min(wait_deadline, app.selection.autoscroll_next_at)
 			}
+			wait_deadline = scrollback_compression_wait_deadline(app.compression, wait_deadline)
 			if wait_deadline != max(f64) {
 				timeout := max(0.001, wait_deadline - glfw.GetTime())
 				glfw.WaitEventsTimeout(timeout)
