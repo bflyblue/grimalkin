@@ -712,9 +712,9 @@ osd_font_list_clamp_top :: proc(osd: ^Osd_State, catalog: ^Font_Catalog) {
 
 osd_ascii_prefix_match :: proc(value, prefix: string) -> bool {
 	if len(prefix) > len(value) do return false
-	for byte, index in prefix {
-		a := byte
-		b := rune(value[index])
+	for index in 0 ..< len(prefix) {
+		a := prefix[index]
+		b := value[index]
 		if a >= 'A' && a <= 'Z' do a += 'a' - 'A'
 		if b >= 'A' && b <= 'Z' do b += 'a' - 'A'
 		if a != b do return false

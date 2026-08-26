@@ -228,6 +228,13 @@ osd_main_title_includes_the_build_version :: proc(t: ^testing.T) {
 }
 
 @(test)
+osd_font_search_matches_utf8_names_with_ascii_case_folding :: proc(t: ^testing.T) {
+	testing.expect(t, osd_ascii_prefix_match("Monospacé Élégant", "MONOSPACé"))
+	testing.expect(t, osd_ascii_prefix_match("Écriture Mono", "ÉCRITURE"))
+	testing.expect(t, !osd_ascii_prefix_match("Écriture Mono", "ECRITURE"))
+}
+
+@(test)
 osd_padding_glow_is_inactive_without_padding_and_retains_its_profile :: proc(t: ^testing.T) {
 	settings := application_settings_default()
 	settings.padding_glow = .Tint
