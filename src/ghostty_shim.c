@@ -777,7 +777,8 @@ void grimalkin_ghostty_set_png_decoder(GrimalkinPngDecodeFn decoder) {
 
 int grimalkin_ghostty_new(uint16_t cols,
                      uint16_t rows,
-                     size_t max_scrollback,
+                     const size_t *max_scrollback_bytes,
+                     const size_t *max_scrollback_lines,
                      uint64_t kitty_storage_limit,
                      GrimalkinGhostty **out_terminal) {
   if (cols == 0 || rows == 0 || out_terminal == NULL) {
@@ -791,8 +792,12 @@ int grimalkin_ghostty_new(uint16_t cols,
       ghostty_terminal_new(NULL, &terminal->terminal, cols, rows);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
   result = ghostty_terminal_set(terminal->terminal,
+                                GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                                max_scrollback_bytes);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  result = ghostty_terminal_set(terminal->terminal,
                                 GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
-                                &max_scrollback);
+                                max_scrollback_lines);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
   // Mode 2027 makes Ghostty retain emoji presentation sequences as one
   // grapheme and assign their terminal width coherently. Applications remain
@@ -938,6 +943,75 @@ void grimalkin_ghostty_scroll_bottom(GrimalkinGhostty *terminal) {
   };
   ghostty_terminal_scroll_viewport(terminal->terminal, behavior);
   terminal->force_full_snapshot = true;
+}
+
+int grimalkin_ghostty_scrollback_limits(GrimalkinGhostty *terminal,
+                                        uint8_t *out_has_bytes,
+                                        size_t *out_bytes,
+                                        uint8_t *out_has_lines,
+                                        size_t *out_lines) {
+  if (terminal == NULL || out_has_bytes == NULL || out_bytes == NULL ||
+      out_has_lines == NULL || out_lines == NULL) {
+    return GRIMALKIN_GHOSTTY_INVALID_ARGUMENT;
+  }
+  *out_has_bytes = 0;
+  *out_bytes = 0;
+  *out_has_lines = 0;
+  *out_lines = 0;
+  GhosttyResult result = ghostty_terminal_get(
+      terminal->terminal, GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES,
+      out_bytes);
+  if (result == GHOSTTY_SUCCESS) {
+    *out_has_bytes = 1;
+  } else if (result != GHOSTTY_NO_VALUE) {
+    return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  }
+  result = ghostty_terminal_get(
+      terminal->terminal, GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES,
+      out_lines);
+  if (result == GHOSTTY_SUCCESS) {
+    *out_has_lines = 1;
+  } else if (result != GHOSTTY_NO_VALUE) {
+    return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  }
+  return GRIMALKIN_GHOSTTY_OK;
+}
+
+int grimalkin_ghostty_compression_activity(GrimalkinGhostty *terminal,
+                                           uint64_t *out_activity) {
+  if (terminal == NULL || out_activity == NULL) {
+    return GRIMALKIN_GHOSTTY_INVALID_ARGUMENT;
+  }
+  GhosttyResult result = ghostty_terminal_compression_activity(
+      terminal->terminal, out_activity);
+  return result == GHOSTTY_SUCCESS ? GRIMALKIN_GHOSTTY_OK
+                                  : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+}
+
+int grimalkin_ghostty_compress_incremental(GrimalkinGhostty *terminal,
+                                           uint8_t *out_result) {
+  if (terminal == NULL || out_result == NULL) {
+    return GRIMALKIN_GHOSTTY_INVALID_ARGUMENT;
+  }
+  GhosttyTerminalCompressionResult compression_result;
+  GhosttyResult result = ghostty_terminal_compress(
+      terminal->terminal, GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL,
+      &compression_result);
+  if (result != GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  switch (compression_result) {
+    case GHOSTTY_TERMINAL_COMPRESSION_RESULT_UNSUPPORTED:
+      *out_result = GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED;
+      break;
+    case GHOSTTY_TERMINAL_COMPRESSION_RESULT_PENDING:
+      *out_result = GRIMALKIN_GHOSTTY_COMPRESSION_PENDING;
+      break;
+    case GHOSTTY_TERMINAL_COMPRESSION_RESULT_COMPLETE:
+      *out_result = GRIMALKIN_GHOSTTY_COMPRESSION_COMPLETE;
+      break;
+    default:
+      return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  }
+  return GRIMALKIN_GHOSTTY_OK;
 }
 
 void grimalkin_ghostty_set_write_pty(GrimalkinGhostty *terminal,

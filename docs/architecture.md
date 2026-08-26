@@ -20,6 +20,15 @@ parsing, modes, input encoding, scrollback, and terminal state. Its unstable C
 ABI is isolated in `src/ghostty_shim.{c,h}` and `src/ghostty_vt.odin`; other
 modules should not bind directly to Ghostty internals.
 
+Scrollback byte and physical-line limits are passed through that boundary as
+optional values; Ghostty owns page-granularity pruning and viewport clamping.
+Grimalkin only routes wheel/trackpad input and schedules incremental idle
+compression. The scheduler runs on the same event-loop thread as writes,
+snapshots, selection, and rendering: an activity-token change starts a 250 ms
+idle delay, pending compression steps are spaced 1 ms apart, and both normal
+and minimized waits include the next deadline. No second history buffer or
+background compression thread exists in Grimalkin.
+
 The display compiler converts terminal snapshots into a persistent grid of GPU
 cell records. It shapes changed text, maintains glyph and image atlases, and
 uploads only dirty ranges. Resizing invalidates the cached display and causes a

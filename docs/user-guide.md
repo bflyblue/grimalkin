@@ -51,9 +51,12 @@ disabled under **Key bindings**.
 | `Shift+Insert` | Paste, using bracketed paste when active |
 
 Typing while detached from live output returns the viewport to the bottom.
-Grimalkin retains up to 10,000 lines of normal-screen scrollback. Alternate
-screen applications manage their own visible history and do not expose that
-buffer.
+Use a mouse wheel or a two-finger trackpad gesture to move through normal-screen
+scrollback. When an application enables mouse reporting, unmodified wheel and
+trackpad input continues to reach that application; hold `Shift` to scroll
+Grimalkin's history instead. Alternate-screen applications manage their own
+visible history and Ghostty exposes no scrollback there, so the override is a
+no-op on the alternate screen.
 
 ## Selection and paste
 
@@ -112,22 +115,38 @@ Settings are stored as `settings.json` in the platform configuration directory:
 | macOS | `$XDG_CONFIG_HOME/Grimalkin/settings.json`, or `~/Library/Application Support/Grimalkin/settings.json` |
 | Windows | `%APPDATA%\Grimalkin\settings.json`, falling back to `%LOCALAPPDATA%` |
 
-The live settings UI is the supported way to edit this file. Invalid values
-are repaired to safe defaults and reported on standard error.
+Use the live settings UI for the controls it exposes. Stop Grimalkin before
+editing the file-only settings below so a later automatic save cannot overwrite
+the edit. Invalid values are repaired to safe defaults and reported on standard
+error.
 
 ### File-only settings
 
-One setting has no entry in the live settings UI, because it is a memory budget
-rather than something worth adjusting on screen:
+These memory and retention settings have no entry in the live settings UI:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `kitty_image_storage_mb` | `320` | Megabytes of memory Kitty graphics images may occupy, from `0` to `4096`. Once the budget is full the oldest images are evicted to make room. `0` turns Kitty graphics off entirely and discards any images already received. |
+| `scrollback_limit_bytes` | `50000000` | Approximate byte budget for one terminal's normal-screen history. `-1` is unlimited and `0` disables scrollback. |
+| `scrollback_limit_lines` | `-1` | Approximate physical-line limit for one terminal. `-1` is unlimited and `0` disables scrollback. |
+| `scrollback_compression` | `true` | Compress eligible history incrementally after 250 ms of terminal inactivity. |
 
-The default matches other terminals that implement the protocol. Raise it if you
-routinely display many or very large images; lower it to cap the memory a remote
-program can cause Grimalkin to hold. Changes take effect the next time Grimalkin
-starts.
+The Kitty image default matches other terminals that implement the protocol.
+Raise it if you routinely display many or very large images; lower it to cap the
+memory a remote program can cause Grimalkin to hold.
+
+The two scrollback limits apply together, and the first one reached causes old
+history to be pruned. Accounting is per terminal instance, not shared between
+Grimalkin windows. The line limit counts physical grid lines, so one long
+logical line split by soft wrapping consumes several lines. Ghostty allocates
+and prunes history in pages; both limits are therefore approximate and retained
+history can exceed them by roughly one page.
+
+Compression changes only how retained history is stored. It can reduce resident
+physical memory after the terminal becomes idle, but it does not increase the
+logical history available under either limit. Process virtual-memory figures
+may remain high because reserved address space is not the same as resident
+memory. All four file-only settings take effect the next time Grimalkin starts.
 
 ## Developer overrides
 

@@ -15,6 +15,9 @@ when ODIN_OS == .Windows {
 
 GRIMALKIN_GHOSTTY_OK :: 0
 GRIMALKIN_GHOSTTY_OUT_OF_SPACE :: -103
+GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED :: u8(0)
+GRIMALKIN_GHOSTTY_COMPRESSION_PENDING :: u8(1)
+GRIMALKIN_GHOSTTY_COMPRESSION_COMPLETE :: u8(2)
 GRIMALKIN_CELL_BOLD :: u16(1 << 0)
 GRIMALKIN_CELL_ITALIC :: u16(1 << 1)
 GRIMALKIN_CELL_FAINT :: u16(1 << 2)
@@ -170,12 +173,15 @@ Grimalkin_Ghostty_Snapshot_View :: struct {
 
 @(default_calling_convention = "c")
 foreign ghostty_shim {
-	grimalkin_ghostty_new :: proc(cols, rows: u16, max_scrollback: c.size_t, kitty_storage_limit: u64, out_terminal: ^Grimalkin_Ghostty) -> c.int ---
+	grimalkin_ghostty_new :: proc(cols, rows: u16, max_scrollback_bytes, max_scrollback_lines: ^c.size_t, kitty_storage_limit: u64, out_terminal: ^Grimalkin_Ghostty) -> c.int ---
 	grimalkin_ghostty_free :: proc(terminal: Grimalkin_Ghostty) ---
 	grimalkin_ghostty_write :: proc(terminal: Grimalkin_Ghostty, data: rawptr, len: c.size_t) ---
 	grimalkin_ghostty_resize :: proc(terminal: Grimalkin_Ghostty, cols, rows: u16, cell_width_px, cell_height_px: u32) -> c.int ---
 	grimalkin_ghostty_scroll_rows :: proc(terminal: Grimalkin_Ghostty, delta: i64) ---
 	grimalkin_ghostty_scroll_bottom :: proc(terminal: Grimalkin_Ghostty) ---
+	grimalkin_ghostty_scrollback_limits :: proc(terminal: Grimalkin_Ghostty, out_has_bytes: ^u8, out_bytes: ^c.size_t, out_has_lines: ^u8, out_lines: ^c.size_t) -> c.int ---
+	grimalkin_ghostty_compression_activity :: proc(terminal: Grimalkin_Ghostty, out_activity: ^u64) -> c.int ---
+	grimalkin_ghostty_compress_incremental :: proc(terminal: Grimalkin_Ghostty, out_result: ^u8) -> c.int ---
 	grimalkin_ghostty_set_write_pty :: proc(terminal: Grimalkin_Ghostty, callback: Grimalkin_Write_Pty_Proc, userdata: rawptr) ---
 	grimalkin_ghostty_set_png_decoder :: proc(decoder: Png_Decode_Proc) ---
 	grimalkin_ghostty_encode_glfw_key :: proc(terminal: Grimalkin_Ghostty, glfw_key, glfw_action: c.int, modifiers: u16, utf8: [^]u8, utf8_len: c.size_t, unshifted_codepoint: u32, out: [^]u8, out_capacity: c.size_t, out_len: ^c.size_t) -> c.int ---
@@ -317,19 +323,36 @@ register_kitty_png_decoder :: proc "contextless" () {
 	grimalkin_ghostty_set_png_decoder(grimalkin_decode_png_rgba)
 }
 
-// kitty_image_storage_mb bounds libghostty-vt's own image store, which evicts
-// oldest-first once it is exceeded. Zero disables Kitty graphics entirely.
-terminal_core_init :: proc(
+// Negative scrollback limits are passed as NULL, which is libghostty-vt's
+// unlimited value. Zero remains an explicit limit and disables scrollback.
+terminal_core_init_configured :: proc(
 	cols, rows: u16,
-	max_scrollback: int,
+	scrollback_limit_bytes, scrollback_limit_lines: i128,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
 ) -> Terminal_Core {
+	if !settings_scrollback_limit_valid(scrollback_limit_bytes) ||
+	   !settings_scrollback_limit_valid(scrollback_limit_lines) {
+		fmt.panicf("scrollback limits are not representable by size_t")
+	}
 	terminal := Terminal_Core{}
+	bytes_value := c.size_t(0)
+	lines_value := c.size_t(0)
+	bytes_pointer: ^c.size_t
+	lines_pointer: ^c.size_t
+	if scrollback_limit_bytes >= 0 {
+		bytes_value = c.size_t(scrollback_limit_bytes)
+		bytes_pointer = &bytes_value
+	}
+	if scrollback_limit_lines >= 0 {
+		lines_value = c.size_t(scrollback_limit_lines)
+		lines_pointer = &lines_value
+	}
 	result := int(
 		grimalkin_ghostty_new(
 			cols,
 			rows,
-			c.size_t(max_scrollback),
+			bytes_pointer,
+			lines_pointer,
 			u64(kitty_image_storage_mb) * 1024 * 1024,
 			&terminal.handle,
 		),
@@ -338,6 +361,22 @@ terminal_core_init :: proc(
 		fmt.panicf("libghostty-vt terminal creation failed (bridge error %d)", result)
 	}
 	return terminal
+}
+
+// Most focused terminal tests use a small line cap. Production initialization
+// uses terminal_core_init_configured so both independent limits remain visible.
+terminal_core_init :: proc(
+	cols, rows: u16,
+	max_scrollback_lines: int,
+	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+) -> Terminal_Core {
+	return terminal_core_init_configured(
+		cols,
+		rows,
+		-1,
+		i128(max_scrollback_lines),
+		kitty_image_storage_mb,
+	)
 }
 
 terminal_core_destroy :: proc(terminal: ^Terminal_Core) {
@@ -399,6 +438,57 @@ terminal_core_scroll_rows :: proc(terminal: ^Terminal_Core, delta: i64) {
 terminal_core_scroll_bottom :: proc(terminal: ^Terminal_Core) {
 	if terminal.handle == nil do return
 	grimalkin_ghostty_scroll_bottom(terminal.handle)
+}
+
+terminal_core_scrollback_limits :: proc(terminal: ^Terminal_Core) -> (
+	bytes, lines: i128,
+	ok: bool,
+) {
+	if terminal == nil || terminal.handle == nil do return -1, -1, false
+	has_bytes, has_lines := u8(0), u8(0)
+	byte_value, line_value := c.size_t(0), c.size_t(0)
+	result := int(grimalkin_ghostty_scrollback_limits(
+		terminal.handle,
+		&has_bytes,
+		&byte_value,
+		&has_lines,
+		&line_value,
+	))
+	if result != GRIMALKIN_GHOSTTY_OK do return -1, -1, false
+	bytes = -1
+	lines = -1
+	if has_bytes != 0 do bytes = i128(byte_value)
+	if has_lines != 0 do lines = i128(line_value)
+	return bytes, lines, true
+}
+
+Terminal_Compression_Result :: enum u8 {
+	Unsupported,
+	Pending,
+	Complete,
+	Error,
+}
+
+terminal_core_compression_activity :: proc(terminal: ^Terminal_Core) -> (u64, bool) {
+	if terminal == nil || terminal.handle == nil do return 0, false
+	activity := u64(0)
+	result := int(grimalkin_ghostty_compression_activity(terminal.handle, &activity))
+	return activity, result == GRIMALKIN_GHOSTTY_OK
+}
+
+terminal_core_compress_incremental :: proc(
+	terminal: ^Terminal_Core,
+) -> Terminal_Compression_Result {
+	if terminal == nil || terminal.handle == nil do return .Error
+	result_value := u8(0)
+	result := int(grimalkin_ghostty_compress_incremental(terminal.handle, &result_value))
+	if result != GRIMALKIN_GHOSTTY_OK do return .Error
+	switch result_value {
+	case GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED: return .Unsupported
+	case GRIMALKIN_GHOSTTY_COMPRESSION_PENDING:     return .Pending
+	case GRIMALKIN_GHOSTTY_COMPRESSION_COMPLETE:    return .Complete
+	}
+	return .Error
 }
 
 terminal_core_set_write_pty :: proc(

@@ -1,5 +1,6 @@
 package main
 
+import c "core:c"
 import json "core:encoding/json"
 import "core:fmt"
 import "core:os"
@@ -129,6 +130,9 @@ Application_Settings :: struct {
 	block_selection_whitespace: Block_Selection_Whitespace,
 	selection_style: Selection_Style,
 	kitty_image_storage_mb: u16,
+	scrollback_limit_bytes: i128,
+	scrollback_limit_lines: i128,
+	scrollback_compression: bool,
 }
 
 SETTINGS_VERSION :: 1
@@ -140,6 +144,19 @@ SETTINGS_PADDING_MAX :: u16(32)
 // drops every stored image and placement when the limit is zero.
 SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT :: u16(320)
 SETTINGS_KITTY_IMAGE_STORAGE_MB_MAX :: u16(4096)
+SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT :: 50_000_000
+SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT :: -1
+
+settings_scrollback_limit_valid :: proc(value: i128) -> bool {
+	if value < -1 do return false
+	when size_of(c.size_t) == 8 {
+		return value <= i128(0xffff_ffff_ffff_ffff)
+	} else when size_of(c.size_t) == 4 {
+		return value <= i128(0xffff_ffff)
+	} else {
+		#panic("unsupported size_t width")
+	}
+}
 
 settings_cycle_index :: proc(value, count, direction: int) -> int {
 	if count <= 0 do return 0
@@ -172,6 +189,9 @@ application_settings_default :: proc() -> Application_Settings {
 		block_selection_whitespace = .Trim,
 		selection_style = .Solid,
 		kitty_image_storage_mb = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+		scrollback_limit_bytes = SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT,
+		scrollback_limit_lines = SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT,
+		scrollback_compression = true,
 	}
 }
 
@@ -392,6 +412,9 @@ Settings_Disk_Current :: struct {
 	block_selection_whitespace: string `json:"block_selection_whitespace"`,
 	selection_style: string `json:"selection_style"`,
 	kitty_image_storage_mb: int `json:"kitty_image_storage_mb"`,
+	scrollback_limit_bytes: i128 `json:"scrollback_limit_bytes"`,
+	scrollback_limit_lines: i128 `json:"scrollback_limit_lines"`,
+	scrollback_compression: bool `json:"scrollback_compression"`,
 }
 
 Settings_Disk_Decode :: struct {
@@ -420,6 +443,9 @@ Settings_Disk_Decode :: struct {
 	block_selection_whitespace: string `json:"block_selection_whitespace"`,
 	selection_style: string `json:"selection_style"`,
 	kitty_image_storage_mb: int `json:"kitty_image_storage_mb"`,
+	scrollback_limit_bytes: i128 `json:"scrollback_limit_bytes"`,
+	scrollback_limit_lines: i128 `json:"scrollback_limit_lines"`,
+	scrollback_compression: bool `json:"scrollback_compression"`,
 }
 
 SETTINGS_TEXT_SMOOTHING_WIRE := [3]string{"grayscale", "subpixel", "monochrome"}
@@ -494,6 +520,9 @@ settings_to_disk :: proc(
 		block_selection_whitespace = settings_wire_encode(int(settings.block_selection_whitespace), SETTINGS_BLOCK_WHITESPACE_WIRE[:]),
 		selection_style = settings_wire_encode(int(settings.selection_style), SETTINGS_SELECTION_STYLE_WIRE[:]),
 		kitty_image_storage_mb = int(settings.kitty_image_storage_mb),
+		scrollback_limit_bytes = settings.scrollback_limit_bytes,
+		scrollback_limit_lines = settings.scrollback_limit_lines,
+		scrollback_compression = settings.scrollback_compression,
 	}
 }
 
@@ -585,6 +614,17 @@ settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings,
 	} else {
 		valid = false
 	}
+	if settings_scrollback_limit_valid(disk.scrollback_limit_bytes) {
+		settings.scrollback_limit_bytes = disk.scrollback_limit_bytes
+	} else {
+		valid = false
+	}
+	if settings_scrollback_limit_valid(disk.scrollback_limit_lines) {
+		settings.scrollback_limit_lines = disk.scrollback_limit_lines
+	} else {
+		valid = false
+	}
+	settings.scrollback_compression = disk.scrollback_compression
 	glow := disk.padding_glow
 	if glow == "soft" do glow = "background"
 	if glow == "vivid" do glow = "tint"
@@ -660,6 +700,9 @@ settings_decode :: proc(data: []byte) -> (Application_Settings, bool) {
 		block_selection_whitespace = "trim",
 		selection_style = "solid",
 		kitty_image_storage_mb = int(SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT),
+		scrollback_limit_bytes = SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT,
+		scrollback_limit_lines = SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT,
+		scrollback_compression = true,
 	}
 	if err := json.unmarshal(data, &disk, allocator = context.temp_allocator); err != nil {
 		return application_settings_default(), false

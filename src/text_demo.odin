@@ -333,9 +333,17 @@ grimalkin_terminal_init_configured :: proc(
 	nerd_font_symbols := true,
 	primary_family: ^Font_Family = nil,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+	scrollback_limit_bytes: i128 = SETTINGS_SCROLLBACK_LIMIT_BYTES_DEFAULT,
+	scrollback_limit_lines: i128 = SETTINGS_SCROLLBACK_LIMIT_LINES_DEFAULT,
 ) -> Grimalkin_Demo {
 	view := Grimalkin_Demo{}
-	view.terminal = terminal_core_init(GRID_COLUMNS, GRID_ROWS, 10_000, kitty_image_storage_mb)
+	view.terminal = terminal_core_init_configured(
+		GRID_COLUMNS,
+		GRID_ROWS,
+		scrollback_limit_bytes,
+		scrollback_limit_lines,
+		kitty_image_storage_mb,
+	)
 	view.resources = renderer_resources_init_configured(pixel_height, render_config, nerd_font_symbols, primary_family)
 	view.grid = display_grid_init(GRID_COLUMNS, GRID_ROWS)
 	_ = grimalkin_view_refresh(&view)
