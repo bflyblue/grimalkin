@@ -93,8 +93,11 @@ bundled_nerd_symbols_font_path :: proc(allocator := context.allocator) -> (strin
 	filename := "SymbolsNerdFontMono-Regular.ttf"
 	executable_directory, executable_error := os.get_executable_directory(context.temp_allocator)
 	if executable_error == nil {
-		relatives := [4]string {
+		// Keep bundled font discovery anchored to the executable. The working
+		// directory may belong to an unrelated, less-trusted project.
+		relatives := [5]string {
 			"fonts",
+			"assets/fonts",
 			"../Resources/fonts",
 			"../share/grimalkin/fonts",
 			"../bin/fonts",
@@ -103,14 +106,6 @@ bundled_nerd_symbols_font_path :: proc(allocator := context.allocator) -> (strin
 			candidate, err := filepath.join([]string{executable_directory, relative, filename}, context.temp_allocator)
 			if err == nil && os.is_file(candidate) do return strings.clone(candidate, allocator), true
 		}
-	}
-	development_path, development_error := filepath.join(
-		[]string{"assets", "fonts", filename},
-		context.temp_allocator,
-	)
-	if development_error == nil && os.is_file(development_path) {
-		absolute, absolute_error := os.get_absolute_path(development_path, allocator)
-		if absolute_error == nil do return absolute, true
 	}
 	return "", false
 }
