@@ -88,6 +88,9 @@ links, described below, and assigns nothing to the middle mouse button.
 The **Copy & paste** settings control automatic copy on mouse release,
 right-click paste, Insert shortcuts, multiline paste confirmation, rectangular
 trailing whitespace, selection appearance, and terminal clipboard access.
+Paste protection defaults to **On**, so clipboard text containing line breaks
+must be confirmed before it is sent to the terminal. An explicit saved **Off**
+preference remains respected.
 
 OSC 52 is convenient over SSH but crosses a security boundary. Grimalkin
 defaults to **Write only**, which lets a terminal application copy text to the
