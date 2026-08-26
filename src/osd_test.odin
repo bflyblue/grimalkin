@@ -176,6 +176,18 @@ osd_footer_help_fits_the_preferred_panel_width :: proc(t: ^testing.T) {
 }
 
 @(test)
+osd_right_alignment_counts_rendered_cells_instead_of_utf8_bytes :: proc(t: ^testing.T) {
+	rose_pine := osd_present_row_value(.Submenu, "Rosé Pine")
+	frappe := osd_present_row_value(.Submenu, "Catppuccin Frappé")
+	testing.expect_value(t, len(rose_pine), 12)
+	testing.expect_value(t, osd_text_cell_count(rose_pine), 11)
+	testing.expect_value(t, osd_right_aligned_column(44, rose_pine), 32)
+	testing.expect_value(t, len(frappe), 20)
+	testing.expect_value(t, osd_text_cell_count(frappe), 19)
+	testing.expect_value(t, osd_right_aligned_column(44, frappe), 24)
+}
+
+@(test)
 osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testing.T) {
 	main := osd_page_metadata(.Main)
 	testing.expect_value(t, main.preferred_rows, OSD_PREFERRED_ROWS)
