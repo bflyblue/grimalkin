@@ -739,6 +739,15 @@ settings_changed :: proc(app: ^Grimalkin_App, change: Application_Settings_Chang
 	if change == {} do return
 	app.settings_save_pending = true
 	app.settings_save_deadline = glfw.GetTime() + 0.4
+	if .Colour_Theme in change {
+		if app.demo != nil {
+			if !terminal_core_set_colour_theme(&app.demo.terminal, app.settings.colour_theme) {
+				fmt.panicf("libghostty-vt could not apply colour theme %s", colour_theme_name(app.settings.colour_theme))
+			}
+			app.demo.compiler.force_full_recompile = true
+			_ = refresh_terminal_display(app)
+		}
+	}
 	if .Font_Resources in change do app.settings_font_rebuild_pending = true
 	if .Font_Resources not_in change do app.applied_settings = app.settings
 	if .Layout in change do app.settings_layout_pending = true
@@ -790,6 +799,7 @@ osd_set_visible :: proc(app: ^Grimalkin_App, visible: bool) {
 		switch app.osd.page {
 		case .Text_Rendering: app.osd.selected = int(Osd_Main_Row.Text_Rendering)
 		case .Font, .Font_List: app.osd.selected = int(Osd_Main_Row.Font)
+		case .Colour_Theme_List: app.osd.selected = int(Osd_Main_Row.Colour_Themes)
 		case .Key_Bindings: app.osd.selected = int(Osd_Main_Row.Key_Bindings)
 		case .Copy_Paste: app.osd.selected = int(Osd_Main_Row.Copy_Paste)
 		case .Main, .Paste_Confirm:
@@ -810,8 +820,41 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
-		change = {.Font_Resources, .Layout, .Cursor, .Window_Style}
+		change = {.Font_Resources, .Layout, .Cursor, .Window_Style, .Colour_Theme}
 		settings_changed(app, change)
+		return
+	}
+	if app.osd.page == .Colour_Theme_List {
+		count := len(COLOUR_THEMES)
+		visible := osd_colour_theme_list_visible_rows(&app.osd)
+		before := app.osd.selected
+		switch key {
+		case glfw.KEY_ESCAPE, glfw.KEY_LEFT:
+			app.osd.page = .Main
+			app.osd.selected = int(Osd_Main_Row.Colour_Themes)
+		case glfw.KEY_UP:
+			app.osd.selected = max(0, app.osd.selected - 1)
+		case glfw.KEY_DOWN:
+			app.osd.selected = min(count - 1, app.osd.selected + 1)
+		case glfw.KEY_PAGE_UP:
+			app.osd.selected = max(0, app.osd.selected - visible)
+		case glfw.KEY_PAGE_DOWN:
+			app.osd.selected = min(count - 1, app.osd.selected + visible)
+		case glfw.KEY_HOME:
+			app.osd.selected = 0
+		case glfw.KEY_END:
+			app.osd.selected = count - 1
+		case glfw.KEY_R:
+			app.osd.selected = int(Colour_Theme.Ghostty)
+		}
+		if app.osd.page == .Colour_Theme_List && app.osd.selected != before {
+			app.settings.colour_theme = Colour_Theme(app.osd.selected)
+			change = {.Colour_Theme}
+		}
+		osd_colour_theme_list_clamp_top(&app.osd)
+		settings_changed(app, change)
+		if change == {} do osd_prepare(app)
+		app.redraw = true
 		return
 	}
 	if app.osd.page == .Font_List {

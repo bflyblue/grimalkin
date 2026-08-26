@@ -20,6 +20,7 @@ Changes apply immediately and save automatically.
 The overlay controls:
 
 - font family, font size, and optional Nerd Font symbols;
+- built-in terminal colour themes;
 - grayscale, Harmony subpixel, or monochrome text smoothing;
 - hinting, contrast, physical subpixel layout, and display rotation;
 - cursor animation;
@@ -27,6 +28,17 @@ The overlay controls:
 - scrollback and font-size key bindings;
 - selection appearance and copy/paste behaviour;
 - OSC 52 terminal clipboard access.
+
+The **Colour themes** menu includes Ghostty, Dracula, Nord, Gruvbox,
+Solarized, all four Catppuccin flavours, Tokyo Night, and all three Rosé Pine
+variants. Moving through the list applies and saves each choice immediately;
+Escape returns to the main settings page and keeps the latest choice. Ghostty,
+the original Grimalkin palette, remains the default.
+
+Themes set the terminal's default foreground, background, cursor, and ANSI
+colours 0–15. Applications can still replace those colours with OSC sequences,
+and explicit truecolour output and extended palette colours 16–255 are
+unchanged.
 
 Grayscale with normal hinting is the safe default. Subpixel rendering depends
 on the physical panel layout; screenshots and unknown display orientations

@@ -16,6 +16,7 @@ settings_cycle_index_wraps_in_both_directions :: proc(t: ^testing.T) {
 @(test)
 settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	expected := application_settings_default()
+	testing.expect_value(t, expected.colour_theme, Colour_Theme.Ghostty)
 	testing.expect_value(t, expected.text_smoothing, Text_Smoothing.Grayscale)
 	testing.expect_value(t, expected.text_contrast, Text_Contrast.Balanced)
 	testing.expect_value(t, expected.font_hinting, Font_Hinting.Normal)
@@ -48,6 +49,33 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	actual, valid := settings_decode(data)
 	testing.expect(t, valid)
 	testing.expect_value(t, actual, expected)
+}
+
+@(test)
+settings_json_round_trips_every_colour_theme :: proc(t: ^testing.T) {
+	for theme_data, index in COLOUR_THEMES {
+		expected := application_settings_default()
+		expected.colour_theme = Colour_Theme(index)
+		data, encoded := settings_encode(expected, context.temp_allocator)
+		testing.expect(t, encoded)
+		testing.expect(t, strings.contains(string(data), fmt.tprintf(`"colour_theme": "%s"`, theme_data.wire_name)))
+		actual, valid := settings_decode(data)
+		testing.expect(t, valid)
+		testing.expect_value(t, actual.colour_theme, expected.colour_theme)
+	}
+}
+
+@(test)
+settings_json_defaults_missing_colour_theme_and_rejects_unknown_names :: proc(t: ^testing.T) {
+	missing := `{"version":1,"font_size":18}`
+	actual, valid := settings_decode(transmute([]byte)missing)
+	testing.expect(t, valid)
+	testing.expect_value(t, actual.colour_theme, Colour_Theme.Ghostty)
+
+	unknown := `{"version":1,"colour_theme":"future_theme"}`
+	actual, valid = settings_decode(transmute([]byte)unknown)
+	testing.expect(t, !valid)
+	testing.expect_value(t, actual.colour_theme, Colour_Theme.Ghostty)
 }
 
 @(test)

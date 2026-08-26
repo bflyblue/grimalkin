@@ -6,6 +6,7 @@ import vk "vendor:vulkan"
 Osd_Main_Row :: enum int {
 	Text_Rendering,
 	Font,
+	Colour_Themes,
 	Cursor_Animation,
 	Padding,
 	Padding_Glow,
@@ -50,10 +51,11 @@ OSD_FONT_COUNT :: int(Osd_Font_Row.Size) + 1
 OSD_KEY_BINDING_COUNT :: int(Osd_Key_Binding_Row.Font_Size) + 1
 OSD_COPY_PASTE_COUNT :: int(Osd_Copy_Paste_Row.Selection_Style) + 1
 OSD_PREFERRED_COLUMNS :: u16(46)
-OSD_PREFERRED_ROWS :: u16(12)
+OSD_PREFERRED_ROWS :: u16(13)
 OSD_TEXT_RENDERING_PREFERRED_ROWS :: u16(8)
 OSD_FONT_PREFERRED_ROWS :: u16(5)
 OSD_FONT_LIST_PREFERRED_ROWS :: u16(14)
+OSD_COLOUR_THEME_LIST_PREFERRED_ROWS :: u16(14)
 OSD_KEY_BINDING_PREFERRED_ROWS :: u16(6)
 OSD_COPY_PASTE_PREFERRED_ROWS :: u16(10)
 OSD_PASTE_CONFIRM_PREFERRED_ROWS :: u16(6)
@@ -66,6 +68,7 @@ Osd_Page :: enum u8 {
 	Text_Rendering,
 	Font,
 	Font_List,
+	Colour_Theme_List,
 	Key_Bindings,
 	Copy_Paste,
 	Paste_Confirm,
@@ -121,6 +124,14 @@ osd_page_metadata :: proc(page: Osd_Page) -> Osd_Page_Metadata {
 			parent = .Font,
 			return_row = int(Osd_Font_Row.Family),
 		}
+	case .Colour_Theme_List:
+		return {
+			title = "Colour themes",
+			preferred_rows = OSD_COLOUR_THEME_LIST_PREFERRED_ROWS,
+			footer = "↕ Navigate  R Reset  Esc Back",
+			parent = .Main,
+			return_row = int(Osd_Main_Row.Colour_Themes),
+		}
 	case .Key_Bindings:
 		return {
 			title = "Key bindings",
@@ -161,6 +172,7 @@ Osd_State :: struct {
 	comma_suppressed: bool,
 	font_list_candidate: int,
 	font_list_top:       int,
+	colour_theme_list_top: int,
 	font_search:         string,
 	font_search_deadline: f64,
 	font_error:          string,
@@ -174,6 +186,7 @@ Application_Settings_Change_Flag :: enum u8 {
 	Layout,
 	Cursor,
 	Window_Style,
+	Colour_Theme,
 	Persist,
 }
 
@@ -335,6 +348,7 @@ osd_row_text :: proc(
 	switch row {
 	case .Text_Rendering: return "Text rendering", ">"
 	case .Font: return "Font", ">"
+	case .Colour_Themes: return "Colour themes", colour_theme_name(settings.colour_theme)
 	case .Cursor_Animation: return "Cursor animation", settings_cursor_animation_name(settings.cursor_animation)
 	case .Padding: return "Padding", fmt.tprintf("%d px", settings.padding)
 	case .Padding_Glow:
@@ -469,7 +483,7 @@ osd_page_row_enabled :: proc(
 		return osd_font_row_enabled(catalog, Osd_Font_Row(row))
 	case .Key_Bindings, .Copy_Paste:
 		return true
-	case .Font_List, .Paste_Confirm:
+	case .Font_List, .Colour_Theme_List, .Paste_Confirm:
 		return false
 	}
 	return false
@@ -483,7 +497,7 @@ osd_page_row_presentation :: proc(
 	if !enabled || row < 0 || row >= osd_page_row_count(page) do return .Read_Only
 	if page == .Main {
 		switch Osd_Main_Row(row) {
-		case .Text_Rendering, .Font, .Key_Bindings, .Copy_Paste:
+		case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste:
 			return .Submenu
 		case .Cursor_Animation, .Padding, .Padding_Glow, .Nerd_Font_Symbols, .Window_Style:
 		}
@@ -544,7 +558,7 @@ osd_page_row_text :: proc(
 		return osd_key_binding_row_text(settings, Osd_Key_Binding_Row(row))
 	case .Copy_Paste:
 		return osd_copy_paste_row_text(settings, Osd_Copy_Paste_Row(row))
-	case .Font_List, .Paste_Confirm:
+	case .Font_List, .Colour_Theme_List, .Paste_Confirm:
 		return "", ""
 	}
 	return "", ""
@@ -574,7 +588,7 @@ osd_page_adjust_setting :: proc(
 		return osd_adjust_key_binding(settings, Osd_Key_Binding_Row(selected), direction)
 	case .Copy_Paste:
 		return osd_adjust_copy_paste(settings, Osd_Copy_Paste_Row(selected), direction)
-	case .Font_List, .Paste_Confirm:
+	case .Font_List, .Colour_Theme_List, .Paste_Confirm:
 		return {}
 	}
 	return {}
@@ -603,7 +617,7 @@ osd_page_reset_setting :: proc(
 		return osd_reset_key_binding(settings, Osd_Key_Binding_Row(selected))
 	case .Copy_Paste:
 		return osd_reset_copy_paste(settings, Osd_Copy_Paste_Row(selected))
-	case .Font_List, .Paste_Confirm:
+	case .Font_List, .Colour_Theme_List, .Paste_Confirm:
 		return {}
 	}
 	return {}
@@ -624,6 +638,10 @@ osd_open_submenu :: proc(
 		case .Font:
 			osd.page = .Font
 			osd.selected = osd_font_row_enabled(catalog, .Family) ? int(Osd_Font_Row.Family) : int(Osd_Font_Row.Size)
+		case .Colour_Themes:
+			osd.page = .Colour_Theme_List
+			osd.selected = int(settings.colour_theme)
+			osd.colour_theme_list_top = 0
 		case .Key_Bindings:
 			osd.page = .Key_Bindings
 			osd.selected = int(Osd_Key_Binding_Row.Page_Scrolling)
@@ -662,6 +680,22 @@ osd_font_list_count :: proc(catalog: ^Font_Catalog) -> int {
 
 osd_font_list_visible_rows :: proc(osd: ^Osd_State) -> int {
 	return max(1, int(osd.rows) - 3)
+}
+
+osd_colour_theme_list_visible_rows :: proc(osd: ^Osd_State) -> int {
+	return max(1, int(osd.rows) - 3)
+}
+
+osd_colour_theme_list_clamp_top :: proc(osd: ^Osd_State) {
+	count := len(COLOUR_THEMES)
+	visible := osd_colour_theme_list_visible_rows(osd)
+	osd.selected = clamp(osd.selected, 0, count - 1)
+	if osd.selected < osd.colour_theme_list_top {
+		osd.colour_theme_list_top = osd.selected
+	} else if osd.selected >= osd.colour_theme_list_top + visible {
+		osd.colour_theme_list_top = osd.selected - visible + 1
+	}
+	osd.colour_theme_list_top = clamp(osd.colour_theme_list_top, 0, max(0, count - visible))
 }
 
 osd_font_list_clamp_top :: proc(osd: ^Osd_State, catalog: ^Font_Catalog) {
@@ -759,6 +793,29 @@ osd_rebuild :: proc(
 		osd.dirty = true
 		return
 	}
+	if osd.page == .Colour_Theme_List {
+		metadata := osd_page_metadata(.Colour_Theme_List)
+		osd_colour_theme_list_clamp_top(osd)
+		osd_write_text(osd, resources, 0, 0, metadata.title)
+		visible := osd_colour_theme_list_visible_rows(osd)
+		for visible_index in 0 ..< visible {
+			list_index := osd.colour_theme_list_top + visible_index
+			if list_index >= len(COLOUR_THEMES) do break
+			row := visible_index + 2
+			if list_index == osd.selected do osd_fill_row(osd, row, OSD_SELECTED_BACKGROUND)
+			marker := list_index == int(settings.colour_theme) ? "* " : "  "
+			osd_write_text(
+				osd,
+				resources,
+				row,
+				0,
+				fmt.tprintf("%s%s", marker, colour_theme_name(Colour_Theme(list_index))),
+			)
+		}
+		osd_write_text(osd, resources, int(osd.rows) - 1, 0, metadata.footer, OSD_MUTED)
+		osd.dirty = true
+		return
+	}
 	metadata := osd_page_metadata(osd.page)
 	title := metadata.title
 	if osd.page == .Main do title = osd_main_title_text()
@@ -818,6 +875,9 @@ osd_reset_setting :: proc(
 		settings.font_family = defaults.font_family
 		settings.font_size = defaults.font_size
 		return {.Font_Resources, .Layout}
+	case .Colour_Themes:
+		settings.colour_theme = defaults.colour_theme
+		return {.Colour_Theme}
 	case .Cursor_Animation:
 		settings.cursor_animation = defaults.cursor_animation
 		return {.Cursor}
@@ -1023,7 +1083,7 @@ osd_adjust_setting :: proc(
 	direction: int,
 ) -> Application_Settings_Change {
 	switch selected {
-	case .Text_Rendering, .Font, .Key_Bindings, .Copy_Paste:
+	case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste:
 		return {}
 	case .Cursor_Animation:
 		count := int(Cursor_Animation_Policy.Steady) + 1

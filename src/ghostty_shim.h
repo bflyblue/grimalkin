@@ -159,6 +159,11 @@ int grimalkin_ghostty_new(uint16_t cols,
                      const size_t *max_scrollback_lines,
                      uint64_t kitty_storage_limit,
                      GrimalkinGhostty **out_terminal);
+int grimalkin_ghostty_set_colour_theme(GrimalkinGhostty *terminal,
+                                       uint32_t foreground_rgb,
+                                       uint32_t background_rgb,
+                                       uint32_t cursor_rgb,
+                                       const uint32_t *palette16_rgb);
 void grimalkin_ghostty_free(GrimalkinGhostty *terminal);
 void grimalkin_ghostty_write(GrimalkinGhostty *terminal, const uint8_t *data, size_t len);
 int grimalkin_ghostty_resize(GrimalkinGhostty *terminal,
