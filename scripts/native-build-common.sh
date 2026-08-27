@@ -54,7 +54,9 @@ grimalkin_stage_make_work_tree() {
 
   "$cmake" -E remove_directory "$work_tree"
   mkdir -p "$work_tree"
-  cp -R "$project_root/src" "$work_tree/src"
-  cp "$project_root/Makefile" "$work_tree/Makefile"
+	cp -R "$project_root/src" "$work_tree/src"
+	mkdir -p "$work_tree/assets"
+	cp -R "$project_root/assets/fonts" "$work_tree/assets/fonts"
+	cp "$project_root/Makefile" "$work_tree/Makefile"
   cp "$project_root/VERSION" "$work_tree/VERSION"
 }
