@@ -168,6 +168,19 @@ paste_from_clipboard :: proc(app: ^Grimalkin_App) -> bool {
 	return paste_request(app, clipboard_text(app))
 }
 
+terminal_clipboard_respond_for_policy :: proc(
+	terminal: ^Terminal_Core,
+	policy: Terminal_Clipboard_Policy,
+	clipboard: []u8,
+) -> bool {
+	if policy == .Read_Write {
+		return terminal_core_clipboard_respond(terminal, clipboard)
+	}
+	// A denied OSC 52 read still needs a protocol response so the requester
+	// does not wait indefinitely; an empty value discloses no clipboard data.
+	return terminal_core_clipboard_respond(terminal, nil)
+}
+
 process_terminal_clipboard :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil || app.demo.terminal.handle == nil do return
 	for _ in 0 ..< 4 {
@@ -188,9 +201,13 @@ process_terminal_clipboard :: proc(app: ^Grimalkin_App) {
 				if c_error == nil do glfw.SetClipboardString(app.window, c_text)
 			}
 		case .Read:
-			if app.settings.terminal_clipboard == .Read_Write {
-				_ = terminal_core_clipboard_respond(&app.demo.terminal, clipboard_text(app))
-			}
+			clipboard: []u8
+			if app.settings.terminal_clipboard == .Read_Write do clipboard = clipboard_text(app)
+			_ = terminal_clipboard_respond_for_policy(
+				&app.demo.terminal,
+				app.settings.terminal_clipboard,
+				clipboard,
+			)
 		}
 	}
 }

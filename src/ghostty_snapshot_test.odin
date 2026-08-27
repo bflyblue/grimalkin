@@ -446,14 +446,76 @@ ghostty_osc52_observer_handles_split_bel_and_st_sequences :: proc(t: ^testing.T)
 	terminal_write_string(&terminal, "\x1b]52;c;not-base64\x07")
 	invalid_data: []u8
 	event, invalid_data, ok = terminal_core_clipboard_poll(&terminal)
-	defer delete(invalid_data)
 	testing.expect(t, ok)
 	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.None)
+	delete(invalid_data)
 
+	// libghostty-vt is the authority for protocol decoding. It accepts this
+	// non-canonical spelling of a single zero byte, so the shim must not apply a
+	// second, contradictory Base64 policy.
 	terminal_write_string(&terminal, "\x1b]52;c;AB==\x07")
 	event, invalid_data, ok = terminal_core_clipboard_poll(&terminal)
 	testing.expect(t, ok)
-	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.None)
+	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.Write)
+	testing.expect_value(t, len(invalid_data), 1)
+	testing.expect_value(t, invalid_data[0], u8(0))
+	delete(invalid_data)
+}
+
+@(test)
+ghostty_osc52_events_preserve_write_read_write_order :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 4, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_write_string(
+		&terminal,
+		"\x1b]52;c;b25l\x07\x1b]52;c;?\x1b\\\x1b]52;c;dHdv\x07",
+	)
+
+	event, data, ok := terminal_core_clipboard_poll(&terminal)
+	testing.expect(t, ok)
+	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.Write)
+	testing.expect_value(t, string(data), "one")
+	delete(data)
+	event, data, ok = terminal_core_clipboard_poll(&terminal)
+	testing.expect(t, ok)
+	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.Read)
+	testing.expect_value(t, len(data), 0)
+	delete(data)
+	event, data, ok = terminal_core_clipboard_poll(&terminal)
+	defer delete(data)
+	testing.expect(t, ok)
+	testing.expect_value(t, event, Terminal_Clipboard_Event_Type.Write)
+	testing.expect_value(t, string(data), "two")
+}
+
+@(test)
+terminal_clipboard_policy_always_answers_reads_without_disclosing_when_denied :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 4, 32)
+	defer terminal_core_destroy(&terminal)
+	sink := Ghostty_Test_Sink{}
+	terminal_core_set_write_pty(&terminal, ghostty_test_write_pty, &sink)
+	secret: string = "secret"
+
+	testing.expect(t, terminal_clipboard_respond_for_policy(
+		&terminal,
+		.Blocked,
+		transmute([]u8)secret,
+	))
+	testing.expect_value(t, string(sink.bytes[:sink.len]), "\x1b]52;c;\x1b\\")
+	sink.len = 0
+	testing.expect(t, terminal_clipboard_respond_for_policy(
+		&terminal,
+		.Write_Only,
+		transmute([]u8)secret,
+	))
+	testing.expect_value(t, string(sink.bytes[:sink.len]), "\x1b]52;c;\x1b\\")
+	sink.len = 0
+	testing.expect(t, terminal_clipboard_respond_for_policy(
+		&terminal,
+		.Read_Write,
+		transmute([]u8)secret,
+	))
+	testing.expect_value(t, string(sink.bytes[:sink.len]), "\x1b]52;c;c2VjcmV0\x1b\\")
 }
 
 @(test)
