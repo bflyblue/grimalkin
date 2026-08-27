@@ -29,9 +29,9 @@ Font_Catalog :: struct {
 
 font_ascii_equal_fold :: proc(left, right: string) -> bool {
 	if len(left) != len(right) do return false
-	for byte, index in left {
-		a := byte
-		b := rune(right[index])
+	for index in 0 ..< len(left) {
+		a := left[index]
+		b := right[index]
 		if a >= 'A' && a <= 'Z' do a += 'a' - 'A'
 		if b >= 'A' && b <= 'Z' do b += 'a' - 'A'
 		if a != b do return false

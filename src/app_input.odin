@@ -509,20 +509,23 @@ selection_set_autoscroll :: proc(app: ^Grimalkin_App, framebuffer_y: f64) {
 	}
 }
 
+mouse_button_state_update :: proc(buttons: ^u16, button, action: c.int) {
+	if buttons == nil || button < 0 || button >= 16 do return
+	bit := u16(1) << u16(button)
+	if action == glfw.PRESS {
+		buttons^ |= bit
+	} else if action == glfw.RELEASE {
+		buttons^ &~= bit
+	}
+}
+
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
+	mouse_button_state_update(&app.mouse_buttons, button, action)
 	if app.osd.visible || app.paste_confirmation do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
-	if button >= 0 && button < 16 {
-		bit := u16(1) << u16(button)
-		if action == glfw.PRESS {
-			app.mouse_buttons |= bit
-		} else if action == glfw.RELEASE {
-			app.mouse_buttons &~= bit
-		}
-	}
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
 	x, y := glfw.GetCursorPos(window)
 
@@ -735,15 +738,91 @@ apply_window_style :: proc(app: ^Grimalkin_App) {
 	app.redraw = true
 }
 
+Colour_Theme_Apply_Proc :: #type proc(
+	userdata: rawptr,
+	terminal: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> Terminal_Colour_Theme_Result
+
+apply_terminal_colour_theme :: proc(
+	_: rawptr,
+	terminal: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> Terminal_Colour_Theme_Result {
+	return terminal_core_apply_colour_theme(terminal, theme)
+}
+
+colour_theme_result_name :: proc(result: Terminal_Colour_Theme_Result) -> string {
+	switch result {
+	case .Success:          return "success"
+	case .Invalid_Argument: return "invalid argument"
+	case .Out_Of_Memory:    return "out of memory"
+	case .Ghostty_Error:    return "libghostty-vt error"
+	}
+	return "unknown error"
+}
+
+colour_theme_failure_text :: proc(
+	result, recovery: Terminal_Colour_Theme_Result,
+) -> string {
+	if recovery == .Success {
+		switch result {
+		case .Invalid_Argument: return "Theme failed: invalid input; previous kept"
+		case .Out_Of_Memory:    return "Theme failed: out of memory; previous kept"
+		case .Ghostty_Error:    return "Theme failed: libghostty-vt; previous kept"
+		case .Success:          return ""
+		}
+	}
+	switch result {
+	case .Invalid_Argument: return "Theme invalid and recovery failed"
+	case .Out_Of_Memory:    return "Theme OOM and recovery failed"
+	case .Ghostty_Error:    return "Theme and recovery failed"
+	case .Success:          return "Theme recovery failed"
+	}
+	return "Theme and recovery failed"
+}
+
+settings_apply_colour_theme :: proc(
+	app: ^Grimalkin_App,
+	apply: Colour_Theme_Apply_Proc = apply_terminal_colour_theme,
+	userdata: rawptr = nil,
+) -> bool {
+	requested := app.settings.colour_theme
+	previous := app.applied_settings.colour_theme
+	result := apply(userdata, &app.demo.terminal, requested)
+	delete(app.osd.colour_theme_error)
+	app.osd.colour_theme_error = ""
+	if result == .Success do return true
+
+	recovery := apply(userdata, &app.demo.terminal, previous)
+	app.settings.colour_theme = previous
+	if app.osd.page == .Colour_Theme_List {
+		app.osd.selected = int(previous)
+		osd_scrollable_list_clamp(
+			&app.osd,
+			len(COLOUR_THEMES),
+			&app.osd.selected,
+			&app.osd.colour_theme_list_top,
+		)
+	}
+	app.osd.colour_theme_error = strings.clone(colour_theme_failure_text(result, recovery))
+	fmt.eprintfln(
+		"Grimalkin could not apply colour theme %s (%s); restoring %s returned %s",
+		colour_theme_name(requested),
+		colour_theme_result_name(result),
+		colour_theme_name(previous),
+		colour_theme_result_name(recovery),
+	)
+	return false
+}
+
 settings_changed :: proc(app: ^Grimalkin_App, change: Application_Settings_Change) {
 	if change == {} do return
 	app.settings_save_pending = true
 	app.settings_save_deadline = glfw.GetTime() + 0.4
 	if .Colour_Theme in change {
 		if app.demo != nil {
-			if !terminal_core_set_colour_theme(&app.demo.terminal, app.settings.colour_theme) {
-				fmt.panicf("libghostty-vt could not apply colour theme %s", colour_theme_name(app.settings.colour_theme))
-			}
+			_ = settings_apply_colour_theme(app)
 			app.demo.compiler.force_full_recompile = true
 			_ = refresh_terminal_display(app)
 		}
@@ -820,38 +899,34 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
-		change = {.Font_Resources, .Layout, .Cursor, .Window_Style, .Colour_Theme}
+		osd_global_reset_selection(&app.osd, app.settings)
+		change = APPLICATION_SETTINGS_RESET_CHANGES
 		settings_changed(app, change)
 		return
 	}
 	if app.osd.page == .Colour_Theme_List {
 		count := len(COLOUR_THEMES)
-		visible := osd_colour_theme_list_visible_rows(&app.osd)
 		before := app.osd.selected
 		switch key {
 		case glfw.KEY_ESCAPE, glfw.KEY_LEFT:
-			app.osd.page = .Main
-			app.osd.selected = int(Osd_Main_Row.Colour_Themes)
-		case glfw.KEY_UP:
-			app.osd.selected = max(0, app.osd.selected - 1)
-		case glfw.KEY_DOWN:
-			app.osd.selected = min(count - 1, app.osd.selected + 1)
-		case glfw.KEY_PAGE_UP:
-			app.osd.selected = max(0, app.osd.selected - visible)
-		case glfw.KEY_PAGE_DOWN:
-			app.osd.selected = min(count - 1, app.osd.selected + visible)
-		case glfw.KEY_HOME:
-			app.osd.selected = 0
-		case glfw.KEY_END:
-			app.osd.selected = count - 1
+			_ = osd_close_submenu(&app.osd)
 		case glfw.KEY_R:
 			app.osd.selected = int(Colour_Theme.Ghostty)
+		case:
+			_ = osd_scrollable_list_navigate(&app.osd, key, count, &app.osd.selected)
 		}
 		if app.osd.page == .Colour_Theme_List && app.osd.selected != before {
 			app.settings.colour_theme = Colour_Theme(app.osd.selected)
 			change = {.Colour_Theme}
 		}
-		osd_colour_theme_list_clamp_top(&app.osd)
+		if app.osd.page == .Colour_Theme_List {
+			osd_scrollable_list_clamp(
+				&app.osd,
+				count,
+				&app.osd.selected,
+				&app.osd.colour_theme_list_top,
+			)
+		}
 		settings_changed(app, change)
 		if change == {} do osd_prepare(app)
 		app.redraw = true
@@ -859,55 +934,54 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	}
 	if app.osd.page == .Font_List {
 		count := osd_font_list_count(app.font_catalog)
-		visible := osd_font_list_visible_rows(&app.osd)
-		switch key {
-		case glfw.KEY_ESCAPE:
-			if app.osd.font_search != "" {
-				delete(app.osd.font_search)
-				app.osd.font_search = ""
+		if !osd_scrollable_list_navigate(
+			&app.osd,
+			key,
+			count,
+			&app.osd.font_list_candidate,
+		) {
+			switch key {
+			case glfw.KEY_ESCAPE:
+				if app.osd.font_search != "" {
+					delete(app.osd.font_search)
+					app.osd.font_search = ""
 				}
 				app.osd.page = .Font
 				app.osd.selected = int(Osd_Font_Row.Family)
-		case glfw.KEY_UP:
-			app.osd.font_list_candidate = max(0, app.osd.font_list_candidate - 1)
-		case glfw.KEY_DOWN:
-			app.osd.font_list_candidate = min(count - 1, app.osd.font_list_candidate + 1)
-		case glfw.KEY_PAGE_UP:
-			app.osd.font_list_candidate = max(0, app.osd.font_list_candidate - visible)
-		case glfw.KEY_PAGE_DOWN:
-			app.osd.font_list_candidate = min(count - 1, app.osd.font_list_candidate + visible)
-		case glfw.KEY_HOME:
-			app.osd.font_list_candidate = 0
-		case glfw.KEY_END:
-			app.osd.font_list_candidate = count - 1
-		case glfw.KEY_BACKSPACE:
-			if app.osd.font_search != "" {
-				end := len(app.osd.font_search) - 1
-				for end > 0 && (u8(app.osd.font_search[end]) & 0xc0) == 0x80 do end -= 1
-				replacement := strings.clone(app.osd.font_search[:end])
-				delete(app.osd.font_search)
-				app.osd.font_search = replacement
-				app.osd.font_search_deadline = glfw.GetTime() + 1.25
-				osd_font_search_next(&app.osd, app.font_catalog)
-			}
-		case glfw.KEY_ENTER:
-			if app.osd.font_list_candidate == 0 {
-				app.settings.font_family = font_family_setting_auto()
-			} else {
-				index := app.osd.font_list_candidate - 1
-				if index >= 0 && index < len(app.font_catalog.families) {
-					app.settings.font_family, _ = font_family_setting_make(
-						app.font_catalog.families[index].name,
-					)
+			case glfw.KEY_BACKSPACE:
+				if app.osd.font_search != "" {
+					end := len(app.osd.font_search) - 1
+					for end > 0 && (u8(app.osd.font_search[end]) & 0xc0) == 0x80 do end -= 1
+					replacement := strings.clone(app.osd.font_search[:end])
+					delete(app.osd.font_search)
+					app.osd.font_search = replacement
+					app.osd.font_search_deadline = glfw.GetTime() + 1.25
+					osd_font_search_next(&app.osd, app.font_catalog)
 				}
-			}
-			delete(app.osd.font_error)
+			case glfw.KEY_ENTER:
+				if app.osd.font_list_candidate == 0 {
+					app.settings.font_family = font_family_setting_auto()
+				} else {
+					index := app.osd.font_list_candidate - 1
+					if index >= 0 && index < len(app.font_catalog.families) {
+						app.settings.font_family, _ = font_family_setting_make(
+							app.font_catalog.families[index].name,
+						)
+					}
+				}
+				delete(app.osd.font_error)
 				app.osd.font_error = ""
 				app.osd.page = .Font
 				app.osd.selected = int(Osd_Font_Row.Family)
-			change = {.Font_Resources, .Layout}
+				change = {.Font_Resources, .Layout}
+			}
 		}
-		osd_font_list_clamp_top(&app.osd, app.font_catalog)
+		osd_scrollable_list_clamp(
+			&app.osd,
+			count,
+			&app.osd.font_list_candidate,
+			&app.osd.font_list_top,
+		)
 		settings_changed(app, change)
 		if change == {} do osd_prepare(app)
 		app.redraw = true

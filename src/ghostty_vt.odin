@@ -14,6 +14,9 @@ when ODIN_OS == .Windows {
 }
 
 GRIMALKIN_GHOSTTY_OK :: 0
+GRIMALKIN_GHOSTTY_INVALID_ARGUMENT :: -100
+GRIMALKIN_GHOSTTY_OUT_OF_MEMORY :: -101
+GRIMALKIN_GHOSTTY_GHOSTTY_ERROR :: -102
 GRIMALKIN_GHOSTTY_OUT_OF_SPACE :: -103
 GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED :: u8(0)
 GRIMALKIN_GHOSTTY_COMPRESSION_PENDING :: u8(1)
@@ -66,6 +69,13 @@ Terminal_Clipboard_Event_Type :: enum u8 {
 	None  = 0,
 	Write = 1,
 	Read  = 2,
+}
+
+Terminal_Colour_Theme_Result :: enum u8 {
+	Success,
+	Invalid_Argument,
+	Out_Of_Memory,
+	Ghostty_Error,
 }
 
 Grimalkin_Ghostty_Impl :: struct {}
@@ -326,10 +336,13 @@ register_kitty_png_decoder :: proc "contextless" () {
 
 // Negative scrollback limits are passed as NULL, which is libghostty-vt's
 // unlimited value. Zero remains an explicit limit and disables scrollback.
+// Apply the initial theme here so the Odin catalogue is the sole owner of
+// Grimalkin's colours, including when new terminal entry points are added.
 terminal_core_init_configured :: proc(
 	cols, rows: u16,
 	scrollback_limit_bytes, scrollback_limit_lines: i128,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Terminal_Core {
 	if !settings_scrollback_limit_valid(scrollback_limit_bytes) ||
 	   !settings_scrollback_limit_valid(scrollback_limit_lines) {
@@ -361,6 +374,10 @@ terminal_core_init_configured :: proc(
 	if result != GRIMALKIN_GHOSTTY_OK {
 		fmt.panicf("libghostty-vt terminal creation failed (bridge error %d)", result)
 	}
+	if !terminal_core_set_colour_theme(&terminal, colour_theme) {
+		terminal_core_destroy(&terminal)
+		fmt.panicf("libghostty-vt could not apply the initial colour theme")
+	}
 	return terminal
 }
 
@@ -370,6 +387,7 @@ terminal_core_init :: proc(
 	cols, rows: u16,
 	max_scrollback_lines: int,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Terminal_Core {
 	return terminal_core_init_configured(
 		cols,
@@ -377,6 +395,7 @@ terminal_core_init :: proc(
 		-1,
 		i128(max_scrollback_lines),
 		kitty_image_storage_mb,
+		colour_theme,
 	)
 }
 
@@ -387,21 +406,35 @@ terminal_core_destroy :: proc(terminal: ^Terminal_Core) {
 	}
 }
 
-terminal_core_set_colour_theme :: proc(
+terminal_colour_theme_result :: proc(result: c.int) -> Terminal_Colour_Theme_Result {
+	switch result {
+	case GRIMALKIN_GHOSTTY_OK:               return .Success
+	case GRIMALKIN_GHOSTTY_INVALID_ARGUMENT: return .Invalid_Argument
+	case GRIMALKIN_GHOSTTY_OUT_OF_MEMORY:    return .Out_Of_Memory
+	case GRIMALKIN_GHOSTTY_GHOSTTY_ERROR:    return .Ghostty_Error
+	}
+	return .Ghostty_Error
+}
+
+terminal_core_apply_colour_theme :: proc(
 	terminal: ^Terminal_Core,
 	theme: Colour_Theme,
-) -> bool {
-	if terminal == nil || terminal.handle == nil do return false
+) -> Terminal_Colour_Theme_Result {
+	if terminal == nil || terminal.handle == nil do return .Invalid_Argument
 	theme_data := colour_theme_data(theme)
 	palette_pointer: rawptr
-	if !theme_data.use_ghostty_palette do palette_pointer = raw_data(theme_data.palette[:])
-	return grimalkin_ghostty_set_colour_theme(
+	if theme != .Ghostty do palette_pointer = raw_data(theme_data.palette[:])
+	return terminal_colour_theme_result(grimalkin_ghostty_set_colour_theme(
 		terminal.handle,
 		theme_data.foreground,
 		theme_data.background,
 		theme_data.cursor,
 		palette_pointer,
-	) == GRIMALKIN_GHOSTTY_OK
+	))
+}
+
+terminal_core_set_colour_theme :: proc(terminal: ^Terminal_Core, theme: Colour_Theme) -> bool {
+	return terminal_core_apply_colour_theme(terminal, theme) == .Success
 }
 
 terminal_core_write :: proc(terminal: ^Terminal_Core, data: []u8) {

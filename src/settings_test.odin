@@ -35,7 +35,7 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	testing.expect(t, expected.clipboard_insert_shortcuts)
 	testing.expect(t, expected.copy_on_select)
 	testing.expect(t, expected.right_click_paste)
-	testing.expect(t, !expected.paste_protection)
+	testing.expect(t, expected.paste_protection)
 	testing.expect_value(t, expected.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
 	testing.expect_value(t, expected.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, expected.selection_style, Selection_Style.Solid)
@@ -53,12 +53,12 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 
 @(test)
 settings_json_round_trips_every_colour_theme :: proc(t: ^testing.T) {
-	for theme_data, index in COLOUR_THEMES {
+	for wire_name, index in SETTINGS_COLOUR_THEME_WIRE {
 		expected := application_settings_default()
 		expected.colour_theme = Colour_Theme(index)
 		data, encoded := settings_encode(expected, context.temp_allocator)
 		testing.expect(t, encoded)
-		testing.expect(t, strings.contains(string(data), fmt.tprintf(`"colour_theme": "%s"`, theme_data.wire_name)))
+		testing.expect(t, strings.contains(string(data), fmt.tprintf(`"colour_theme": "%s"`, wire_name)))
 		actual, valid := settings_decode(data)
 		testing.expect(t, valid)
 		testing.expect_value(t, actual.colour_theme, expected.colour_theme)
@@ -110,13 +110,18 @@ settings_json_accepts_partial_and_unknown_fields :: proc(t: ^testing.T) {
 	testing.expect(t, actual.clipboard_insert_shortcuts)
 	testing.expect(t, actual.copy_on_select)
 	testing.expect(t, actual.right_click_paste)
-	testing.expect(t, !actual.paste_protection)
+	testing.expect(t, actual.paste_protection)
 	testing.expect_value(t, actual.terminal_clipboard, Terminal_Clipboard_Policy.Write_Only)
 	testing.expect_value(t, actual.block_selection_whitespace, Block_Selection_Whitespace.Trim)
 	testing.expect_value(t, actual.selection_style, Selection_Style.Solid)
 	testing.expect_value(t, actual.scrollback_limit_bytes, 50_000_000)
 	testing.expect_value(t, actual.scrollback_limit_lines, -1)
 	testing.expect(t, actual.scrollback_compression)
+
+	explicitly_disabled := `{"version":1,"paste_protection":false}`
+	actual, valid = settings_decode(transmute([]byte)explicitly_disabled)
+	testing.expect(t, valid)
+	testing.expect(t, !actual.paste_protection)
 }
 
 @(test)

@@ -27,6 +27,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <util.h>
@@ -51,6 +52,7 @@ extern void glfwPostEmptyEvent(void);
 #endif
 
 #define GRIMALKIN_SESSION_QUEUE_CAPACITY (1024u * 1024u)
+#define GRIMALKIN_SESSION_SHUTDOWN_GRACE_MS 1000
 
 const char *grimalkin_version(void) { return GRIMALKIN_VERSION; }
 
@@ -63,6 +65,20 @@ static void wake_main_thread(void) {
   glfwPostEmptyEvent();
 #endif
 }
+
+#ifndef _WIN32
+static uint16_t session_pixel_extent(uint16_t cells, uint32_t cell_pixels) {
+  uint64_t extent = (uint64_t)cells * (uint64_t)cell_pixels;
+  return extent > UINT16_MAX ? UINT16_MAX : (uint16_t)extent;
+}
+
+#ifdef GRIMALKIN_SESSION_TEST
+uint16_t grimalkin_session_test_pixel_extent(uint16_t cells,
+                                             uint32_t cell_pixels) {
+  return session_pixel_extent(cells, cell_pixels);
+}
+#endif
+#endif
 
 int grimalkin_atomic_replace_file(const char *temporary, const char *destination) {
   if (temporary == NULL || destination == NULL) return 0;
@@ -742,8 +758,12 @@ int grimalkin_session_new(uint16_t cols, uint16_t rows,
   }
 
   HANDLE input_read = NULL, output_write = NULL;
-  if (!CreatePipe(&input_read, &session->input_write, NULL, 0) ||
-      !CreatePipe(&session->output_read, &output_write, NULL, 0)) {
+  if (!CreatePipe(&input_read, &session->input_write, NULL, 0)) {
+    grimalkin_session_free(session);
+    return GRIMALKIN_SESSION_SPAWN_FAILED;
+  }
+  if (!CreatePipe(&session->output_read, &output_write, NULL, 0)) {
+    CloseHandle(input_read);
     grimalkin_session_free(session);
     return GRIMALKIN_SESSION_SPAWN_FAILED;
   }
@@ -1178,6 +1198,27 @@ static int nonblocking_cloexec(int fd) {
          fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC) == 0;
 }
 
+static pid_t waitpid_nointr(pid_t child, int *status, int options) {
+  pid_t result;
+  do {
+    result = waitpid(child, status, options);
+  } while (result < 0 && errno == EINTR);
+  return result;
+}
+
+static int wait_for_child_exit(pid_t child, int *status, int timeout_ms) {
+  const struct timespec delay = {.tv_sec = 0, .tv_nsec = 10 * 1000 * 1000};
+  for (int elapsed = 0; elapsed <= timeout_ms; elapsed += 10) {
+    pid_t result = waitpid_nointr(child, status, WNOHANG);
+    if (result == child || (result < 0 && errno == ECHILD)) return 1;
+    if (result < 0) return 0;
+    if (elapsed == timeout_ms) break;
+    struct timespec remaining = delay;
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {}
+  }
+  return 0;
+}
+
 int grimalkin_session_new(uint16_t cols, uint16_t rows,
                           uint32_t cell_width_px, uint32_t cell_height_px,
                           GrimalkinSession **out_session) {
@@ -1209,8 +1250,8 @@ int grimalkin_session_new(uint16_t cols, uint16_t rows,
   struct winsize size = {
       .ws_row = rows,
       .ws_col = cols,
-      .ws_xpixel = (unsigned short)(cols * cell_width_px),
-      .ws_ypixel = (unsigned short)(rows * cell_height_px),
+      .ws_xpixel = session_pixel_extent(cols, cell_width_px),
+      .ws_ypixel = session_pixel_extent(rows, cell_height_px),
   };
   char *shell = strdup(unix_shell());
   const char *home = unix_home_directory();
@@ -1262,9 +1303,13 @@ void grimalkin_session_free(GrimalkinSession *session) {
   if (session->control_write >= 0) close(session->control_write);
   if (session->child > 0) {
     int status = 0;
-    if (waitpid(session->child, &status, WNOHANG) == 0) {
+    if (waitpid_nointr(session->child, &status, WNOHANG) == 0) {
       kill(session->child, SIGHUP);
-      waitpid(session->child, &status, 0);
+      if (!wait_for_child_exit(session->child, &status,
+                               GRIMALKIN_SESSION_SHUTDOWN_GRACE_MS)) {
+        kill(session->child, SIGKILL);
+        (void)waitpid_nointr(session->child, &status, 0);
+      }
     }
   }
   free(session->incoming.data);
@@ -1306,8 +1351,8 @@ int grimalkin_session_resize(GrimalkinSession *session, uint16_t cols,
   struct winsize size = {
       .ws_row = rows,
       .ws_col = cols,
-      .ws_xpixel = (unsigned short)(cols * cell_width_px),
-      .ws_ypixel = (unsigned short)(rows * cell_height_px),
+      .ws_xpixel = session_pixel_extent(cols, cell_width_px),
+      .ws_ypixel = session_pixel_extent(rows, cell_height_px),
   };
   return ioctl(session->master, TIOCSWINSZ, &size) == 0
              ? GRIMALKIN_SESSION_OK : GRIMALKIN_SESSION_IO_ERROR;

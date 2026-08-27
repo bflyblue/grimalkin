@@ -37,6 +37,27 @@ ghostty_test_theme_rgba :: proc(rgb: u32) -> u32 {
 }
 
 @(test)
+ghostty_colour_theme_results_preserve_the_bridge_error_category :: proc(t: ^testing.T) {
+	testing.expect_value(t, terminal_colour_theme_result(GRIMALKIN_GHOSTTY_OK), Terminal_Colour_Theme_Result.Success)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_INVALID_ARGUMENT),
+		Terminal_Colour_Theme_Result.Invalid_Argument,
+	)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_OUT_OF_MEMORY),
+		Terminal_Colour_Theme_Result.Out_Of_Memory,
+	)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_GHOSTTY_ERROR),
+		Terminal_Colour_Theme_Result.Ghostty_Error,
+	)
+	testing.expect_value(t, terminal_colour_theme_result(-999), Terminal_Colour_Theme_Result.Ghostty_Error)
+}
+
+@(test)
 ghostty_colour_themes_update_defaults_ansi_palette_and_existing_rows :: proc(t: ^testing.T) {
 	terminal := terminal_core_init(8, 2, 32)
 	defer terminal_core_destroy(&terminal)
@@ -67,6 +88,20 @@ ghostty_colour_themes_update_defaults_ansi_palette_and_existing_rows :: proc(t: 
 	testing.expect_value(t, snapshot.cells[1].foreground_rgba, ghostty_test_theme_rgba(nord.palette[1]))
 	testing.expect_value(t, snapshot.cells[2].foreground_rgba, extended_colour)
 	testing.expect_value(t, snapshot.cells[3].foreground_rgba, truecolour)
+}
+
+@(test)
+ghostty_configured_initialization_applies_the_requested_theme :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(8, 2, 32, colour_theme = .Dracula)
+	defer terminal_core_destroy(&terminal)
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+
+	terminal_core_snapshot(&terminal, &snapshot)
+	dracula := colour_theme_data(.Dracula)
+	testing.expect_value(t, snapshot.default_foreground_rgba, ghostty_test_theme_rgba(dracula.foreground))
+	testing.expect_value(t, snapshot.default_background_rgba, ghostty_test_theme_rgba(dracula.background))
+	testing.expect_value(t, snapshot.cursor_rgba, ghostty_test_theme_rgba(dracula.cursor))
 }
 
 @(test)
