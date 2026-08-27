@@ -46,6 +46,8 @@ int main(void) {
                                        ENABLE_PROCESSED_INPUT))) {
       return 11;
     }
+    static const char ready[] = "__GRIMALKIN_LARGE_READY__";
+    if (!write_all(output, ready, sizeof(ready) - 1)) return 14;
     const size_t expected = 1024u * 1024u + 1024u;
     size_t received = 0;
     char block[16384];

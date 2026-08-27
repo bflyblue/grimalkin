@@ -189,7 +189,7 @@ int main(void) {
       GRIMALKIN_SESSION_OK) return 1;
   static const char quiet[] =
       "stty raw -echo; printf '__GRIMALKIN_LARGE_READY__'; "
-      "bytes=$(head -c 1049600 | wc -c); stty sane; "
+      "IFS= read -r payload; bytes=${#payload}; unset payload; stty sane; "
       "printf '__GRIMALKIN_LARGE_DONE__%s' \"$bytes\"; exit 6\n";
   if (grimalkin_session_write(session, (const uint8_t *)quiet,
                               sizeof(quiet) - 1) != GRIMALKIN_SESSION_OK) {
@@ -220,6 +220,7 @@ int main(void) {
     return 1;
   }
   memset(large, 'x', large_size);
+  large[large_size - 1] = '\n';
   int large_write = grimalkin_session_write(session, large, large_size);
   free(large);
   if (large_write != GRIMALKIN_SESSION_OK) {
@@ -232,7 +233,7 @@ int main(void) {
   completed = drain_until_exit(session, output, sizeof(output), &status);
   valid = completed && status.io_error == 0 && status.exited &&
       status.output_eof && status.exit_code == 6 &&
-      strstr(output, "__GRIMALKIN_LARGE_DONE__1049600") != NULL;
+      strstr(output, "__GRIMALKIN_LARGE_DONE__1049599") != NULL;
   if (!valid) {
     fprintf(stderr,
             "large PTY write failed: exited=%u eof=%u code=%d error=%d\n",
@@ -374,6 +375,30 @@ int main(int argc, char **argv) {
   session = NULL;
   if (grimalkin_session_new(80, 24, 10, 22, &session) !=
       GRIMALKIN_SESSION_OK) return 1;
+  memset(output, 0, sizeof(output));
+  length = 0;
+  memset(&status, 0, sizeof(status));
+  for (int step = 0; step < 1000; ++step) {
+    if (length + 1 < sizeof(output)) {
+      length += grimalkin_session_read(
+          session, (uint8_t *)output + length, sizeof(output) - length - 1);
+      output[length] = '\0';
+    }
+    grimalkin_session_status(session, &status);
+    if (strstr(output, "__GRIMALKIN_LARGE_READY__") != NULL ||
+        status.exited) break;
+    Sleep(10);
+  }
+  if (strstr(output, "__GRIMALKIN_LARGE_READY__") == NULL) {
+    fprintf(stderr,
+            "ConPTY large-input child was not ready: exited=%u eof=%u "
+            "code=%d error=%d output=%s\n",
+            status.exited, status.output_eof, status.exit_code,
+            status.io_error, output);
+    grimalkin_session_free(session);
+    SetEnvironmentVariableA("GRIMALKIN_SESSION_TEST_LARGE_INPUT", NULL);
+    return 1;
+  }
   const size_t large_size = TEST_QUEUE_CAPACITY + 1024;
   uint8_t *large = (uint8_t *)malloc(large_size);
   if (large == NULL) {
@@ -403,6 +428,13 @@ int main(int argc, char **argv) {
   valid = status.exited && status.output_eof && status.exit_code == 8 &&
       status.io_error == 0 &&
       strstr(output, "__GRIMALKIN_LARGE_INPUT__") != NULL;
+  if (!valid) {
+    fprintf(stderr,
+            "ConPTY large input failed: exited=%u eof=%u code=%d "
+            "error=%d output=%s\n",
+            status.exited, status.output_eof, status.exit_code,
+            status.io_error, output);
+  }
   grimalkin_session_free(session);
   SetEnvironmentVariableA("GRIMALKIN_SESSION_TEST_LARGE_INPUT", NULL);
   if (!valid) return 1;
