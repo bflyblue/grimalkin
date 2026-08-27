@@ -55,6 +55,17 @@ typedef struct {
 #define GRIMALKIN_CLIPBOARD_MAX_BYTES (1024u * 1024u)
 #define GRIMALKIN_CLIPBOARD_EVENT_COUNT 4u
 
+static int bridge_result(GhosttyResult result) {
+  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
+  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
+                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+}
+
+static int bridge_buffer_result(GhosttyResult result) {
+  if (result == GHOSTTY_OUT_OF_SPACE) return GRIMALKIN_GHOSTTY_OUT_OF_SPACE;
+  return bridge_result(result);
+}
+
 typedef struct {
   uint8_t type; /* 1 = write, 2 = read */
   uint8_t *data;
@@ -750,8 +761,7 @@ snapshot_images_error:
   free(image_allocations);
   free(images);
   free(placements);
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_result(result);
 }
 
 /* Set by grimalkin_ghostty_set_png_decoder. Kept as a registration so libpng
@@ -941,8 +951,7 @@ int grimalkin_ghostty_new(uint16_t cols,
 
 ghostty_error:
   grimalkin_ghostty_free(terminal);
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_result(result);
 }
 
 int grimalkin_ghostty_set_colour_theme(GrimalkinGhostty *terminal,
@@ -979,8 +988,7 @@ int grimalkin_ghostty_set_colour_theme(GrimalkinGhostty *terminal,
   if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
 
 ghostty_error:
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_result(result);
 }
 
 void grimalkin_ghostty_free(GrimalkinGhostty *terminal) {
@@ -1197,10 +1205,7 @@ int grimalkin_ghostty_encode_glfw_key(GrimalkinGhostty *terminal,
   GhosttyResult result = ghostty_key_encoder_encode(
       terminal->key_encoder, terminal->key_event, (char *)out, out_capacity,
       out_len);
-  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
-  if (result == GHOSTTY_OUT_OF_SPACE) return GRIMALKIN_GHOSTTY_OUT_OF_SPACE;
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_buffer_result(result);
 }
 
 int grimalkin_ghostty_mouse_tracking(GrimalkinGhostty *terminal,
@@ -1277,10 +1282,7 @@ int grimalkin_ghostty_encode_mouse(GrimalkinGhostty *terminal,
   GhosttyResult result = ghostty_mouse_encoder_encode(
       terminal->mouse_encoder, terminal->mouse_event, (char *)out,
       out_capacity, out_len);
-  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
-  if (result == GHOSTTY_OUT_OF_SPACE) return GRIMALKIN_GHOSTTY_OUT_OF_SPACE;
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_buffer_result(result);
 }
 
 int grimalkin_ghostty_selection_text(GrimalkinGhostty *terminal,
@@ -1322,10 +1324,7 @@ int grimalkin_ghostty_selection_text(GrimalkinGhostty *terminal,
   if (result != GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
   result = ghostty_formatter_format_buf(formatter, out, out_capacity, out_len);
   ghostty_formatter_free(formatter);
-  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
-  if (result == GHOSTTY_OUT_OF_SPACE) return GRIMALKIN_GHOSTTY_OUT_OF_SPACE;
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_buffer_result(result);
 }
 
 int grimalkin_ghostty_selection_bounds(GrimalkinGhostty *terminal,
@@ -1402,8 +1401,7 @@ int grimalkin_ghostty_selection_track(GrimalkinGhostty *terminal,
     *out_ref = ref;
     return GRIMALKIN_GHOSTTY_OK;
   }
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_result(result);
 }
 
 int grimalkin_ghostty_selection_track_set(void *raw_ref,
@@ -1415,9 +1413,7 @@ int grimalkin_ghostty_selection_track_set(void *raw_ref,
   }
   GhosttyResult result = ghostty_tracked_grid_ref_set(
       (GhosttyTrackedGridRef)raw_ref, terminal->terminal, screen_point(x, y));
-  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_result(result);
 }
 
 int grimalkin_ghostty_selection_track_point(void *raw_ref,
@@ -1475,10 +1471,7 @@ int grimalkin_ghostty_paste_encode(GrimalkinGhostty *terminal,
                                   out_capacity, out_len);
   }
   free(copy);
-  if (result == GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_OK;
-  if (result == GHOSTTY_OUT_OF_SPACE) return GRIMALKIN_GHOSTTY_OUT_OF_SPACE;
-  return result == GHOSTTY_OUT_OF_MEMORY ? GRIMALKIN_GHOSTTY_OUT_OF_MEMORY
-                                        : GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
+  return bridge_buffer_result(result);
 }
 
 int grimalkin_ghostty_clipboard_poll(GrimalkinGhostty *terminal,

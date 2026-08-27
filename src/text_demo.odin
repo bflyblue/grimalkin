@@ -279,13 +279,6 @@ demo_write_initial_transcript :: proc(demo: ^Grimalkin_Demo) {
 	terminal_write_string(&demo.terminal, "\x1b[15;25H")
 }
 
-grimalkin_demo_refresh :: proc(demo: ^Grimalkin_Demo) -> Display_Compile_Stats {
-	terminal_core_snapshot(&demo.terminal, &demo.snapshot)
-	stats := display_compile(&demo.compiler, &demo.snapshot, &demo.resources, &demo.grid, &demo.images)
-	demo_compile_tiles(demo)
-	return stats
-}
-
 grimalkin_demo_init_configured :: proc(
 	pixel_height: u16,
 	render_config: Font_Render_Config,
@@ -308,8 +301,8 @@ grimalkin_demo_init_configured :: proc(
 	demo.tile_atlases[1] = raster_atlas_init(&demo.resources.textures, .Colour_RGBA8)
 
 	demo_write_initial_transcript(&demo)
-	initial := grimalkin_demo_refresh(&demo)
-	warm_cache := grimalkin_demo_refresh(&demo)
+	initial := grimalkin_view_refresh(&demo)
+	warm_cache := grimalkin_view_refresh(&demo)
 	if warm_cache.rows_compiled != 0 ||
 	   warm_cache.shape_calls != 0 ||
 	   warm_cache.rasterizations != 0 ||
@@ -391,7 +384,7 @@ grimalkin_demo_apply_next_update :: proc(demo: ^Grimalkin_Demo) -> bool {
 		return false
 	}
 	demo.update_stage += 1
-	stats := grimalkin_demo_refresh(demo)
+	stats := grimalkin_view_refresh(demo)
 	fmt.printfln(
 		"Demo update %d: %d rows, %d shapes, %d rasterizations, %d image replacements",
 		demo.update_stage,

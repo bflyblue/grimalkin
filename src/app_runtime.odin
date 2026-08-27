@@ -39,6 +39,24 @@ refresh_display_rotation :: proc(app: ^Grimalkin_App) {
 	app.redraw = true
 }
 
+sample_render_frame_input :: proc(
+	app: ^Grimalkin_App,
+	now: f64,
+) -> (Render_Frame_Input, Cursor_Animation_Sample, Scroll_Indicator_Sample) {
+	cursor := sample_cursor_animation(app, now)
+	indicator := scroll_indicator_sample(
+		&app.scroll_indicator,
+		now,
+		app.demo.snapshot.viewport_active,
+	)
+	app.cursor_animation.next_sample_at = cursor.next_sample_at
+	return {
+		cursor_opacity = cursor.opacity,
+		text_opacity = cursor.text_opacity,
+		scroll_indicator_opacity = indicator.opacity,
+	}, cursor, indicator
+}
+
 run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	demo_mode := mode == .Demo
 	cursor_gpu_test := mode == .Cursor_Gpu_Test
@@ -281,21 +299,8 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			mem.free_all(context.temp_allocator)
 			glfw.PollEvents()
 			frame_time := glfw.GetTime()
-			cursor_sample := sample_cursor_animation(&app, frame_time)
-			indicator_sample := scroll_indicator_sample(
-				&app.scroll_indicator,
-				frame_time,
-				demo.snapshot.viewport_active,
-			)
-			app.cursor_animation.next_sample_at = cursor_sample.next_sample_at
-			sample := draw_frame(
-				&app,
-				{
-					cursor_opacity = cursor_sample.opacity,
-					text_opacity = cursor_sample.text_opacity,
-					scroll_indicator_opacity = indicator_sample.opacity,
-				},
-			)
+			input, _, _ := sample_render_frame_input(&app, frame_time)
+			sample := draw_frame(&app, input)
 			frames_rendered += 1
 			if frames_rendered > BENCHMARK_WARMUP_FRAMES {
 				benchmark_add_sample(&benchmark_samples, sample)
@@ -406,21 +411,9 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			if indicator_due do app.redraw = true
 			if app.redraw {
 				frame_time := glfw.GetTime()
-				cursor_sample = sample_cursor_animation(&app, frame_time)
-				indicator_sample = scroll_indicator_sample(
-					&app.scroll_indicator,
-					frame_time,
-					demo.snapshot.viewport_active,
-				)
-				app.cursor_animation.next_sample_at = cursor_sample.next_sample_at
-				_ = draw_frame(
-					&app,
-					{
-						cursor_opacity = cursor_sample.opacity,
-						text_opacity = cursor_sample.text_opacity,
-						scroll_indicator_opacity = indicator_sample.opacity,
-					},
-				)
+				input: Render_Frame_Input
+				input, cursor_sample, indicator_sample = sample_render_frame_input(&app, frame_time)
+				_ = draw_frame(&app, input)
 				app.redraw = false
 				frames_rendered += 1
 				if app.capture_complete && app.capture_exit do break

@@ -142,7 +142,7 @@ refresh_terminal_display :: proc(app: ^Grimalkin_App) -> Display_Compile_Stats {
 	// display_compile owns every write to the grid, so the hover underline is
 	// lifted before it runs and reapplied afterwards against the new snapshot.
 	url_hover_before_compile(app)
-	stats := grimalkin_demo_refresh(app.demo) if app.demo.demo_mode else grimalkin_view_refresh(app.demo)
+	stats := grimalkin_view_refresh(app.demo)
 	url_hover_after_compile(app)
 	if stats.glyph_cache_full {
 		app.glyph_cache_reset_pending = true
