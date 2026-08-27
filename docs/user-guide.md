@@ -70,6 +70,11 @@ Grimalkin's history instead. Alternate-screen applications manage their own
 visible history and Ghostty exposes no scrollback there, so the override is a
 no-op on the alternate screen.
 
+The position indicator at the right edge can be dragged with the left mouse
+button, including while an application has mouse reporting enabled. At live
+output the indicator normally fades away; move the pointer over its position to
+reveal it, and it will fade again after the pointer moves away.
+
 ## Selection and paste
 
 Drag with the left mouse button to select text. Hold `Ctrl` while dragging for

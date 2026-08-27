@@ -418,6 +418,10 @@ selection_update_mouse_cursor :: proc(app: ^Grimalkin_App) {
 		glfw.SetCursor(app.window, nil)
 		return
 	}
+	if app.scroll_indicator.hovered || app.scroll_indicator.dragging {
+		glfw.SetCursor(app.window, nil)
+		return
+	}
 	if app.url_hover.active {
 		glfw.SetCursor(app.window, app.url_hover_cursor)
 		return
@@ -492,6 +496,46 @@ mouse_framebuffer_position :: proc(app: ^Grimalkin_App, x, y: f64) -> (f64, f64)
 	return x * scale_x, y * scale_y
 }
 
+scroll_indicator_app_geometry :: proc(app: ^Grimalkin_App) -> Scroll_Indicator_Geometry {
+	if app == nil || app.demo == nil do return {}
+	return scroll_indicator_geometry(
+		app.extent,
+		text_render_area(app),
+		app.demo.snapshot.scroll_total_rows,
+		app.demo.snapshot.scroll_offset_rows,
+		app.demo.snapshot.scroll_visible_rows,
+		app.content_scale_x,
+		app.content_scale_y,
+	)
+}
+
+scroll_indicator_update_hover :: proc(
+	app: ^Grimalkin_App,
+	geometry: Scroll_Indicator_Geometry,
+	framebuffer_x, framebuffer_y, now: f64,
+) -> bool {
+	hovered := scroll_indicator_contains(geometry, framebuffer_x, framebuffer_y)
+	if scroll_indicator_set_hovered(&app.scroll_indicator, hovered, now) {
+		app.redraw = true
+	}
+	return hovered
+}
+
+scroll_indicator_drag_to_pointer :: proc(
+	app: ^Grimalkin_App,
+	geometry: Scroll_Indicator_Geometry,
+	framebuffer_y: f64,
+) {
+	target, ok := scroll_indicator_drag_target(
+		geometry,
+		framebuffer_y,
+		app.scroll_indicator.drag_anchor_y,
+	)
+	if !ok do return
+	delta := scroll_indicator_row_delta(app.demo.snapshot.scroll_offset_rows, target)
+	if delta != 0 do scroll_terminal_rows(app, delta)
+}
+
 mouse_selection_point :: proc(app: ^Grimalkin_App, x, y: f64) -> Selection_Point {
 	area := text_render_area(app)
 	metrics := app.demo.resources.cell_metrics
@@ -541,10 +585,42 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	app := app_from_window(window)
 	if app == nil do return
 	mouse_button_state_update(&app.mouse_buttons, button, action)
+	x, y := glfw.GetCursorPos(window)
+	framebuffer_x, framebuffer_y := mouse_framebuffer_position(app, x, y)
+	geometry := scroll_indicator_app_geometry(app)
+	if button == glfw.MOUSE_BUTTON_LEFT && action == glfw.RELEASE && app.scroll_indicator.dragging {
+		_ = scroll_indicator_mouse_button_update(
+			&app.scroll_indicator,
+			geometry,
+			i32(action),
+			framebuffer_x,
+			framebuffer_y,
+			glfw.GetTime(),
+		)
+		selection_update_mouse_cursor(app)
+		app.redraw = true
+		return
+	}
 	if app.osd.visible || app.paste_confirmation do return
+	if button == glfw.MOUSE_BUTTON_LEFT && action == glfw.PRESS {
+		indicator_update := scroll_indicator_mouse_button_update(
+			&app.scroll_indicator,
+			geometry,
+			i32(action),
+			framebuffer_x,
+			framebuffer_y,
+			glfw.GetTime(),
+		)
+		if indicator_update == .Drag_Began {
+			app.scroll_remainder = 0
+			url_hover_clear(app)
+			selection_update_mouse_cursor(app)
+			app.redraw = true
+			return
+		}
+	}
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
-	x, y := glfw.GetCursorPos(window)
 
 	// A modifier-click on a URL wins over both selection and mouse reporting;
 	// that is the point of holding the modifier. With nothing hovered it falls
@@ -601,9 +677,37 @@ cursor_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
-	url_hover_update(app)
-	selection_update_mouse_cursor(app)
 	if app.paste_confirmation || app.osd.visible do return
+	framebuffer_x, framebuffer_y := mouse_framebuffer_position(app, x, y)
+	geometry := scroll_indicator_app_geometry(app)
+	if app.scroll_indicator.dragging {
+		scroll_indicator_drag_to_pointer(app, geometry, framebuffer_y)
+		geometry = scroll_indicator_app_geometry(app)
+		_ = scroll_indicator_update_hover(
+			app,
+			geometry,
+			framebuffer_x,
+			framebuffer_y,
+			glfw.GetTime(),
+		)
+		selection_update_mouse_cursor(app)
+		app.redraw = true
+		return
+	}
+	hovered := scroll_indicator_update_hover(
+		app,
+		geometry,
+		framebuffer_x,
+		framebuffer_y,
+		glfw.GetTime(),
+	)
+	if hovered {
+		url_hover_clear(app)
+	} else {
+		url_hover_update(app)
+	}
+	selection_update_mouse_cursor(app)
+	if hovered do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
 	mods := current_mouse_modifiers(app)
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
@@ -611,7 +715,6 @@ cursor_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 		point := mouse_selection_point(app, x, y)
 		selection_extend(&app.selection, &app.demo.terminal, &app.demo.snapshot, point, x, y)
 		if app.selection.drag_threshold_passed {
-			_, framebuffer_y := mouse_framebuffer_position(app, x, y)
 			selection_set_autoscroll(app, framebuffer_y)
 		}
 		app.redraw = true
@@ -658,6 +761,9 @@ window_focus_callback :: proc "c" (window: glfw.WindowHandle, focused: c.int) {
 		// The modifier release lands in another window, so nothing else would
 		// ever lift the underline.
 		url_hover_clear(app)
+		if scroll_indicator_set_hovered(&app.scroll_indicator, false, glfw.GetTime()) {
+			app.redraw = true
+		}
 	}
 	selection_update_mouse_cursor(app)
 	app.redraw = true
@@ -1101,5 +1207,8 @@ cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: c.int) {
 	app := app_from_window(window)
 	if app == nil || entered != 0 do return
 	url_hover_clear(app)
+	if scroll_indicator_set_hovered(&app.scroll_indicator, false, glfw.GetTime()) {
+		app.redraw = true
+	}
 	selection_update_mouse_cursor(app)
 }
