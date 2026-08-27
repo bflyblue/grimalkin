@@ -452,6 +452,23 @@ Settings_Disk_Decode :: struct {
 	scrollback_compression: bool `json:"scrollback_compression"`,
 }
 
+SETTINGS_COLOUR_THEME_WIRE := [15]string {
+	"ghostty",
+	"dracula",
+	"nord",
+	"gruvbox_dark",
+	"gruvbox_light",
+	"solarized_dark",
+	"solarized_light",
+	"catppuccin_latte",
+	"catppuccin_frappe",
+	"catppuccin_macchiato",
+	"catppuccin_mocha",
+	"tokyo_night",
+	"rose_pine",
+	"rose_pine_moon",
+	"rose_pine_dawn",
+}
 SETTINGS_TEXT_SMOOTHING_WIRE := [3]string{"grayscale", "subpixel", "monochrome"}
 SETTINGS_TEXT_CONTRAST_WIRE := [4]string{"balanced", "crisp", "sharp", "very_sharp"}
 SETTINGS_FONT_HINTING_WIRE := [3]string{"normal", "light", "none"}
@@ -465,6 +482,7 @@ SETTINGS_TERMINAL_CLIPBOARD_WIRE := [3]string{"blocked", "write_only", "read_wri
 SETTINGS_BLOCK_WHITESPACE_WIRE := [2]string{"trim", "preserve"}
 SETTINGS_SELECTION_STYLE_WIRE := [3]string{"glass", "outline", "solid"}
 
+#assert(len(SETTINGS_COLOUR_THEME_WIRE) == int(Colour_Theme.Rose_Pine_Dawn) + 1)
 #assert(len(SETTINGS_TEXT_SMOOTHING_WIRE) == int(Text_Smoothing.Monochrome) + 1)
 #assert(len(SETTINGS_TEXT_CONTRAST_WIRE) == int(Text_Contrast.Very_Sharp) + 1)
 #assert(len(SETTINGS_FONT_HINTING_WIRE) == int(Font_Hinting.None) + 1)
@@ -501,7 +519,7 @@ settings_to_disk :: proc(
 	font_family := settings.font_family
 	return {
 		version          = SETTINGS_VERSION,
-		colour_theme     = colour_theme_wire_name(settings.colour_theme),
+		colour_theme     = settings_wire_encode(int(settings.colour_theme), SETTINGS_COLOUR_THEME_WIRE[:]),
 		text_smoothing   = settings_wire_encode(int(settings.text_smoothing), SETTINGS_TEXT_SMOOTHING_WIRE[:]),
 		text_contrast    = settings_wire_encode(int(settings.text_contrast), SETTINGS_TEXT_CONTRAST_WIRE[:]),
 		font_hinting     = settings_wire_encode(int(settings.font_hinting), SETTINGS_FONT_HINTING_WIRE[:]),
@@ -534,8 +552,8 @@ settings_to_disk :: proc(
 settings_from_disk :: proc(disk: Settings_Disk_Decode) -> (Application_Settings, bool) {
 	settings := application_settings_default()
 	valid := disk.version == SETTINGS_VERSION
-	if value, ok := colour_theme_from_wire(disk.colour_theme); ok {
-		settings.colour_theme = value
+	if value, ok := settings_wire_decode(disk.colour_theme, SETTINGS_COLOUR_THEME_WIRE[:]); ok {
+		settings.colour_theme = Colour_Theme(value)
 	} else {
 		valid = false
 	}

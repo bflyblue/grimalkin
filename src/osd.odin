@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "vendor:glfw"
 import vk "vendor:vulkan"
 
 Osd_Main_Row :: enum int {
@@ -189,6 +190,14 @@ Application_Settings_Change_Flag :: enum u8 {
 	Window_Style,
 	Colour_Theme,
 	Persist,
+}
+
+APPLICATION_SETTINGS_RESET_CHANGES :: Application_Settings_Change {
+	.Font_Resources,
+	.Layout,
+	.Cursor,
+	.Window_Style,
+	.Colour_Theme,
 }
 
 Osd_Push :: struct {
@@ -690,42 +699,53 @@ osd_font_list_count :: proc(catalog: ^Font_Catalog) -> int {
 	return 1 + (catalog != nil ? len(catalog.families) : 0)
 }
 
-osd_font_list_visible_rows :: proc(osd: ^Osd_State) -> int {
+osd_scrollable_list_visible_rows :: proc(osd: ^Osd_State) -> int {
 	return max(1, int(osd.rows) - 3)
 }
 
-osd_colour_theme_list_visible_rows :: proc(osd: ^Osd_State) -> int {
-	return max(1, int(osd.rows) - 3)
-}
-
-osd_colour_theme_list_clamp_top :: proc(osd: ^Osd_State) {
-	count := len(COLOUR_THEMES)
-	visible := osd_colour_theme_list_visible_rows(osd)
-	osd.selected = clamp(osd.selected, 0, count - 1)
-	if osd.selected < osd.colour_theme_list_top {
-		osd.colour_theme_list_top = osd.selected
-	} else if osd.selected >= osd.colour_theme_list_top + visible {
-		osd.colour_theme_list_top = osd.selected - visible + 1
+osd_scrollable_list_clamp :: proc(
+	osd: ^Osd_State,
+	count: int,
+	selected, top: ^int,
+) {
+	visible := osd_scrollable_list_visible_rows(osd)
+	selected^ = clamp(selected^, 0, max(0, count - 1))
+	if selected^ < top^ {
+		top^ = selected^
+	} else if selected^ >= top^ + visible {
+		top^ = selected^ - visible + 1
 	}
-	osd.colour_theme_list_top = clamp(osd.colour_theme_list_top, 0, max(0, count - visible))
+	top^ = clamp(top^, 0, max(0, count - visible))
+}
+
+osd_scrollable_list_navigate :: proc(
+	osd: ^Osd_State,
+	key: i32,
+	count: int,
+	selected: ^int,
+) -> bool {
+	visible := osd_scrollable_list_visible_rows(osd)
+	switch key {
+	case glfw.KEY_UP:        selected^ = max(0, selected^ - 1)
+	case glfw.KEY_DOWN:      selected^ = min(count - 1, selected^ + 1)
+	case glfw.KEY_PAGE_UP:   selected^ = max(0, selected^ - visible)
+	case glfw.KEY_PAGE_DOWN: selected^ = min(count - 1, selected^ + visible)
+	case glfw.KEY_HOME:      selected^ = 0
+	case glfw.KEY_END:       selected^ = count - 1
+	case: return false
+	}
+	return true
 }
 
 osd_global_reset_selection :: proc(osd: ^Osd_State, settings: Application_Settings) {
 	if osd.page != .Colour_Theme_List do return
 	osd.selected = int(settings.colour_theme)
-	osd_colour_theme_list_clamp_top(osd)
-}
-
-osd_font_list_clamp_top :: proc(osd: ^Osd_State, catalog: ^Font_Catalog) {
-	count := osd_font_list_count(catalog)
-	visible := osd_font_list_visible_rows(osd)
-	osd.font_list_candidate = clamp(osd.font_list_candidate, 0, max(0, count - 1))
-	if osd.font_list_candidate < osd.font_list_top {
-		osd.font_list_top = osd.font_list_candidate
-	} else if osd.font_list_candidate >= osd.font_list_top + visible {
-		osd.font_list_top = osd.font_list_candidate - visible + 1
-	}
-	osd.font_list_top = clamp(osd.font_list_top, 0, max(0, count - visible))
+	osd_scrollable_list_clamp(
+		osd,
+		len(COLOUR_THEMES),
+		&osd.selected,
+		&osd.colour_theme_list_top,
+	)
 }
 
 osd_ascii_prefix_match :: proc(value, prefix: string) -> bool {
@@ -747,10 +767,68 @@ osd_font_search_next :: proc(osd: ^Osd_State, catalog: ^Font_Catalog) {
 		candidate := (osd.font_list_candidate + offset) % count
 		if osd_ascii_prefix_match(osd_font_list_label(catalog, candidate), osd.font_search) {
 			osd.font_list_candidate = candidate
-			osd_font_list_clamp_top(osd, catalog)
+			osd_scrollable_list_clamp(
+				osd,
+				count,
+				&osd.font_list_candidate,
+				&osd.font_list_top,
+			)
 			return
 		}
 	}
+}
+
+Osd_Scrollable_List_Label_Proc :: #type proc(userdata: rawptr, index: int) -> string
+
+Osd_Scrollable_List :: struct {
+	title:     string,
+	footer:    string,
+	count:     int,
+	selected:  ^int,
+	top:       ^int,
+	applied:   int,
+	label:     Osd_Scrollable_List_Label_Proc,
+	userdata:  rawptr,
+}
+
+osd_font_scrollable_list_label :: proc(userdata: rawptr, index: int) -> string {
+	return osd_font_list_label(cast(^Font_Catalog)userdata, index)
+}
+
+osd_colour_theme_scrollable_list_label :: proc(_: rawptr, index: int) -> string {
+	return colour_theme_name(Colour_Theme(index))
+}
+
+osd_scrollable_list_truncate_label :: proc(label: string, maximum: int) -> string {
+	if len(label) <= maximum do return label
+	if maximum <= 1 do return "."
+	if maximum == 2 do return ".."
+	if maximum == 3 do return "..."
+	end := maximum - 3
+	for end > 0 && (u8(label[end]) & 0xc0) == 0x80 do end -= 1
+	return fmt.tprintf("%s...", label[:end])
+}
+
+osd_render_scrollable_list :: proc(
+	osd: ^Osd_State,
+	resources: ^Renderer_Resources,
+	list: Osd_Scrollable_List,
+) {
+	osd_scrollable_list_clamp(osd, list.count, list.selected, list.top)
+	osd_write_text(osd, resources, 0, 0, list.title)
+	visible := osd_scrollable_list_visible_rows(osd)
+	for visible_index in 0 ..< visible {
+		list_index := list.top^ + visible_index
+		if list_index >= list.count do break
+		row := visible_index + 2
+		if list_index == list.selected^ do osd_fill_row(osd, row, OSD_SELECTED_BACKGROUND)
+		marker := list_index == list.applied ? "* " : "  "
+		label := fmt.tprintf("%s%s", marker, list.label(list.userdata, list_index))
+		label = osd_scrollable_list_truncate_label(label, max(1, int(osd.cols) - 1))
+		osd_write_text(osd, resources, row, 0, label)
+	}
+	osd_write_text(osd, resources, int(osd.rows) - 1, 0, list.footer, OSD_MUTED)
+	osd.dirty = true
 }
 
 osd_rebuild :: proc(
@@ -782,58 +860,35 @@ osd_rebuild :: proc(
 	}
 	if osd.page == .Font_List {
 		metadata := osd_page_metadata(.Font_List)
-		osd_font_list_clamp_top(osd, catalog)
 		title := metadata.title
 		if osd.font_search != "" do title = fmt.tprintf("Font family: %s", osd.font_search)
-		osd_write_text(osd, resources, 0, 0, title)
-		visible := osd_font_list_visible_rows(osd)
-		applied := osd_font_applied_list_index(settings, catalog)
-		count := osd_font_list_count(catalog)
-		for visible_index in 0 ..< visible {
-			list_index := osd.font_list_top + visible_index
-			if list_index >= count do break
-			row := visible_index + 2
-			if list_index == osd.font_list_candidate do osd_fill_row(osd, row, OSD_SELECTED_BACKGROUND)
-			marker := "  "
-			if list_index == applied do marker = "* "
-			label := fmt.tprintf("%s%s", marker, osd_font_list_label(catalog, list_index))
-			maximum := max(1, int(osd.cols) - 1)
-			if len(label) > maximum {
-				end := max(0, maximum - 3)
-				for end > 0 && (u8(label[end]) & 0xc0) == 0x80 do end -= 1
-				label = fmt.tprintf("%s...", label[:end])
-			}
-			osd_write_text(osd, resources, row, 0, label)
-		}
 		footer := metadata.footer
 		if osd.font_error != "" do footer = osd.font_error
-		osd_write_text(osd, resources, int(osd.rows) - 1, 0, footer, OSD_MUTED)
-		osd.dirty = true
+		osd_render_scrollable_list(osd, resources, {
+			title = title,
+			footer = footer,
+			count = osd_font_list_count(catalog),
+			selected = &osd.font_list_candidate,
+			top = &osd.font_list_top,
+			applied = osd_font_applied_list_index(settings, catalog),
+			label = osd_font_scrollable_list_label,
+			userdata = rawptr(catalog),
+		})
 		return
 	}
 	if osd.page == .Colour_Theme_List {
 		metadata := osd_page_metadata(.Colour_Theme_List)
-		osd_colour_theme_list_clamp_top(osd)
-		osd_write_text(osd, resources, 0, 0, metadata.title)
-		visible := osd_colour_theme_list_visible_rows(osd)
-		for visible_index in 0 ..< visible {
-			list_index := osd.colour_theme_list_top + visible_index
-			if list_index >= len(COLOUR_THEMES) do break
-			row := visible_index + 2
-			if list_index == osd.selected do osd_fill_row(osd, row, OSD_SELECTED_BACKGROUND)
-			marker := list_index == int(settings.colour_theme) ? "* " : "  "
-			osd_write_text(
-				osd,
-				resources,
-				row,
-				0,
-				fmt.tprintf("%s%s", marker, colour_theme_name(Colour_Theme(list_index))),
-			)
-		}
 		footer := metadata.footer
 		if osd.colour_theme_error != "" do footer = osd.colour_theme_error
-		osd_write_text(osd, resources, int(osd.rows) - 1, 0, footer, OSD_MUTED)
-		osd.dirty = true
+		osd_render_scrollable_list(osd, resources, {
+			title = metadata.title,
+			footer = footer,
+			count = len(COLOUR_THEMES),
+			selected = &osd.selected,
+			top = &osd.colour_theme_list_top,
+			applied = int(settings.colour_theme),
+			label = osd_colour_theme_scrollable_list_label,
+		})
 		return
 	}
 	metadata := osd_page_metadata(osd.page)

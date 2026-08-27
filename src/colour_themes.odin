@@ -20,12 +20,10 @@ Colour_Theme :: enum u8 {
 
 Colour_Theme_Data :: struct {
 	name:                    string,
-	wire_name:               string,
 	foreground:              u32,
 	background:              u32,
 	cursor:                  u32,
 	palette:                 [16]u32,
-	use_ghostty_palette: bool,
 }
 
 // These are application data rather than runtime theme files so every build
@@ -44,12 +42,11 @@ Colour_Theme_Data :: struct {
 // Rosé Pine:  d8b4ec06e0cde80fb2bfbf59021ff0a332c77388
 COLOUR_THEMES := [15]Colour_Theme_Data {
 	{
-		name = "Ghostty", wire_name = "ghostty",
+		name = "Ghostty",
 		foreground = 0xe7eaf0, background = 0x060912, cursor = 0xffd75f,
-		use_ghostty_palette = true,
 	},
 	{
-		name = "Dracula", wire_name = "dracula",
+		name = "Dracula",
 		foreground = 0xf8f8f2, background = 0x282a36, cursor = 0xf8f8f2,
 		palette = {
 			0x21222c, 0xff5555, 0x50fa7b, 0xf1fa8c,
@@ -59,7 +56,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Nord", wire_name = "nord",
+		name = "Nord",
 		foreground = 0xd8dee9, background = 0x2e3440, cursor = 0xd8dee9,
 		palette = {
 			0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b,
@@ -69,7 +66,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Gruvbox Dark", wire_name = "gruvbox_dark",
+		name = "Gruvbox Dark",
 		foreground = 0xebdbb2, background = 0x282828, cursor = 0xebdbb2,
 		palette = {
 			0x282828, 0xcc241d, 0x98971a, 0xd79921,
@@ -79,7 +76,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Gruvbox Light", wire_name = "gruvbox_light",
+		name = "Gruvbox Light",
 		foreground = 0x3c3836, background = 0xfbf1c7, cursor = 0x3c3836,
 		palette = {
 			0xfbf1c7, 0xcc241d, 0x98971a, 0xd79921,
@@ -89,7 +86,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Solarized Dark", wire_name = "solarized_dark",
+		name = "Solarized Dark",
 		foreground = 0x839496, background = 0x002b36, cursor = 0x839496,
 		palette = {
 			0x073642, 0xdc322f, 0x859900, 0xb58900,
@@ -99,7 +96,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Solarized Light", wire_name = "solarized_light",
+		name = "Solarized Light",
 		foreground = 0x657b83, background = 0xfdf6e3, cursor = 0x657b83,
 		palette = {
 			0x073642, 0xdc322f, 0x859900, 0xb58900,
@@ -109,7 +106,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Catppuccin Latte", wire_name = "catppuccin_latte",
+		name = "Catppuccin Latte",
 		foreground = 0x4c4f69, background = 0xeff1f5, cursor = 0xdc8a78,
 		palette = {
 			0x5c5f77, 0xd20f39, 0x40a02b, 0xdf8e1d,
@@ -119,7 +116,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Catppuccin Frappé", wire_name = "catppuccin_frappe",
+		name = "Catppuccin Frappé",
 		foreground = 0xc6d0f5, background = 0x303446, cursor = 0xf2d5cf,
 		palette = {
 			0x51576d, 0xe78284, 0xa6d189, 0xe5c890,
@@ -129,7 +126,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Catppuccin Macchiato", wire_name = "catppuccin_macchiato",
+		name = "Catppuccin Macchiato",
 		foreground = 0xcad3f5, background = 0x24273a, cursor = 0xf4dbd6,
 		palette = {
 			0x494d64, 0xed8796, 0xa6da95, 0xeed49f,
@@ -139,7 +136,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Catppuccin Mocha", wire_name = "catppuccin_mocha",
+		name = "Catppuccin Mocha",
 		foreground = 0xcdd6f4, background = 0x1e1e2e, cursor = 0xf5e0dc,
 		palette = {
 			0x45475a, 0xf38ba8, 0xa6e3a1, 0xf9e2af,
@@ -149,7 +146,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Tokyo Night", wire_name = "tokyo_night",
+		name = "Tokyo Night",
 		foreground = 0xbbc2e0, background = 0x1b2031, cursor = 0xc0caf5,
 		palette = {
 			0x414868, 0xf7768e, 0x41b59b, 0xe0af68,
@@ -159,7 +156,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Rosé Pine", wire_name = "rose_pine",
+		name = "Rosé Pine",
 		foreground = 0xe0def4, background = 0x191724, cursor = 0xe0def4,
 		palette = {
 			0x26233a, 0xeb6f92, 0x31748f, 0xf6c177,
@@ -169,7 +166,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Rosé Pine Moon", wire_name = "rose_pine_moon",
+		name = "Rosé Pine Moon",
 		foreground = 0xe0def4, background = 0x232136, cursor = 0xe0def4,
 		palette = {
 			0x393552, 0xeb6f92, 0x3e8fb0, 0xf6c177,
@@ -179,7 +176,7 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 		},
 	},
 	{
-		name = "Rosé Pine Dawn", wire_name = "rose_pine_dawn",
+		name = "Rosé Pine Dawn",
 		foreground = 0x575279, background = 0xfaf4ed, cursor = 0x575279,
 		palette = {
 			0xf2e9e1, 0xb4637a, 0x286983, 0xea9d34,
@@ -193,22 +190,9 @@ COLOUR_THEMES := [15]Colour_Theme_Data {
 #assert(len(COLOUR_THEMES) == int(Colour_Theme.Rose_Pine_Dawn) + 1)
 
 colour_theme_data :: proc(theme: Colour_Theme) -> ^Colour_Theme_Data {
-	index := int(theme)
-	if index < 0 || index >= len(COLOUR_THEMES) do index = int(Colour_Theme.Ghostty)
-	return &COLOUR_THEMES[index]
+	return &COLOUR_THEMES[int(theme)]
 }
 
 colour_theme_name :: proc(theme: Colour_Theme) -> string {
 	return colour_theme_data(theme).name
-}
-
-colour_theme_wire_name :: proc(theme: Colour_Theme) -> string {
-	return colour_theme_data(theme).wire_name
-}
-
-colour_theme_from_wire :: proc(value: string) -> (Colour_Theme, bool) {
-	for theme_data, index in COLOUR_THEMES {
-		if value == theme_data.wire_name do return Colour_Theme(index), true
-	}
-	return .Ghostty, false
 }

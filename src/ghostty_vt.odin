@@ -336,10 +336,13 @@ register_kitty_png_decoder :: proc "contextless" () {
 
 // Negative scrollback limits are passed as NULL, which is libghostty-vt's
 // unlimited value. Zero remains an explicit limit and disables scrollback.
+// Apply the initial theme here so the Odin catalogue is the sole owner of
+// Grimalkin's colours, including when new terminal entry points are added.
 terminal_core_init_configured :: proc(
 	cols, rows: u16,
 	scrollback_limit_bytes, scrollback_limit_lines: i128,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Terminal_Core {
 	if !settings_scrollback_limit_valid(scrollback_limit_bytes) ||
 	   !settings_scrollback_limit_valid(scrollback_limit_lines) {
@@ -371,6 +374,10 @@ terminal_core_init_configured :: proc(
 	if result != GRIMALKIN_GHOSTTY_OK {
 		fmt.panicf("libghostty-vt terminal creation failed (bridge error %d)", result)
 	}
+	if !terminal_core_set_colour_theme(&terminal, colour_theme) {
+		terminal_core_destroy(&terminal)
+		fmt.panicf("libghostty-vt could not apply the initial colour theme")
+	}
 	return terminal
 }
 
@@ -380,6 +387,7 @@ terminal_core_init :: proc(
 	cols, rows: u16,
 	max_scrollback_lines: int,
 	kitty_image_storage_mb: u16 = SETTINGS_KITTY_IMAGE_STORAGE_MB_DEFAULT,
+	colour_theme := Colour_Theme.Ghostty,
 ) -> Terminal_Core {
 	return terminal_core_init_configured(
 		cols,
@@ -387,6 +395,7 @@ terminal_core_init :: proc(
 		-1,
 		i128(max_scrollback_lines),
 		kitty_image_storage_mb,
+		colour_theme,
 	)
 }
 
@@ -414,7 +423,7 @@ terminal_core_apply_colour_theme :: proc(
 	if terminal == nil || terminal.handle == nil do return .Invalid_Argument
 	theme_data := colour_theme_data(theme)
 	palette_pointer: rawptr
-	if !theme_data.use_ghostty_palette do palette_pointer = raw_data(theme_data.palette[:])
+	if theme != .Ghostty do palette_pointer = raw_data(theme_data.palette[:])
 	return terminal_colour_theme_result(grimalkin_ghostty_set_colour_theme(
 		terminal.handle,
 		theme_data.foreground,
