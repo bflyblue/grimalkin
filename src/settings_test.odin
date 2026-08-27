@@ -79,11 +79,17 @@ settings_json_defaults_missing_colour_theme_and_rejects_unknown_names :: proc(t:
 }
 
 @(test)
-settings_json_prefers_current_smoothing_over_legacy_clarity :: proc(t: ^testing.T) {
+settings_json_ignores_removed_legacy_fields :: proc(t: ^testing.T) {
 	text := `{"version":1,"text_clarity":"bgr","text_smoothing":"monochrome"}`
 	actual, valid := settings_decode(transmute([]byte)text)
 	testing.expect(t, valid)
 	testing.expect_value(t, actual.text_smoothing, Text_Smoothing.Monochrome)
+	testing.expect_value(t, actual.subpixel_layout, Subpixel_Layout.RGB)
+
+	legacy_only := `{"version":1,"text_clarity":"bgr"}`
+	actual, valid = settings_decode(transmute([]byte)legacy_only)
+	testing.expect(t, valid)
+	testing.expect_value(t, actual.text_smoothing, Text_Smoothing.Grayscale)
 	testing.expect_value(t, actual.subpixel_layout, Subpixel_Layout.RGB)
 }
 
@@ -178,11 +184,11 @@ settings_json_replaces_empty_or_oversized_font_family :: proc(t: ^testing.T) {
 
 @(test)
 settings_json_rejects_out_of_range_values_without_retaining_them :: proc(t: ^testing.T) {
-	text := `{"version":1,"text_clarity":"rgb","font_size":99,"cursor_animation":"steady","padding":200,"kitty_image_storage_mb":100000,"padding_glow":"neon","window_style":"floating","scroll_page_modifier":"super","scroll_line_modifier":"ctrl"}`
+	text := `{"version":1,"font_size":99,"cursor_animation":"steady","padding":200,"kitty_image_storage_mb":100000,"padding_glow":"neon","window_style":"floating","scroll_page_modifier":"super","scroll_line_modifier":"ctrl"}`
 	data := transmute([]byte)text
 	actual, valid := settings_decode(data)
 	testing.expect(t, !valid)
-	testing.expect_value(t, actual.text_smoothing, Text_Smoothing.Subpixel)
+	testing.expect_value(t, actual.text_smoothing, Text_Smoothing.Grayscale)
 	testing.expect_value(t, actual.subpixel_layout, Subpixel_Layout.RGB)
 	testing.expect_value(t, actual.font_size, u16(16))
 	testing.expect_value(t, actual.cursor_animation, Cursor_Animation_Policy.Steady)
@@ -192,26 +198,6 @@ settings_json_rejects_out_of_range_values_without_retaining_them :: proc(t: ^tes
 	testing.expect_value(t, actual.window_style, Window_Style.System)
 	testing.expect_value(t, actual.scroll_page_modifier, Scroll_Modifier.Shift)
 	testing.expect_value(t, actual.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
-}
-
-@(test)
-settings_json_migrates_each_legacy_text_clarity_value :: proc(t: ^testing.T) {
-	cases := [?]struct {
-		text:      string,
-		smoothing: Text_Smoothing,
-		layout:    Subpixel_Layout,
-	} {
-		{`{"version":1,"text_clarity":"grayscale"}`, .Grayscale, .RGB},
-		{`{"version":1,"text_clarity":"rgb"}`, .Subpixel, .RGB},
-		{`{"version":1,"text_clarity":"bgr"}`, .Subpixel, .BGR},
-		{`{"version":1,"text_clarity":"qd_oled"}`, .Subpixel, .QD_OLED_Square},
-	}
-	for test_case in cases {
-		actual, valid := settings_decode(transmute([]byte)test_case.text)
-		testing.expect(t, valid)
-		testing.expect_value(t, actual.text_smoothing, test_case.smoothing)
-		testing.expect_value(t, actual.subpixel_layout, test_case.layout)
-	}
 }
 
 @(test)
@@ -361,20 +347,6 @@ settings_json_round_trips_padding_glow_profiles :: proc(t: ^testing.T) {
 		actual, valid := settings_decode(data)
 		testing.expect(t, valid)
 		testing.expect_value(t, actual.padding_glow, profile)
-	}
-}
-
-@(test)
-settings_json_migrates_legacy_padding_glow_profiles :: proc(t: ^testing.T) {
-	texts := [?]string {
-		`{"version":1,"text_smoothing":"grayscale","font_hinting":"normal","subpixel_layout":"rgb","subpixel_rotation":"auto","font_size":16,"cursor_animation":"blink","padding":8,"padding_glow":"soft","nerd_font_symbols":true,"window_style":"system","scroll_page_modifier":"shift","scroll_line_modifier":"ctrl_shift"}`,
-		`{"version":1,"text_smoothing":"grayscale","font_hinting":"normal","subpixel_layout":"rgb","subpixel_rotation":"auto","font_size":16,"cursor_animation":"blink","padding":8,"padding_glow":"vivid","nerd_font_symbols":true,"window_style":"system","scroll_page_modifier":"shift","scroll_line_modifier":"ctrl_shift"}`,
-	}
-	expected := [?]Padding_Glow{.Background, .Tint}
-	for text, index in texts {
-		actual, valid := settings_decode(transmute([]byte)text)
-		testing.expect(t, valid)
-		testing.expect_value(t, actual.padding_glow, expected[index])
 	}
 }
 
