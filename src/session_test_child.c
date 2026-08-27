@@ -18,8 +18,9 @@ static int write_all(HANDLE output, const void *data, DWORD length) {
 }
 
 int main(void) {
+  HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
   HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (output == INVALID_HANDLE_VALUE) return 2;
+  if (input == INVALID_HANDLE_VALUE || output == INVALID_HANDLE_VALUE) return 2;
 
   char term[64] = {0};
   char colorterm[64] = {0};
@@ -35,6 +36,34 @@ int main(void) {
     memset(block, 'x', sizeof(block));
     while (write_all(output, block, sizeof(block))) Sleep(5);
     return 0;
+  }
+
+  if (GetEnvironmentVariableA(
+          "GRIMALKIN_SESSION_TEST_LARGE_INPUT", NULL, 0) > 0) {
+    DWORD mode = 0;
+    if (!GetConsoleMode(input, &mode) ||
+        !SetConsoleMode(input, mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT |
+                                       ENABLE_PROCESSED_INPUT))) {
+      return 11;
+    }
+    const size_t expected = 1024u * 1024u + 1024u;
+    size_t received = 0;
+    char block[16384];
+    while (received < expected) {
+      DWORD capacity = (DWORD)(expected - received);
+      if (capacity > sizeof(block)) capacity = sizeof(block);
+      DWORD count = 0;
+      if (!ReadFile(input, block, capacity, &count, NULL) || count == 0) {
+        return 12;
+      }
+      for (DWORD index = 0; index < count; ++index) {
+        if (block[index] != 'x') return 13;
+      }
+      received += count;
+    }
+    static const char marker[] = "__GRIMALKIN_LARGE_INPUT__";
+    if (!write_all(output, marker, sizeof(marker) - 1)) return 14;
+    return 8;
   }
 
   static const char probe[] = "__GRIMALKIN_OUTPUT__";

@@ -119,6 +119,10 @@ static int check_open_url(void) {
 
 int main(void) {
   if (!check_open_url()) return 1;
+  if (!grimalkin_session_test_queue_growth()) {
+    fprintf(stderr, "PTY queue growth did not preserve wrapped data\n");
+    return 1;
+  }
 
   if (setenv("SHELL", "/bin/sh", 1) != 0 ||
       setenv("HOME", "/", 1) != 0 ||
@@ -138,17 +142,6 @@ int main(void) {
     grimalkin_session_free(session);
     return 1;
   }
-
-  uint8_t *too_large = malloc(TEST_QUEUE_CAPACITY + 1);
-  if (too_large == NULL ||
-      grimalkin_session_write(session, too_large, TEST_QUEUE_CAPACITY + 1) !=
-          GRIMALKIN_SESSION_QUEUE_FULL) {
-    fprintf(stderr, "PTY queue did not report backpressure\n");
-    free(too_large);
-    grimalkin_session_free(session);
-    return 1;
-  }
-  free(too_large);
 
   static const char script[] =
       "printf '__GRIMALKIN_LOGIN__%s\\n' \"$0\"; "
@@ -183,6 +176,68 @@ int main(void) {
             "PTY integration failed: exited=%u eof=%u code=%d error=%d\n%s\n",
             status.exited, status.output_eof, status.exit_code,
             status.io_error, output);
+    grimalkin_session_free(session);
+    return 1;
+  }
+  grimalkin_session_free(session);
+
+  /* Large clipboard and OSC 52 responses arrive as one write. Grow the
+     outgoing queue without losing order, then let a real shell consume more
+     than the original one-megabyte capacity. */
+  session = NULL;
+  if (grimalkin_session_new(80, 24, 10, 22, &session) !=
+      GRIMALKIN_SESSION_OK) return 1;
+  static const char quiet[] =
+      "stty raw -echo; printf '__GRIMALKIN_LARGE_READY__'; "
+      "bytes=$(head -c 1049600 | wc -c); stty sane; "
+      "printf '__GRIMALKIN_LARGE_DONE__%s' \"$bytes\"; exit 6\n";
+  if (grimalkin_session_write(session, (const uint8_t *)quiet,
+                              sizeof(quiet) - 1) != GRIMALKIN_SESSION_OK) {
+    grimalkin_session_free(session);
+    return 1;
+  }
+  char ready[4096] = {0};
+  size_t ready_length = 0;
+  for (int step = 0; step < TEST_TIMEOUT_STEPS; ++step) {
+    if (ready_length + 1 < sizeof(ready)) {
+      ready_length += grimalkin_session_read(
+          session, (uint8_t *)ready + ready_length,
+          sizeof(ready) - ready_length - 1);
+      ready[ready_length] = '\0';
+    }
+    if (strstr(ready, "__GRIMALKIN_LARGE_READY__") != NULL) break;
+    usleep(10000);
+  }
+  if (strstr(ready, "__GRIMALKIN_LARGE_READY__") == NULL) {
+    fprintf(stderr, "large PTY write child did not become ready\n");
+    grimalkin_session_free(session);
+    return 1;
+  }
+  const size_t large_size = TEST_QUEUE_CAPACITY + 1024;
+  uint8_t *large = (uint8_t *)malloc(large_size);
+  if (large == NULL) {
+    grimalkin_session_free(session);
+    return 1;
+  }
+  memset(large, 'x', large_size);
+  int large_write = grimalkin_session_write(session, large, large_size);
+  free(large);
+  if (large_write != GRIMALKIN_SESSION_OK) {
+    fprintf(stderr, "PTY rejected a write larger than one megabyte\n");
+    grimalkin_session_free(session);
+    return 1;
+  }
+  memset(output, 0, sizeof(output));
+  memset(&status, 0, sizeof(status));
+  completed = drain_until_exit(session, output, sizeof(output), &status);
+  valid = completed && status.io_error == 0 && status.exited &&
+      status.output_eof && status.exit_code == 6 &&
+      strstr(output, "__GRIMALKIN_LARGE_DONE__1049600") != NULL;
+  if (!valid) {
+    fprintf(stderr,
+            "large PTY write failed: exited=%u eof=%u code=%d error=%d\n",
+            status.exited, status.output_eof, status.exit_code,
+            status.io_error);
     grimalkin_session_free(session);
     return 1;
   }
@@ -271,6 +326,10 @@ int main(int argc, char **argv) {
     fprintf(stderr, "expected the ConPTY test-child executable path\n");
     return 1;
   }
+  if (!grimalkin_session_test_queue_growth()) {
+    fprintf(stderr, "PTY queue growth did not preserve wrapped data\n");
+    return 1;
+  }
   GrimalkinSession *session = NULL;
   int result = grimalkin_session_new(80, 24, 10, 22, &session);
   if (result != GRIMALKIN_SESSION_OK) {
@@ -282,16 +341,6 @@ int main(int argc, char **argv) {
     grimalkin_session_free(session);
     return 1;
   }
-
-  uint8_t *too_large = (uint8_t *)malloc(TEST_QUEUE_CAPACITY + 1);
-  if (too_large == NULL ||
-      grimalkin_session_write(session, too_large, TEST_QUEUE_CAPACITY + 1) !=
-          GRIMALKIN_SESSION_QUEUE_FULL) {
-    free(too_large);
-    grimalkin_session_free(session);
-    return 1;
-  }
-  free(too_large);
 
   char output[65536] = {0};
   size_t length = 0;
@@ -318,6 +367,45 @@ int main(int argc, char **argv) {
     return 1;
   }
   grimalkin_session_free(session);
+
+  if (!SetEnvironmentVariableA("GRIMALKIN_SESSION_TEST_LARGE_INPUT", "1")) {
+    return 1;
+  }
+  session = NULL;
+  if (grimalkin_session_new(80, 24, 10, 22, &session) !=
+      GRIMALKIN_SESSION_OK) return 1;
+  const size_t large_size = TEST_QUEUE_CAPACITY + 1024;
+  uint8_t *large = (uint8_t *)malloc(large_size);
+  if (large == NULL) {
+    grimalkin_session_free(session);
+    return 1;
+  }
+  memset(large, 'x', large_size);
+  result = grimalkin_session_write(session, large, large_size);
+  free(large);
+  if (result != GRIMALKIN_SESSION_OK) {
+    grimalkin_session_free(session);
+    return 1;
+  }
+  memset(output, 0, sizeof(output));
+  length = 0;
+  memset(&status, 0, sizeof(status));
+  for (int step = 0; step < 1000; ++step) {
+    if (length + 1 < sizeof(output)) {
+      length += grimalkin_session_read(
+          session, (uint8_t *)output + length, sizeof(output) - length - 1);
+      output[length] = '\0';
+    }
+    grimalkin_session_status(session, &status);
+    if (status.exited && status.output_eof) break;
+    Sleep(10);
+  }
+  valid = status.exited && status.output_eof && status.exit_code == 8 &&
+      status.io_error == 0 &&
+      strstr(output, "__GRIMALKIN_LARGE_INPUT__") != NULL;
+  grimalkin_session_free(session);
+  SetEnvironmentVariableA("GRIMALKIN_SESSION_TEST_LARGE_INPUT", NULL);
+  if (!valid) return 1;
 
   if (!SetEnvironmentVariableA("GRIMALKIN_SESSION_TEST_FLOOD", "1")) return 1;
   session = NULL;
