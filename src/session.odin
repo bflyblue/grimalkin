@@ -59,6 +59,13 @@ Terminal_Session :: struct {
 	handle: Grimalkin_Session,
 }
 
+TERMINAL_SESSION_DRAIN_BUDGET :: 256 * 1024
+
+Terminal_Session_Drain_Result :: struct {
+	bytes:            int,
+	budget_exhausted: bool,
+}
+
 terminal_session_init :: proc(
 	cols, rows: u16,
 	cell_width_px, cell_height_px: u32,
@@ -110,17 +117,33 @@ terminal_session_write_pty :: proc "c" (userdata: rawptr, data: [^]u8, len: c.si
 	return terminal_session_write(session, bytes) ? c.int(0) : c.int(-1)
 }
 
-terminal_session_drain :: proc(session: ^Terminal_Session, terminal: ^Terminal_Core) -> int {
-	if session.handle == nil do return 0
+terminal_session_drain_read_capacity :: proc(total, budget, buffer_capacity: int) -> int {
+	return max(0, min(buffer_capacity, budget - total))
+}
+
+terminal_session_drain :: proc(
+	session: ^Terminal_Session,
+	terminal: ^Terminal_Core,
+	budget := TERMINAL_SESSION_DRAIN_BUDGET,
+) -> Terminal_Session_Drain_Result {
+	result := Terminal_Session_Drain_Result{}
+	if session.handle == nil || terminal == nil || budget <= 0 do return result
 	buffer: [64 * 1024]u8
-	total := 0
 	for {
-		count := int(grimalkin_session_read(session.handle, &buffer[0], len(buffer)))
+		capacity := terminal_session_drain_read_capacity(result.bytes, budget, len(buffer))
+		if capacity == 0 {
+			// Conservatively schedule another frame. The final budget-sized read
+			// may have emptied the queue, but skipping one wait is harmless and
+			// avoids losing the worker's empty-to-nonempty wakeup edge.
+			result.budget_exhausted = true
+			break
+		}
+		count := int(grimalkin_session_read(session.handle, &buffer[0], c.size_t(capacity)))
 		if count == 0 do break
 		terminal_core_write(terminal, buffer[:count])
-		total += count
+		result.bytes += count
 	}
-	return total
+	return result
 }
 
 terminal_session_resize :: proc(

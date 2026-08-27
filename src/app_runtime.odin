@@ -310,8 +310,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			// Reclaim shaping, dirty-range, descriptor, and upload scratch from
 			// the previous pass before callbacks or terminal output allocate more.
 			mem.free_all(context.temp_allocator)
+			drain_budget_exhausted := false
 			if !demo.demo_mode {
-				if terminal_session_drain(&demo.session, &demo.terminal) > 0 {
+				drain := terminal_session_drain(&demo.session, &demo.terminal)
+				drain_budget_exhausted = drain.budget_exhausted
+				if drain.bytes > 0 {
 					_ = refresh_terminal_display(&app)
 					selection_snapshot_updated(&app)
 					app.redraw = true
@@ -354,6 +357,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 			}
 			if app.minimized {
 				app.redraw = false
+				if drain_budget_exhausted {
+					glfw.PollEvents()
+					flush_pending_key(&app)
+					continue
+				}
 				wait_deadline := scrollback_compression_wait_deadline(app.compression)
 				if wait_deadline != max(f64) {
 					timeout := max(0.001, wait_deadline - glfw.GetTime())
@@ -441,7 +449,11 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 				wait_deadline = min(wait_deadline, app.selection.autoscroll_next_at)
 			}
 			wait_deadline = scrollback_compression_wait_deadline(app.compression, wait_deadline)
-			if wait_deadline != max(f64) {
+			if drain_budget_exhausted {
+				// A saturated PTY still yields to window/input callbacks once per
+				// chunk instead of turning the drain loop into an event-loop stall.
+				glfw.PollEvents()
+			} else if wait_deadline != max(f64) {
 				timeout := max(0.001, wait_deadline - glfw.GetTime())
 				glfw.WaitEventsTimeout(timeout)
 			} else {
