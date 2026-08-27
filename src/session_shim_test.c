@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define TEST_TIMEOUT_STEPS 500
@@ -117,8 +118,21 @@ static int check_open_url(void) {
   return ok;
 }
 
+static double monotonic_seconds(void) {
+  struct timespec value = {0};
+  if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0.0;
+  return (double)value.tv_sec + (double)value.tv_nsec / 1000000000.0;
+}
+
 int main(void) {
   if (!check_open_url()) return 1;
+  if (grimalkin_session_test_pixel_extent(80, 10) != 800 ||
+      grimalkin_session_test_pixel_extent(3300, 20) != UINT16_MAX ||
+      grimalkin_session_test_pixel_extent(UINT16_MAX, UINT32_MAX) !=
+          UINT16_MAX) {
+    fprintf(stderr, "PTY pixel extent did not clamp without wrapping\n");
+    return 1;
+  }
 
   if (setenv("SHELL", "/bin/sh", 1) != 0 ||
       setenv("HOME", "/", 1) != 0 ||
@@ -252,6 +266,48 @@ int main(void) {
   }
   usleep(100000);
   grimalkin_session_free(session);
+
+  /* A login shell may deliberately ignore SIGHUP. Closing the terminal must
+     still finish after a bounded grace period instead of blocking forever. */
+  session = NULL;
+  if (grimalkin_session_new(80, 24, 10, 22, &session) !=
+      GRIMALKIN_SESSION_OK) return 1;
+  static const char ignore_hup[] =
+      "trap '' HUP; printf '__GRIMALKIN_IGNORES_HUP__'; "
+      "while :; do sleep 60; done\n";
+  if (grimalkin_session_write(session, (const uint8_t *)ignore_hup,
+                              sizeof(ignore_hup) - 1) !=
+      GRIMALKIN_SESSION_OK) {
+    grimalkin_session_free(session);
+    return 1;
+  }
+  char ready[4096] = {0};
+  size_t ready_length = 0;
+  for (int step = 0; step < TEST_TIMEOUT_STEPS; ++step) {
+    if (ready_length + 1 < sizeof(ready)) {
+      ready_length += grimalkin_session_read(
+          session, (uint8_t *)ready + ready_length,
+          sizeof(ready) - ready_length - 1);
+      ready[ready_length] = '\0';
+    }
+    if (strstr(ready, "__GRIMALKIN_IGNORES_HUP__") != NULL) break;
+    usleep(10000);
+  }
+  if (strstr(ready, "__GRIMALKIN_IGNORES_HUP__") == NULL) {
+    fprintf(stderr, "SIGHUP shutdown child did not become ready\n");
+    grimalkin_session_free(session);
+    return 1;
+  }
+  alarm(10);
+  double shutdown_started = monotonic_seconds();
+  grimalkin_session_free(session);
+  double shutdown_elapsed = monotonic_seconds() - shutdown_started;
+  alarm(0);
+  if (shutdown_elapsed > 3.0) {
+    fprintf(stderr, "SIGHUP-resistant child took %.3f seconds to stop\n",
+            shutdown_elapsed);
+    return 1;
+  }
   return 0;
 }
 

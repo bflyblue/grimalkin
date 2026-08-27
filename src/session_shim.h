@@ -65,6 +65,11 @@ int grimalkin_session_resize(GrimalkinSession *session,
 void grimalkin_session_status(GrimalkinSession *session,
                               GrimalkinSessionStatus *out_status);
 
+#if defined(GRIMALKIN_SESSION_TEST) && !defined(_WIN32)
+uint16_t grimalkin_session_test_pixel_extent(uint16_t cells,
+                                             uint32_t cell_pixels);
+#endif
+
 /* Largest URL accepted by grimalkin_open_url, in bytes. */
 #define GRIMALKIN_URL_MAX_LENGTH 2048
 
