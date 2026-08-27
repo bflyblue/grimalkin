@@ -236,6 +236,8 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		description, code := glfw.GetError()
 		fmt.panicf("window creation failed (%d): %s", code, description)
 	}
+	app.windowed_geometry = window_client_geometry(app.window)
+	app.windowed_geometry_valid = app.windowed_geometry.width > 0 && app.windowed_geometry.height > 0
 	app.selection_text_cursor = glfw.CreateStandardCursor(glfw.IBEAM_CURSOR)
 	app.selection_block_cursor = glfw.CreateStandardCursor(glfw.CROSSHAIR_CURSOR)
 	app.url_hover_cursor = glfw.CreateStandardCursor(glfw.POINTING_HAND_CURSOR)
@@ -267,6 +269,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	glfw.SetCursorEnterCallback(app.window, cursor_enter_callback)
 	glfw.SetScrollCallback(app.window, scroll_callback)
 	glfw.SetFramebufferSizeCallback(app.window, framebuffer_size_callback)
+	glfw.SetWindowSizeCallback(app.window, window_size_callback)
 	glfw.SetWindowPosCallback(app.window, window_position_callback)
 	glfw.SetWindowRefreshCallback(app.window, window_refresh_callback)
 	glfw.SetWindowFocusCallback(app.window, window_focus_callback)

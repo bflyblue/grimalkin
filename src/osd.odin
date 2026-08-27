@@ -34,6 +34,8 @@ Osd_Key_Binding_Row :: enum int {
 	Page_Scrolling,
 	Line_Scrolling,
 	Font_Size,
+	Fullscreen,
+	Window_Style,
 }
 
 Osd_Copy_Paste_Row :: enum int {
@@ -67,6 +69,8 @@ Osd_Setting :: enum u8 {
 	Page_Scrolling,
 	Line_Scrolling,
 	Font_Size_Shortcuts,
+	Fullscreen_Hotkey,
+	Window_Style_Shortcut,
 	Insert_Shortcuts,
 	Copy_On_Select,
 	Right_Click_Paste,
@@ -79,7 +83,7 @@ Osd_Setting :: enum u8 {
 OSD_MAIN_ROW_COUNT :: int(Osd_Main_Row.Copy_Paste) + 1
 OSD_TEXT_RENDERING_COUNT :: int(Osd_Text_Rendering_Row.Rotation) + 1
 OSD_FONT_COUNT :: int(Osd_Font_Row.Size) + 1
-OSD_KEY_BINDING_COUNT :: int(Osd_Key_Binding_Row.Font_Size) + 1
+OSD_KEY_BINDING_COUNT :: int(Osd_Key_Binding_Row.Window_Style) + 1
 OSD_COPY_PASTE_COUNT :: int(Osd_Copy_Paste_Row.Selection_Style) + 1
 OSD_PREFERRED_COLUMNS :: u16(46)
 OSD_PREFERRED_ROWS :: u16(13)
@@ -87,7 +91,7 @@ OSD_TEXT_RENDERING_PREFERRED_ROWS :: u16(8)
 OSD_FONT_PREFERRED_ROWS :: u16(5)
 OSD_FONT_LIST_PREFERRED_ROWS :: u16(14)
 OSD_COLOUR_THEME_LIST_PREFERRED_ROWS :: u16(14)
-OSD_KEY_BINDING_PREFERRED_ROWS :: u16(6)
+OSD_KEY_BINDING_PREFERRED_ROWS :: u16(8)
 OSD_COPY_PASTE_PREFERRED_ROWS :: u16(10)
 OSD_PASTE_CONFIRM_PREFERRED_ROWS :: u16(6)
 OSD_FOREGROUND :: u32(0xfff0eae7)
@@ -118,6 +122,8 @@ OSD_KEY_BINDING_SETTINGS := [OSD_KEY_BINDING_COUNT]Osd_Setting {
 	.Page_Scrolling,
 	.Line_Scrolling,
 	.Font_Size_Shortcuts,
+	.Fullscreen_Hotkey,
+	.Window_Style_Shortcut,
 }
 OSD_COPY_PASTE_SETTINGS := [OSD_COPY_PASTE_COUNT]Osd_Setting {
 	.Insert_Shortcuts,
@@ -468,6 +474,8 @@ osd_setting_text :: proc(
 		value := settings_scroll_modifier_name(settings.scroll_line_modifier)
 		return "Line scroll (↑/↓)", value == "Off" ? "Disabled" : value
 	case .Font_Size_Shortcuts: return "Font size", settings.font_size_shortcuts ? "Ctrl + / Ctrl -" : "Disabled"
+	case .Fullscreen_Hotkey: return "Fullscreen", settings_fullscreen_hotkey_name(settings.fullscreen_hotkey)
+	case .Window_Style_Shortcut: return "Window style", settings.window_style_shortcut ? "F12" : "Disabled"
 	case .Insert_Shortcuts: return "Insert shortcuts", settings.clipboard_insert_shortcuts ? "On" : "Off"
 	case .Copy_On_Select: return "Copy on select", settings.copy_on_select ? "On" : "Off"
 	case .Right_Click_Paste: return "Right-click paste", settings.right_click_paste ? "On" : "Off"
@@ -712,6 +720,11 @@ osd_global_reset_selection :: proc(osd: ^Osd_State, settings: Application_Settin
 	)
 }
 
+osd_global_reset :: proc(settings: ^Application_Settings, osd: ^Osd_State) {
+	settings^ = application_settings_default()
+	osd_global_reset_selection(osd, settings^)
+}
+
 osd_ascii_prefix_match :: proc(value, prefix: string) -> bool {
 	if len(prefix) > len(value) do return false
 	for index in 0 ..< len(prefix) {
@@ -935,6 +948,9 @@ osd_reset_setting :: proc(
 	case .Key_Bindings:
 		settings.scroll_page_modifier = defaults.scroll_page_modifier
 		settings.scroll_line_modifier = defaults.scroll_line_modifier
+		settings.font_size_shortcuts = defaults.font_size_shortcuts
+		settings.fullscreen_hotkey = defaults.fullscreen_hotkey
+		settings.window_style_shortcut = defaults.window_style_shortcut
 		return {.Persist}
 	case .Copy_Paste:
 		settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
@@ -970,6 +986,12 @@ osd_reset_setting :: proc(
 		return {.Persist}
 	case .Font_Size_Shortcuts:
 		settings.font_size_shortcuts = defaults.font_size_shortcuts
+		return {.Persist}
+	case .Fullscreen_Hotkey:
+		settings.fullscreen_hotkey = defaults.fullscreen_hotkey
+		return {.Persist}
+	case .Window_Style_Shortcut:
+		settings.window_style_shortcut = defaults.window_style_shortcut
 		return {.Persist}
 	case .Insert_Shortcuts:
 		settings.clipboard_insert_shortcuts = defaults.clipboard_insert_shortcuts
@@ -1081,6 +1103,13 @@ osd_adjust_setting :: proc(
 		settings.scroll_line_modifier = settings.scroll_line_modifier == .Off ? .Ctrl_Shift : .Off
 	case .Font_Size_Shortcuts:
 		settings.font_size_shortcuts = !settings.font_size_shortcuts
+	case .Fullscreen_Hotkey:
+		count := int(Fullscreen_Hotkey.Both) + 1
+		settings.fullscreen_hotkey = Fullscreen_Hotkey(
+			settings_cycle_index(int(settings.fullscreen_hotkey), count, direction),
+		)
+	case .Window_Style_Shortcut:
+		settings.window_style_shortcut = !settings.window_style_shortcut
 	case .Insert_Shortcuts:
 		settings.clipboard_insert_shortcuts = !settings.clipboard_insert_shortcuts
 	case .Copy_On_Select:

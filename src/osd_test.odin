@@ -103,10 +103,27 @@ osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.
 	testing.expect(t, .Persist in change)
 	change = osd_reset_setting(&settings, .Font_Size_Shortcuts)
 	testing.expect(t, settings.font_size_shortcuts)
+	change = osd_adjust_setting(&settings, .Fullscreen_Hotkey, 1)
+	testing.expect_value(t, settings.fullscreen_hotkey, Fullscreen_Hotkey.Alt_Enter)
+	testing.expect(t, .Persist in change)
+	change = osd_adjust_setting(&settings, .Fullscreen_Hotkey, 1)
+	testing.expect_value(t, settings.fullscreen_hotkey, Fullscreen_Hotkey.F11)
+	change = osd_reset_setting(&settings, .Fullscreen_Hotkey)
+	testing.expect_value(t, settings.fullscreen_hotkey, Fullscreen_Hotkey.Both)
+	change = osd_adjust_setting(&settings, .Window_Style_Shortcut, 1)
+	testing.expect(t, !settings.window_style_shortcut)
+	testing.expect(t, .Persist in change)
+	change = osd_reset_setting(&settings, .Window_Style_Shortcut)
+	testing.expect(t, settings.window_style_shortcut)
+	settings.font_size_shortcuts = false
+	settings.fullscreen_hotkey = .F11
+	settings.window_style_shortcut = false
 	change = osd_reset_setting(&settings, .Key_Bindings)
 	testing.expect_value(t, settings.scroll_page_modifier, Scroll_Modifier.Shift)
 	testing.expect_value(t, settings.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
 	testing.expect(t, settings.font_size_shortcuts)
+	testing.expect_value(t, settings.fullscreen_hotkey, Fullscreen_Hotkey.Both)
+	testing.expect(t, settings.window_style_shortcut)
 	testing.expect(t, .Persist in change)
 
 	change = osd_adjust_setting(&settings, .Insert_Shortcuts, 1)
@@ -147,15 +164,24 @@ osd_key_binding_labels_describe_complete_shortcuts :: proc(t: ^testing.T) {
 	label, value = osd_setting_text(settings, .Font_Size_Shortcuts)
 	testing.expect_value(t, label, "Font size")
 	testing.expect_value(t, value, "Ctrl + / Ctrl -")
+	label, value = osd_setting_text(settings, .Fullscreen_Hotkey)
+	testing.expect_value(t, label, "Fullscreen")
+	testing.expect_value(t, value, "Alt+Enter / F11")
+	label, value = osd_setting_text(settings, .Window_Style_Shortcut)
+	testing.expect_value(t, label, "Window style")
+	testing.expect_value(t, value, "F12")
 
 	settings.scroll_page_modifier = .Off
 	settings.scroll_line_modifier = .Off
 	settings.font_size_shortcuts = false
+	settings.window_style_shortcut = false
 	_, value = osd_setting_text(settings, .Page_Scrolling)
 	testing.expect_value(t, value, "Disabled")
 	_, value = osd_setting_text(settings, .Line_Scrolling)
 	testing.expect_value(t, value, "Disabled")
 	_, value = osd_setting_text(settings, .Font_Size_Shortcuts)
+	testing.expect_value(t, value, "Disabled")
+	_, value = osd_setting_text(settings, .Window_Style_Shortcut)
 	testing.expect_value(t, value, "Disabled")
 }
 
@@ -230,6 +256,18 @@ osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testin
 	themes := osd_page_metadata(.Colour_Theme_List)
 	testing.expect_value(t, themes.parent, Osd_Page.Main)
 	testing.expect_value(t, themes.return_row, int(Osd_Main_Row.Colour_Themes))
+	key_bindings := osd_page_metadata(.Key_Bindings)
+	testing.expect_value(t, len(key_bindings.settings), 5)
+	testing.expect_value(
+		t,
+		key_bindings.settings[int(Osd_Key_Binding_Row.Fullscreen)],
+		Osd_Setting.Fullscreen_Hotkey,
+	)
+	testing.expect_value(
+		t,
+		key_bindings.settings[int(Osd_Key_Binding_Row.Window_Style)],
+		Osd_Setting.Window_Style_Shortcut,
+	)
 
 	testing.expect_value(
 		t,
@@ -364,6 +402,19 @@ osd_colour_theme_browser_applies_navigation_and_keeps_latest_on_escape :: proc(t
 	osd_handle_key(&app, glfw.KEY_R, 0)
 	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Ghostty)
 	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+}
+
+@(test)
+osd_global_reset_restores_all_key_binding_defaults :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	settings.scroll_page_modifier = .Off
+	settings.scroll_line_modifier = .Off
+	settings.font_size_shortcuts = false
+	settings.fullscreen_hotkey = .F11
+	settings.window_style_shortcut = false
+	osd := Osd_State{visible = true, page = .Key_Bindings}
+	osd_global_reset(&settings, &osd)
+	testing.expect_value(t, settings, application_settings_default())
 }
 
 @(test)
@@ -557,7 +608,7 @@ osd_key_binding_submenu_navigation_uses_right_enter_space_and_escape :: proc(t: 
 		testing.expect_value(t, app.osd.page, Osd_Page.Key_Bindings)
 		testing.expect_value(t, app.osd.selected, 0)
 		osd_handle_key(&app, glfw.KEY_UP, 0)
-		testing.expect_value(t, app.osd.selected, 2)
+		testing.expect_value(t, app.osd.selected, 4)
 		osd_handle_key(&app, glfw.KEY_DOWN, 0)
 		testing.expect_value(t, app.osd.selected, 0)
 
@@ -682,8 +733,8 @@ osd_panel_is_centered_and_constrained_to_the_framebuffer :: proc(t: ^testing.T) 
 	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
 	testing.expect_value(t, rows, OSD_KEY_BINDING_PREFERRED_ROWS)
 	rect = osd_panel_rect(1200, 880, 10, 22, cols, rows)
-	testing.expect_value(t, rect.extent.height, u32(176))
-	testing.expect_value(t, rect.offset.y, i32(352))
+	testing.expect_value(t, rect.extent.height, u32(220))
+	testing.expect_value(t, rect.offset.y, i32(330))
 
 	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Copy_Paste)
 	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)

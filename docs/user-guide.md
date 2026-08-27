@@ -25,7 +25,7 @@ The overlay controls:
 - hinting, contrast, physical subpixel layout, and display rotation;
 - cursor animation;
 - terminal padding, optional background/tint glow, and window style;
-- scrollback and font-size key bindings;
+- scrollback, font-size, fullscreen, and window-style key bindings;
 - selection appearance and copy/paste behaviour;
 - OSC 52 terminal clipboard access.
 
@@ -48,12 +48,14 @@ grayscale until a manual angle is selected.
 
 ## Keyboard shortcuts
 
-These are the defaults. Scrollback and font-size bindings can be changed or
-disabled under **Key bindings**.
+These are the defaults. Scrollback, font-size, fullscreen, and window-style
+bindings can be changed or disabled under **Key bindings**.
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+,` | Open or close settings |
+| `Alt+Enter`, `F11` | Enter or leave fullscreen |
+| `F12` | Switch between System and Frameless while windowed |
 | `Ctrl+=`, `Ctrl++`, `Ctrl+-` | Increase or decrease font size |
 | `Ctrl+Keypad +`, `Ctrl+Keypad -` | Increase or decrease font size |
 | `Shift+PageUp`, `Shift+PageDown` | Scroll by one viewport |
@@ -61,6 +63,20 @@ disabled under **Key bindings**.
 | `Ctrl+Shift+Up`, `Ctrl+Shift+Down` | Scroll one line |
 | `Ctrl+Insert` | Copy the current selection |
 | `Shift+Insert` | Paste, using bracketed paste when active |
+
+Fullscreen can use `Alt+Enter`, `F11`, or both. The `Alt+Enter` binding accepts
+only the regular Enter key with Alt; keypad Enter and combinations containing
+Ctrl, Shift, or Super remain terminal input. `F11` and `F12` are likewise
+unmodified bindings. Caps Lock and Num Lock do not affect any of these matches.
+
+Fullscreen uses the current video mode of the monitor containing the largest
+part of the window, falling back to the primary monitor. Leaving fullscreen
+restores the window's position, client size, configured style, and maximized
+state. F12 changes and saves the configured window style immediately while
+windowed. It is inactive in fullscreen, where it remains available to the
+terminal when settings are closed and to the settings overlay when it is open.
+Both fullscreen shortcuts remain active while settings are open; paste
+confirmation remains the higher-priority modal.
 
 Typing while detached from live output returns the viewport to the bottom.
 Use a mouse wheel or a two-finger trackpad gesture to move through normal-screen

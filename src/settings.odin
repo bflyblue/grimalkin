@@ -48,6 +48,12 @@ Window_Style :: enum u8 {
 	Frameless,
 }
 
+Fullscreen_Hotkey :: enum u8 {
+	Alt_Enter,
+	F11,
+	Both,
+}
+
 Scroll_Modifier :: enum u8 {
 	Off,
 	Shift,
@@ -120,6 +126,8 @@ Application_Settings :: struct {
 	padding_glow:    Padding_Glow,
 	nerd_font_symbols: bool,
 	window_style:    Window_Style,
+	fullscreen_hotkey: Fullscreen_Hotkey,
+	window_style_shortcut: bool,
 	scroll_page_modifier: Scroll_Modifier,
 	scroll_line_modifier: Scroll_Modifier,
 	font_size_shortcuts: bool,
@@ -180,6 +188,8 @@ application_settings_default :: proc() -> Application_Settings {
 		padding_glow    = .Off,
 		nerd_font_symbols = true,
 		window_style    = .System,
+		fullscreen_hotkey = .Both,
+		window_style_shortcut = true,
 		scroll_page_modifier = .Shift,
 		scroll_line_modifier = .Ctrl_Shift,
 		font_size_shortcuts = true,
@@ -379,6 +389,15 @@ settings_window_style_name :: proc(value: Window_Style) -> string {
 	return "System"
 }
 
+settings_fullscreen_hotkey_name :: proc(value: Fullscreen_Hotkey) -> string {
+	switch value {
+	case .Alt_Enter: return "Alt+Enter"
+	case .F11:       return "F11"
+	case .Both:      return "Alt+Enter / F11"
+	}
+	return "Alt+Enter / F11"
+}
+
 settings_scroll_modifier_name :: proc(value: Scroll_Modifier) -> string {
 	switch value {
 	case .Off:        return "Off"
@@ -404,6 +423,8 @@ Settings_Disk :: struct {
 	padding_glow:     string `json:"padding_glow"`,
 	nerd_font_symbols: bool  `json:"nerd_font_symbols"`,
 	window_style:     string `json:"window_style"`,
+	fullscreen_hotkey: string `json:"fullscreen_hotkey"`,
+	window_style_shortcut: bool `json:"window_style_shortcut"`,
 	scroll_page_modifier: string `json:"scroll_page_modifier"`,
 	scroll_line_modifier: string `json:"scroll_line_modifier"`,
 	font_size_shortcuts: bool `json:"font_size_shortcuts"`,
@@ -445,6 +466,7 @@ SETTINGS_SUBPIXEL_ROTATION_WIRE := [5]string{"auto", "0", "90", "180", "270"}
 SETTINGS_CURSOR_ANIMATION_WIRE := [3]string{"blink", "pulse", "steady"}
 SETTINGS_PADDING_GLOW_WIRE := [3]string{"off", "background", "tint"}
 SETTINGS_WINDOW_STYLE_WIRE := [2]string{"system", "frameless"}
+SETTINGS_FULLSCREEN_HOTKEY_WIRE := [3]string{"alt_enter", "f11", "both"}
 SETTINGS_SCROLL_MODIFIER_WIRE := [4]string{"off", "shift", "ctrl", "ctrl_shift"}
 SETTINGS_TERMINAL_CLIPBOARD_WIRE := [3]string{"blocked", "write_only", "read_write"}
 SETTINGS_BLOCK_WHITESPACE_WIRE := [2]string{"trim", "preserve"}
@@ -459,6 +481,7 @@ SETTINGS_SELECTION_STYLE_WIRE := [3]string{"glass", "outline", "solid"}
 #assert(len(SETTINGS_CURSOR_ANIMATION_WIRE) == int(Cursor_Animation_Policy.Steady) + 1)
 #assert(len(SETTINGS_PADDING_GLOW_WIRE) == int(Padding_Glow.Tint) + 1)
 #assert(len(SETTINGS_WINDOW_STYLE_WIRE) == int(Window_Style.Frameless) + 1)
+#assert(len(SETTINGS_FULLSCREEN_HOTKEY_WIRE) == int(Fullscreen_Hotkey.Both) + 1)
 #assert(len(SETTINGS_SCROLL_MODIFIER_WIRE) == int(Scroll_Modifier.Ctrl_Shift) + 1)
 #assert(len(SETTINGS_TERMINAL_CLIPBOARD_WIRE) == int(Terminal_Clipboard_Policy.Read_Write) + 1)
 #assert(len(SETTINGS_BLOCK_WHITESPACE_WIRE) == int(Block_Selection_Whitespace.Preserve) + 1)
@@ -506,6 +529,8 @@ settings_to_disk :: proc(
 		padding_glow     = settings_wire_encode(int(settings.padding_glow), SETTINGS_PADDING_GLOW_WIRE[:]),
 		nerd_font_symbols = settings.nerd_font_symbols,
 		window_style     = settings_wire_encode(int(settings.window_style), SETTINGS_WINDOW_STYLE_WIRE[:]),
+		fullscreen_hotkey = settings_wire_encode(int(settings.fullscreen_hotkey), SETTINGS_FULLSCREEN_HOTKEY_WIRE[:]),
+		window_style_shortcut = settings.window_style_shortcut,
 		scroll_page_modifier = settings_wire_encode(int(settings.scroll_page_modifier), SETTINGS_SCROLL_MODIFIER_WIRE[:]),
 		scroll_line_modifier = settings_wire_encode(int(settings.scroll_line_modifier), SETTINGS_SCROLL_MODIFIER_WIRE[:]),
 		font_size_shortcuts = settings.font_size_shortcuts,
@@ -568,6 +593,8 @@ settings_from_disk :: proc(disk: Settings_Disk) -> (Application_Settings, bool) 
 	if !settings_wire_decode_into(disk.padding_glow, SETTINGS_PADDING_GLOW_WIRE[:], &settings.padding_glow) do valid = false
 	settings.nerd_font_symbols = disk.nerd_font_symbols
 	if !settings_wire_decode_into(disk.window_style, SETTINGS_WINDOW_STYLE_WIRE[:], &settings.window_style) do valid = false
+	if !settings_wire_decode_into(disk.fullscreen_hotkey, SETTINGS_FULLSCREEN_HOTKEY_WIRE[:], &settings.fullscreen_hotkey) do valid = false
+	settings.window_style_shortcut = disk.window_style_shortcut
 	if !settings_wire_decode_into(disk.scroll_page_modifier, SETTINGS_SCROLL_MODIFIER_WIRE[:], &settings.scroll_page_modifier) do valid = false
 	scroll_line_modifier := settings.scroll_line_modifier
 	if !settings_wire_decode_into(disk.scroll_line_modifier, SETTINGS_SCROLL_MODIFIER_WIRE[:], &scroll_line_modifier) ||
