@@ -30,8 +30,10 @@ useful set of live visual controls.
   paste, and configurable OSC 52 access.
 - Alt-hover (Command on macOS) to mark a URL with a dotted underline, and
   Alt-click to open it in the system browser.
-- Kitty graphics: PNG and raw pixel transmission, direct and Unicode-placeholder
-  placements, and the protocol's three z-index layers.
+- Kitty graphics: PNG and raw pixel transmission over direct, file, temporary
+  file, and platform-supported shared-memory media; direct,
+  Unicode-placeholder, and relative placements; scroll-region handling;
+  client-selected animation frames; and the protocol's three z-index layers.
 - Live settings for built-in colour themes, fonts, text rendering, cursor
   animation, padding effects, key bindings, clipboard behaviour, and window
   style.
@@ -84,12 +86,14 @@ owns VT parsing and terminal state; Grimalkin owns the process session, display
 compiler, input UI, and renderer. It advertises `TERM=xterm-256color` rather
 than claiming another terminal's identity.
 
-Kitty graphics covers image transmission, direct and Unicode-placeholder
-placements, deletion, queries, and z-index layering. It does not cover
-animation or relative placements, which the terminal engine does not implement,
-and images can only be transmitted over the terminal itself rather than through
-files or shared memory. Please open an issue for other compatibility gaps with
-a minimal reproduction and the application involved.
+Kitty graphics covers direct, file, and temporary-file transmission plus shared
+memory where libghostty supports it; direct and Unicode-placeholder placements;
+relative placements; scroll-region behavior; deletion; queries; and z-index
+layering. Animation frames and explicit frame selection are decoded and
+rendered. Timed playback is not yet advanced because libghostty's public C API
+does not expose the animation tick and next-frame deadline used by Ghostty's
+own renderer. Please open an issue for other compatibility gaps with a minimal
+reproduction and the application involved.
 
 ## Development
 

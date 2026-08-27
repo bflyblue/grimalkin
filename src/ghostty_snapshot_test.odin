@@ -9,7 +9,7 @@ import "core:testing"
 import "vendor:glfw"
 
 Ghostty_Test_Sink :: struct {
-	bytes: [128]u8,
+	bytes: [512]u8,
 	len:   int,
 }
 
@@ -34,6 +34,16 @@ ghostty_test_write_scrollback :: proc(terminal: ^Terminal_Core, lines: int) {
 
 ghostty_test_theme_rgba :: proc(rgb: u32) -> u32 {
 	return ((rgb >> 16) & 0xff) | (rgb & 0x00ff00) | ((rgb & 0xff) << 16) | 0xff000000
+}
+
+ghostty_test_placement_by_image :: proc(
+	snapshot: ^Terminal_Snapshot,
+	image_id: u32,
+) -> (^Terminal_Placement, bool) {
+	for &placement in snapshot.placements {
+		if placement.image_id == image_id do return &placement, true
+	}
+	return nil, false
 }
 
 @(test)
@@ -757,8 +767,18 @@ ghostty_direct_kitty_rgba_survives_multiple_protocol_chunks :: proc(t: ^testing.
 	demo_transmit_kitty_rgba(&terminal, 77, 64, 32, replacement_pixels, 0)
 	replacement_update := terminal_core_snapshot(&terminal, &snapshot)
 	testing.expect(t, replacement_update.graphics_changed)
+	// Current libghostty matches Kitty by removing an image's placements when a
+	// transmission replaces that image ID. The unplaced replacement remains in
+	// Ghostty storage but is intentionally absent from Grimalkin's render-only
+	// snapshot until it is placed again.
+	testing.expect_value(t, len(snapshot.images), 0)
+	testing.expect_value(t, len(snapshot.placements), 0)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=77,p=11,c=8,r=4,q=0\x1b\\")
+	replacement_update = terminal_core_snapshot(&terminal, &snapshot)
 	testing.expect_value(t, replacement_update.image_bytes_copied, u64(len(replacement_pixels)))
 	testing.expect_value(t, replacement_update.bridge_image_bytes_updated, u64(len(replacement_pixels)))
+	testing.expect_value(t, len(snapshot.images), 1)
+	if len(snapshot.images) != 1 do return
 	testing.expect(t, snapshot.images[0].generation != initial_generation)
 	testing.expect(t, slice.equal(snapshot.images[0].pixels, replacement_pixels))
 
@@ -1109,6 +1129,154 @@ ghostty_kitty_placement_geometry_is_not_recollected_while_still :: proc(t: ^test
 	testing.expect(t, !unchanged.placement_geometry_changed)
 	testing.expect(t, !unchanged.graphics_changed)
 	testing.expect_value(t, unchanged.image_bytes_copied, u64(0))
+}
+
+@(test)
+ghostty_kitty_relative_placements_arrive_at_resolved_positions :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_core_resize(&terminal, 20, 8, 10, 20)
+	pixels := demo_image_pixels(20, 20, 0)
+	defer delete(pixels)
+
+	demo_transmit_kitty_rgba(&terminal, 78, 20, 20, pixels, 2)
+	terminal_write_string(&terminal, "\x1b[3;5H\x1b_Ga=p,i=78,p=1,c=2,r=1,C=1,q=2\x1b\\")
+	demo_transmit_kitty_rgba(&terminal, 79, 20, 20, pixels, 2)
+	terminal_write_string(
+		&terminal,
+		"\x1b_Ga=p,i=79,p=1,P=78,Q=1,H=3,V=2,c=2,r=1,q=2\x1b\\",
+	)
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	parent, parent_found := ghostty_test_placement_by_image(&snapshot, 78)
+	child, child_found := ghostty_test_placement_by_image(&snapshot, 79)
+	testing.expect(t, parent_found)
+	testing.expect(t, child_found)
+	if !parent_found || !child_found do return
+	testing.expect_value(t, parent.viewport_col, i32(4))
+	testing.expect_value(t, parent.viewport_row, i32(2))
+	// P/Q select the parent placement; H/V are cell offsets from its resolved
+	// origin. Grimalkin consumes only this final geometry, so chained relative
+	// placement remains owned by libghostty-vt.
+	testing.expect_value(t, child.viewport_col, i32(7))
+	testing.expect_value(t, child.viewport_row, i32(4))
+	testing.expect(t, child.viewport_visible)
+}
+
+@(test)
+ghostty_kitty_placements_follow_vertical_scroll_regions :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_core_resize(&terminal, 20, 8, 10, 20)
+	pixels := demo_image_pixels(10, 20, 0)
+	defer delete(pixels)
+
+	// Image 80 is outside rows 2-7; image 81 is wholly inside them.
+	demo_transmit_kitty_rgba(&terminal, 80, 10, 20, pixels, 2)
+	terminal_write_string(&terminal, "\x1b[1;2H\x1b_Ga=p,i=80,p=1,c=1,r=1,C=1,q=2\x1b\\")
+	demo_transmit_kitty_rgba(&terminal, 81, 10, 20, pixels, 2)
+	terminal_write_string(&terminal, "\x1b[4;2H\x1b_Ga=p,i=81,p=1,c=1,r=1,C=1,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	outside, outside_found := ghostty_test_placement_by_image(&snapshot, 80)
+	inside, inside_found := ghostty_test_placement_by_image(&snapshot, 81)
+	testing.expect(t, outside_found)
+	testing.expect(t, inside_found)
+	if !outside_found || !inside_found do return
+	outside_before := outside.viewport_row
+	inside_before := inside.viewport_row
+
+	// Index at the lower margin. Placements fully inside the region move with
+	// its contents; placements outside it stay pinned to their rows.
+	terminal_write_string(&terminal, "\x1b[2;7r\x1b[7;1H\x1bD")
+	update := terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, update.placement_geometry_changed)
+	outside, outside_found = ghostty_test_placement_by_image(&snapshot, 80)
+	inside, inside_found = ghostty_test_placement_by_image(&snapshot, 81)
+	if !outside_found || !inside_found do return
+	testing.expect_value(t, outside.viewport_row, outside_before)
+	testing.expect_value(t, inside.viewport_row, inside_before - 1)
+}
+
+@(test)
+ghostty_kitty_client_selected_animation_frames_refresh_pixels :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	terminal_core_resize(&terminal, 20, 8, 10, 20)
+	red := []u8{255, 0, 0, 255}
+	demo_transmit_kitty_rgba(&terminal, 82, 1, 1, red, 2)
+	terminal_write_string(&terminal, "\x1b_Ga=p,i=82,p=1,c=1,r=1,C=1,q=2\x1b\\")
+
+	snapshot := Terminal_Snapshot{}
+	defer terminal_snapshot_destroy(&snapshot)
+	_ = terminal_core_snapshot(&terminal, &snapshot)
+	image, found := terminal_snapshot_image(&snapshot, 82)
+	testing.expect(t, found)
+	if !found do return
+	initial_generation := image.generation
+	testing.expect(t, slice.equal(image.pixels, red))
+
+	blue := []u8{0, 0, 255, 255}
+	encoded, encode_error := base64.encode(blue)
+	testing.expect(t, encode_error == nil)
+	if encode_error != nil do return
+	defer delete(encoded)
+	frame := fmt.aprintf("\x1b_Ga=f,i=82,f=32,s=1,v=1,z=40,q=2;%s\x1b\\", encoded)
+	defer delete(frame)
+	terminal_write_string(&terminal, frame)
+	terminal_write_string(&terminal, "\x1b_Ga=a,i=82,c=2,q=2\x1b\\")
+
+	update := terminal_core_snapshot(&terminal, &snapshot)
+	testing.expect(t, update.graphics_changed)
+	image, found = terminal_snapshot_image(&snapshot, 82)
+	if !found do return
+	testing.expect(t, image.generation > initial_generation)
+	testing.expect(t, slice.equal(image.pixels, blue))
+}
+
+ghostty_test_query_kitty_medium :: proc(
+	terminal: ^Terminal_Core,
+	medium, path: string,
+) {
+	encoded, encode_error := base64.encode(transmute([]u8)path)
+	if encode_error != nil do return
+	defer delete(encoded)
+	command := fmt.aprintf(
+		"\x1b_Ga=q,f=32,s=1,v=1,i=83,t=%s,q=0;%s\x1b\\",
+		medium,
+		encoded,
+	)
+	defer delete(command)
+	terminal_write_string(terminal, command)
+}
+
+@(test)
+ghostty_kitty_local_transmission_mediums_are_enabled :: proc(t: ^testing.T) {
+	terminal := terminal_core_init(20, 8, 32)
+	defer terminal_core_destroy(&terminal)
+	sink := Ghostty_Test_Sink{}
+	terminal_core_set_write_pty(&terminal, ghostty_test_write_pty, &sink)
+
+	// A missing path still proves the medium was admitted: disabled media fail
+	// earlier with "unsupported medium", while an enabled loader reaches its
+	// path-specific validation. Queries discard any successfully loaded image.
+	ghostty_test_query_kitty_medium(&terminal, "f", "/grimalkin-kitty-medium-does-not-exist")
+	ghostty_test_query_kitty_medium(&terminal, "t", "/grimalkin-kitty-medium-does-not-exist")
+	response := string(sink.bytes[:sink.len])
+	testing.expect(t, !strings.contains(response, "unsupported medium"))
+
+	sink.len = 0
+	ghostty_test_query_kitty_medium(&terminal, "s", "/grimalkin-kitty-medium-does-not-exist")
+	response = string(sink.bytes[:sink.len])
+	when ODIN_OS == .Windows {
+		testing.expect(t, strings.contains(response, "unsupported medium"))
+	} else {
+		testing.expect(t, !strings.contains(response, "unsupported medium"))
+	}
 }
 
 @(test)

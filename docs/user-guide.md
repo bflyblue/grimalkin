@@ -155,6 +155,13 @@ The Kitty image default matches other terminals that implement the protocol.
 Raise it if you routinely display many or very large images; lower it to cap the
 memory a remote program can cause Grimalkin to hold.
 
+Kitty images may arrive inline or through local files, temporary files, and
+platform-supported shared memory. Temporary-file requests are restricted to
+the process temporary directory. Relative placements and images inside terminal
+scroll regions follow their parent or text content. Client-selected animation
+frames render immediately; automatic timed playback awaits a public libghostty
+animation scheduling API.
+
 The two scrollback limits apply together, and the first one reached causes old
 history to be pruned. Accounting is per terminal instance, not shared between
 Grimalkin windows. The line limit counts physical grid lines, so one long

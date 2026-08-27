@@ -145,13 +145,24 @@ that places an image below the backgrounds and sees nothing is being shown the
 protocol's defined behaviour, not a rendering failure.
 
 Placement geometry is resolved by `libghostty-vt` and recollected whenever the
-viewport moves under a placement, which the graphics generation alone does not
-capture. Both image lists are bounded, and the middle tier is bounded more
+viewport moves or a dirty terminal frame may have moved a placement, such as a
+scroll-region operation. The graphics generation alone does not capture those
+changes. Both image lists are bounded, and the middle tier is bounded more
 tightly because each of its entries costs work for every fragment of the grid.
 
-Animation and relative placements are unimplemented in `libghostty-vt`, and the
-file, temporary file, and shared memory transmission mediums are deliberately
-not enabled.
+Relative placements and scroll-region movement are resolved inside
+`libghostty-vt`, so the renderer consumes their final viewport geometry through
+the same path as ordinary direct placements. File and temporary-file
+transmission are enabled alongside direct payloads, as is shared memory on
+platforms where libghostty implements it; temporary files are restricted to the
+process temporary directory by `libghostty-vt`.
+
+Animation frame transmission and client-selected frame changes flow through
+the ordinary image-generation cache path. Automatic timed playback remains a
+libghostty integration boundary: Ghostty's internal renderer calls
+`ImageStorage.animationTick`, but the public C API currently exposes only the
+selected frame and its generation, not the tick operation or next deadline.
+Do not add an Odin-side animation clock that would duplicate protocol state.
 
 When graphics generation changes, the durable terminal snapshot rebuilds image
 and virtual-placement indexes alongside its owned slices. Placement indexes

@@ -23,10 +23,10 @@
 
 #include "png_shim.h"
 
-/* Everything a placement's resolved geometry depends on besides the images
-   themselves. Scrolling, swapping screens, and resizing all move a direct
-   placement without touching the graphics generation, so the generation alone
-   is not enough to decide whether geometry can be reused. */
+/* Stable viewport inputs for a placement's resolved geometry. Scrolling,
+   swapping screens, and resizing can move a direct placement without touching
+   the graphics generation. Dirty terminal frames are checked separately,
+   because scroll regions can move placement pins without changing this key. */
 typedef struct {
   uint64_t scroll_offset;
   uint32_t cell_width_px;
@@ -275,12 +275,9 @@ static bool ghostty_string_equal(GhosttyString value, const char *expected) {
       (length == 0 || memcmp(value.ptr, expected, length) == 0);
 }
 
-static GhosttyClipboardWriteResult terminal_clipboard_write(
-    GhosttyTerminal terminal_handle,
-    void *userdata,
+static GhosttyClipboardWriteResult queue_clipboard_write(
+    GrimalkinGhostty *terminal,
     const GhosttyClipboardWrite *write) {
-  (void)terminal_handle;
-  GrimalkinGhostty *terminal = userdata;
   if (terminal == NULL || write == NULL ||
       write->size < sizeof(GhosttyClipboardWrite)) {
     return GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA;
@@ -317,6 +314,17 @@ static GhosttyClipboardWriteResult terminal_clipboard_write(
     return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
   }
   return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
+}
+
+static void terminal_clipboard_write(
+    GhosttyTerminal terminal_handle,
+    void *userdata,
+    const GhosttyClipboardWrite *write) {
+  (void)terminal_handle;
+  GhosttyClipboardWriteReply reply =
+      GHOSTTY_INIT_SIZED(GhosttyClipboardWriteReply);
+  reply.result = queue_clipboard_write(userdata, write);
+  if (write != NULL && write->reply != NULL) write->reply(write, &reply);
 }
 
 static void terminal_write_pty(GhosttyTerminal terminal_handle,
@@ -499,6 +507,7 @@ static void clear_images(GrimalkinGhostty *terminal) {
 
 static int snapshot_images(GrimalkinGhostty *terminal,
                            GrimalkinPlacementViewport viewport,
+                           bool geometry_dirty,
                            size_t *out_bytes_updated,
                            bool *out_placements_changed) {
   GhosttyKittyGraphics graphics = NULL;
@@ -526,8 +535,10 @@ static int snapshot_images(GrimalkinGhostty *terminal,
      viewport-only refresh reuses them and copies nothing. */
   bool viewport_changed =
       !placement_viewport_equal(terminal->placement_viewport, viewport);
+  bool geometry_changed = terminal->placement_count > 0 &&
+      (viewport_changed || geometry_dirty);
   if (graphics_generation == terminal->graphics_generation &&
-      (!viewport_changed || terminal->placement_count == 0)) {
+      !geometry_changed) {
     return GRIMALKIN_GHOSTTY_OK;
   }
 
@@ -747,6 +758,18 @@ snapshot_images_error:
    stays inside the PNG shim; see GrimalkinPngDecodeFn in png_shim.h. */
 static GrimalkinPngDecodeFn png_decoder = NULL;
 
+static const char *temporary_directory(void) {
+#ifdef _WIN32
+  const char *path = getenv("TEMP");
+  if (path == NULL || path[0] == '\0') path = getenv("TMP");
+  return path;
+#else
+  const char *path = getenv("TMPDIR");
+  if (path == NULL || path[0] == '\0') path = getenv("TMP");
+  return path == NULL || path[0] == '\0' ? "/tmp" : path;
+#endif
+}
+
 /* libghostty-vt owns the decoded pixels and frees them with the allocator it
    handed us, so the buffer has to come from that allocator rather than
    malloc. */
@@ -831,10 +854,16 @@ int grimalkin_ghostty_new(uint16_t cols,
                                 max_scrollback_lines);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
   // Mode 2027 makes Ghostty retain emoji presentation sequences as one
-  // grapheme and assign their terminal width coherently. Applications remain
-  // free to reset or re-enable the mode through the normal DEC private mode.
-  result = ghostty_terminal_mode_set(
-      terminal->terminal, GHOSTTY_MODE_GRAPHEME_CLUSTER, true);
+  // grapheme and assign their terminal width coherently. Set its reset default
+  // so RIS restores Grimalkin's preference; applications remain free to
+  // change the current mode through the normal DEC private mode.
+  GhosttyTerminalModeConfig grapheme_cluster = {
+      .mode = GHOSTTY_MODE_GRAPHEME_CLUSTER,
+      .value = true,
+  };
+  result = ghostty_terminal_set(
+      terminal->terminal, GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+      &grapheme_cluster);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
   result = ghostty_key_encoder_new(NULL, &terminal->key_encoder);
   if (result != GHOSTTY_SUCCESS) goto ghostty_error;
@@ -866,16 +895,38 @@ int grimalkin_ghostty_new(uint16_t cols,
   ghostty_terminal_set(terminal->terminal,
                        GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
                        &kitty_storage_limit);
-  bool local_medium = false;
-  ghostty_terminal_set(terminal->terminal,
-                       GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
-                       &local_medium);
-  ghostty_terminal_set(terminal->terminal,
-                       GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
-                       &local_medium);
-  ghostty_terminal_set(terminal->terminal,
-                       GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
-                       &local_medium);
+  // Match Ghostty's native terminal: local processes may use every Kitty
+  // transport supported by the platform. The temporary-file medium remains
+  // restricted by libghostty to this directory and deletes accepted files.
+  bool local_medium = true;
+  result = ghostty_terminal_set(terminal->terminal,
+                                GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
+                                &local_medium);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  const char *temp_path = temporary_directory();
+  if (temp_path != NULL) {
+    GhosttyString temp_directory = {
+        .ptr = (const uint8_t *)temp_path,
+        .len = strlen(temp_path),
+    };
+    result = ghostty_terminal_set(
+        terminal->terminal,
+        GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
+        &temp_directory);
+    if (result != GHOSTTY_SUCCESS) goto ghostty_error;
+  }
+  // libghostty's shared-memory loader uses POSIX shm_open and explicitly does
+  // not implement this medium on Windows.
+#ifdef _WIN32
+  bool shared_memory_medium = false;
+#else
+  bool shared_memory_medium = true;
+#endif
+  result = ghostty_terminal_set(
+      terminal->terminal,
+      GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
+      &shared_memory_medium);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
   ghostty_terminal_set(terminal->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, terminal);
   ghostty_terminal_set(terminal->terminal,
                        GHOSTTY_TERMINAL_OPT_WRITE_PTY,
@@ -1414,11 +1465,13 @@ int grimalkin_ghostty_paste_encode(GrimalkinGhostty *terminal,
     if (copy == NULL) return GRIMALKIN_GHOSTTY_OUT_OF_MEMORY;
     memcpy(copy, data, len);
   }
-  bool bracketed = false;
-  GhosttyResult result = ghostty_terminal_mode_get(
-      terminal->terminal, GHOSTTY_MODE_BRACKETED_PASTE, &bracketed);
+  GhosttyTerminalModeConfig bracketed_paste = {
+      .mode = GHOSTTY_MODE_BRACKETED_PASTE,
+  };
+  GhosttyResult result = ghostty_terminal_get(
+      terminal->terminal, GHOSTTY_TERMINAL_DATA_MODE, &bracketed_paste);
   if (result == GHOSTTY_SUCCESS) {
-    result = ghostty_paste_encode(copy, len, bracketed, (char *)out,
+    result = ghostty_paste_encode(copy, len, bracketed_paste.value, (char *)out,
                                   out_capacity, out_len);
   }
   free(copy);
@@ -1571,7 +1624,8 @@ int grimalkin_ghostty_snapshot(GrimalkinGhostty *terminal,
   size_t grapheme_bytes_updated = 0;
 
   GhosttyRenderStateColors colors = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
-  result = ghostty_render_state_colors_get(terminal->render, &colors);
+  result = ghostty_render_state_get(
+      terminal->render, GHOSTTY_RENDER_STATE_DATA_COLORS, &colors);
   if (result != GHOSTTY_SUCCESS) return GRIMALKIN_GHOSTTY_GHOSTTY_ERROR;
 
   GhosttyColorRgb palette[256];
@@ -1754,8 +1808,12 @@ int grimalkin_ghostty_snapshot(GrimalkinGhostty *terminal,
       .rows = rows,
       .active_screen = (uint8_t)active_screen,
   };
-  int image_result =
-      snapshot_images(terminal, viewport, &image_bytes_updated, &placements_changed);
+  int image_result = snapshot_images(
+      terminal,
+      viewport,
+      dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE || terminal->force_full_snapshot,
+      &image_bytes_updated,
+      &placements_changed);
   if (image_result != GRIMALKIN_GHOSTTY_OK) return image_result;
 
   out_snapshot->cols = cols;
