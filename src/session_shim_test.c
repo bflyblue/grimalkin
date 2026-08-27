@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #define TEST_TIMEOUT_STEPS 500
@@ -26,6 +27,43 @@ static int drain_until_exit(GrimalkinSession *session,
     usleep(10000);
   }
   return 0;
+}
+
+static int unix_write_all(int descriptor, const void *data, size_t length) {
+  const uint8_t *cursor = (const uint8_t *)data;
+  while (length > 0) {
+    ssize_t written = write(descriptor, cursor, length);
+    if (written <= 0) return 0;
+    cursor += (size_t)written;
+    length -= (size_t)written;
+  }
+  return 1;
+}
+
+static int unix_large_input_child(void) {
+  struct termios mode;
+  if (tcgetattr(STDIN_FILENO, &mode) != 0) return 11;
+  cfmakeraw(&mode);
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &mode) != 0) return 11;
+  static const char ready[] = "__GRIMALKIN_LARGE_READY__";
+  if (!unix_write_all(STDOUT_FILENO, ready, sizeof(ready) - 1)) return 12;
+
+  const size_t expected = TEST_QUEUE_CAPACITY + 1024u;
+  size_t received = 0;
+  uint8_t block[16384];
+  while (received < expected) {
+    size_t capacity = expected - received;
+    if (capacity > sizeof(block)) capacity = sizeof(block);
+    ssize_t count = read(STDIN_FILENO, block, capacity);
+    if (count <= 0) return 13;
+    for (ssize_t index = 0; index < count; ++index) {
+      if (block[index] != 'x') return 14;
+    }
+    received += (size_t)count;
+  }
+  static const char done[] = "__GRIMALKIN_LARGE_DONE__";
+  if (!unix_write_all(STDOUT_FILENO, done, sizeof(done) - 1)) return 15;
+  return 6;
 }
 
 /* grimalkin_open_url is never exercised on its success path: that would open a
@@ -117,7 +155,11 @@ static int check_open_url(void) {
   return ok;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+  (void)argc;
+  if (argv != NULL && argv[0] != NULL && argv[0][0] == '-') {
+    return unix_large_input_child();
+  }
   if (!check_open_url()) return 1;
   if (!grimalkin_session_test_queue_growth()) {
     fprintf(stderr, "PTY queue growth did not preserve wrapped data\n");
@@ -182,18 +224,17 @@ int main(void) {
   grimalkin_session_free(session);
 
   /* Large clipboard and OSC 52 responses arrive as one write. Grow the
-     outgoing queue without losing order, then let a real shell consume more
-     than the original one-megabyte capacity. */
+     outgoing queue without losing order, then let a deterministic raw-PTY
+     child consume more than the original one-megabyte capacity. */
+  char *test_executable = realpath(argv[0], NULL);
+  if (test_executable == NULL || setenv("SHELL", test_executable, 1) != 0) {
+    free(test_executable);
+    return 1;
+  }
   session = NULL;
   if (grimalkin_session_new(80, 24, 10, 22, &session) !=
-      GRIMALKIN_SESSION_OK) return 1;
-  static const char quiet[] =
-      "stty raw -echo; printf '__GRIMALKIN_LARGE_READY__'; "
-      "IFS= read -r payload; bytes=${#payload}; unset payload; stty sane; "
-      "printf '__GRIMALKIN_LARGE_DONE__%s' \"$bytes\"; exit 6\n";
-  if (grimalkin_session_write(session, (const uint8_t *)quiet,
-                              sizeof(quiet) - 1) != GRIMALKIN_SESSION_OK) {
-    grimalkin_session_free(session);
+      GRIMALKIN_SESSION_OK) {
+    free(test_executable);
     return 1;
   }
   char ready[4096] = {0};
@@ -220,7 +261,6 @@ int main(void) {
     return 1;
   }
   memset(large, 'x', large_size);
-  large[large_size - 1] = '\n';
   int large_write = grimalkin_session_write(session, large, large_size);
   free(large);
   if (large_write != GRIMALKIN_SESSION_OK) {
@@ -233,7 +273,7 @@ int main(void) {
   completed = drain_until_exit(session, output, sizeof(output), &status);
   valid = completed && status.io_error == 0 && status.exited &&
       status.output_eof && status.exit_code == 6 &&
-      strstr(output, "__GRIMALKIN_LARGE_DONE__1049599") != NULL;
+      strstr(output, "__GRIMALKIN_LARGE_DONE__") != NULL;
   if (!valid) {
     fprintf(stderr,
             "large PTY write failed: exited=%u eof=%u code=%d error=%d\n",
@@ -243,6 +283,11 @@ int main(void) {
     return 1;
   }
   grimalkin_session_free(session);
+  if (setenv("SHELL", "/bin/sh", 1) != 0) {
+    free(test_executable);
+    return 1;
+  }
+  free(test_executable);
 
   /* A PTY reports POLLHUP together with its final readable bytes. Make the
      final burst larger than both the worker read buffer and the incoming queue
