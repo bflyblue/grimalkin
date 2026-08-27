@@ -48,15 +48,8 @@ init_vulkan :: proc(app: ^Grimalkin_App) {
 
 create_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	create_render_pass(renderer)
-	create_graphics_pipeline(renderer)
 	create_padding_glow_source_render_pass(renderer)
-	create_padding_glow_source_pipeline(renderer)
-	create_padding_glow_background_pipeline(renderer)
-	create_padding_glow_pipeline(renderer)
-	create_osd_pipeline(renderer)
-	create_selection_pipeline(renderer)
-	create_scroll_indicator_pipeline(renderer)
-	create_image_quad_pipeline(renderer)
+	create_fullscreen_pipelines(renderer)
 	create_framebuffers(renderer)
 }
 
@@ -175,37 +168,17 @@ destroy_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
 	}
 	for framebuffer in renderer.framebuffers do vk.DestroyFramebuffer(renderer.device, framebuffer, nil)
 	delete(renderer.framebuffers)
-	if renderer.pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.pipeline, nil)
-	if renderer.pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.pipeline_layout, nil)
-	if renderer.padding_glow_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.padding_glow_pipeline, nil)
-	if renderer.padding_glow_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.padding_glow_pipeline_layout, nil)
-	if renderer.padding_glow_source_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.padding_glow_source_pipeline, nil)
-	if renderer.padding_glow_background_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.padding_glow_background_pipeline, nil)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.padding_glow_source_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.padding_glow_background_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.padding_glow_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.osd_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.selection_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.image_quad_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.scroll_indicator_pipeline)
+	destroy_fullscreen_pipeline(renderer.device, &renderer.text_pipeline)
 	if renderer.padding_glow_source_render_pass != 0 do vk.DestroyRenderPass(renderer.device, renderer.padding_glow_source_render_pass, nil)
-	if renderer.osd_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.osd_pipeline, nil)
-	if renderer.osd_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.osd_pipeline_layout, nil)
-	if renderer.selection_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.selection_pipeline, nil)
-	if renderer.selection_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.selection_pipeline_layout, nil)
-	if renderer.image_quad_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.image_quad_pipeline, nil)
-	if renderer.image_quad_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.image_quad_pipeline_layout, nil)
-	if renderer.scroll_indicator_pipeline != 0 do vk.DestroyPipeline(renderer.device, renderer.scroll_indicator_pipeline, nil)
-	if renderer.scroll_indicator_pipeline_layout != 0 do vk.DestroyPipelineLayout(renderer.device, renderer.scroll_indicator_pipeline_layout, nil)
 	if renderer.render_pass != 0 do vk.DestroyRenderPass(renderer.device, renderer.render_pass, nil)
-	renderer.pipeline = 0
-	renderer.pipeline_layout = 0
-	renderer.padding_glow_pipeline = 0
-	renderer.padding_glow_pipeline_layout = 0
-	renderer.padding_glow_source_pipeline = 0
-	renderer.padding_glow_background_pipeline = 0
 	renderer.padding_glow_source_render_pass = 0
-	renderer.osd_pipeline = 0
-	renderer.osd_pipeline_layout = 0
-	renderer.selection_pipeline = 0
-	renderer.selection_pipeline_layout = 0
-	renderer.scroll_indicator_pipeline = 0
-	renderer.scroll_indicator_pipeline_layout = 0
-	renderer.image_quad_pipeline = 0
-	renderer.image_quad_pipeline_layout = 0
 	renderer.render_pass = 0
 	for image_view in renderer.image_views do vk.DestroyImageView(renderer.device, image_view, nil)
 	delete(renderer.image_views)
