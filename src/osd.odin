@@ -176,6 +176,7 @@ Osd_State :: struct {
 	font_search:         string,
 	font_search_deadline: f64,
 	font_error:          string,
+	colour_theme_error:  string,
 	paste_bytes:         int,
 	paste_lines:         int,
 }
@@ -203,6 +204,7 @@ osd_state_destroy :: proc(osd: ^Osd_State) {
 	delete(osd.cells)
 	delete(osd.font_search)
 	delete(osd.font_error)
+	delete(osd.colour_theme_error)
 	osd^ = {}
 }
 
@@ -828,7 +830,9 @@ osd_rebuild :: proc(
 				fmt.tprintf("%s%s", marker, colour_theme_name(Colour_Theme(list_index))),
 			)
 		}
-		osd_write_text(osd, resources, int(osd.rows) - 1, 0, metadata.footer, OSD_MUTED)
+		footer := metadata.footer
+		if osd.colour_theme_error != "" do footer = osd.colour_theme_error
+		osd_write_text(osd, resources, int(osd.rows) - 1, 0, footer, OSD_MUTED)
 		osd.dirty = true
 		return
 	}

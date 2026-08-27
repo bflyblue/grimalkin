@@ -14,6 +14,9 @@ when ODIN_OS == .Windows {
 }
 
 GRIMALKIN_GHOSTTY_OK :: 0
+GRIMALKIN_GHOSTTY_INVALID_ARGUMENT :: -100
+GRIMALKIN_GHOSTTY_OUT_OF_MEMORY :: -101
+GRIMALKIN_GHOSTTY_GHOSTTY_ERROR :: -102
 GRIMALKIN_GHOSTTY_OUT_OF_SPACE :: -103
 GRIMALKIN_GHOSTTY_COMPRESSION_UNSUPPORTED :: u8(0)
 GRIMALKIN_GHOSTTY_COMPRESSION_PENDING :: u8(1)
@@ -66,6 +69,13 @@ Terminal_Clipboard_Event_Type :: enum u8 {
 	None  = 0,
 	Write = 1,
 	Read  = 2,
+}
+
+Terminal_Colour_Theme_Result :: enum u8 {
+	Success,
+	Invalid_Argument,
+	Out_Of_Memory,
+	Ghostty_Error,
 }
 
 Grimalkin_Ghostty_Impl :: struct {}
@@ -387,21 +397,35 @@ terminal_core_destroy :: proc(terminal: ^Terminal_Core) {
 	}
 }
 
-terminal_core_set_colour_theme :: proc(
+terminal_colour_theme_result :: proc(result: c.int) -> Terminal_Colour_Theme_Result {
+	switch result {
+	case GRIMALKIN_GHOSTTY_OK:               return .Success
+	case GRIMALKIN_GHOSTTY_INVALID_ARGUMENT: return .Invalid_Argument
+	case GRIMALKIN_GHOSTTY_OUT_OF_MEMORY:    return .Out_Of_Memory
+	case GRIMALKIN_GHOSTTY_GHOSTTY_ERROR:    return .Ghostty_Error
+	}
+	return .Ghostty_Error
+}
+
+terminal_core_apply_colour_theme :: proc(
 	terminal: ^Terminal_Core,
 	theme: Colour_Theme,
-) -> bool {
-	if terminal == nil || terminal.handle == nil do return false
+) -> Terminal_Colour_Theme_Result {
+	if terminal == nil || terminal.handle == nil do return .Invalid_Argument
 	theme_data := colour_theme_data(theme)
 	palette_pointer: rawptr
 	if !theme_data.use_ghostty_palette do palette_pointer = raw_data(theme_data.palette[:])
-	return grimalkin_ghostty_set_colour_theme(
+	return terminal_colour_theme_result(grimalkin_ghostty_set_colour_theme(
 		terminal.handle,
 		theme_data.foreground,
 		theme_data.background,
 		theme_data.cursor,
 		palette_pointer,
-	) == GRIMALKIN_GHOSTTY_OK
+	))
+}
+
+terminal_core_set_colour_theme :: proc(terminal: ^Terminal_Core, theme: Colour_Theme) -> bool {
+	return terminal_core_apply_colour_theme(terminal, theme) == .Success
 }
 
 terminal_core_write :: proc(terminal: ^Terminal_Core, data: []u8) {
