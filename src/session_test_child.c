@@ -18,8 +18,15 @@ static int write_all(HANDLE output, const void *data, DWORD length) {
 }
 
 int main(void) {
-  HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
-  HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+  /* The CI parent has its own standard handles. Open the console devices
+     explicitly so this fixture exercises the pseudoconsole channels rather
+     than accidentally reading from or writing to the runner. */
+  HANDLE input = CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                             OPEN_EXISTING, 0, NULL);
+  HANDLE output = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                              OPEN_EXISTING, 0, NULL);
   if (input == INVALID_HANDLE_VALUE || output == INVALID_HANDLE_VALUE) return 2;
 
   char term[64] = {0};
@@ -40,6 +47,12 @@ int main(void) {
 
   if (GetEnvironmentVariableA(
           "GRIMALKIN_SESSION_TEST_LARGE_INPUT", NULL, 0) > 0) {
+    DWORD mode = 0;
+    if (!GetConsoleMode(input, &mode) ||
+        !SetConsoleMode(input, mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT |
+                                       ENABLE_PROCESSED_INPUT))) {
+      return 11;
+    }
     static const char ready[] = "__GRIMALKIN_LARGE_READY__";
     if (!write_all(output, ready, sizeof(ready) - 1)) return 14;
     const size_t expected = 1024u * 1024u + 1024u;
