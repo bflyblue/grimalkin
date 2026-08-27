@@ -525,6 +525,11 @@ struct GrimalkinSession {
   int stopping;
 };
 
+static void session_lock(GrimalkinSession *session) { EnterCriticalSection(&session->mutex); }
+static void session_unlock(GrimalkinSession *session) { LeaveCriticalSection(&session->mutex); }
+static void session_notify_writer(GrimalkinSession *session) { WakeConditionVariable(&session->outgoing_data); }
+static void session_notify_reader(GrimalkinSession *session) { WakeConditionVariable(&session->incoming_space); }
+
 static int windows_24h2_or_newer(void) {
   HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
   if (ntdll == NULL) return 0;
@@ -911,32 +916,6 @@ void grimalkin_session_free(GrimalkinSession *session) {
   free(session);
 }
 
-int grimalkin_session_write(GrimalkinSession *session, const uint8_t *data,
-                            size_t len) {
-  if (session == NULL || (len > 0 && data == NULL)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
-  if (len == 0) return GRIMALKIN_SESSION_OK;
-  EnterCriticalSection(&session->mutex);
-  if (len > SIZE_MAX - session->outgoing.length ||
-      !queue_reserve(&session->outgoing, session->outgoing.length + len)) {
-    LeaveCriticalSection(&session->mutex);
-    return GRIMALKIN_SESSION_OUT_OF_MEMORY;
-  }
-  queue_write(&session->outgoing, data, len);
-  WakeConditionVariable(&session->outgoing_data);
-  LeaveCriticalSection(&session->mutex);
-  return GRIMALKIN_SESSION_OK;
-}
-
-size_t grimalkin_session_read(GrimalkinSession *session, uint8_t *data,
-                              size_t capacity) {
-  if (session == NULL || data == NULL || capacity == 0) return 0;
-  EnterCriticalSection(&session->mutex);
-  size_t count = queue_read(&session->incoming, data, capacity);
-  if (count > 0) WakeConditionVariable(&session->incoming_space);
-  LeaveCriticalSection(&session->mutex);
-  return count;
-}
-
 int grimalkin_session_resize(GrimalkinSession *session, uint16_t cols,
                              uint16_t rows, uint32_t cell_width_px,
                              uint32_t cell_height_px) {
@@ -951,16 +930,6 @@ int grimalkin_session_resize(GrimalkinSession *session, uint16_t cols,
   LeaveCriticalSection(&session->mutex);
   return SUCCEEDED(result) ? GRIMALKIN_SESSION_OK
                            : GRIMALKIN_SESSION_IO_ERROR;
-}
-
-void grimalkin_session_status(GrimalkinSession *session,
-                              GrimalkinSessionStatus *out_status) {
-  if (out_status == NULL) return;
-  memset(out_status, 0, sizeof(*out_status));
-  if (session == NULL) return;
-  EnterCriticalSection(&session->mutex);
-  *out_status = session->status;
-  LeaveCriticalSection(&session->mutex);
 }
 
 #else
@@ -986,6 +955,11 @@ static void wake_worker(GrimalkinSession *session) {
   ssize_t ignored = write(session->control_write, &byte, 1);
   (void)ignored;
 }
+
+static void session_lock(GrimalkinSession *session) { pthread_mutex_lock(&session->mutex); }
+static void session_unlock(GrimalkinSession *session) { pthread_mutex_unlock(&session->mutex); }
+static void session_notify_writer(GrimalkinSession *session) { wake_worker(session); }
+static void session_notify_reader(GrimalkinSession *session) { wake_worker(session); }
 
 static void unix_set_error(GrimalkinSession *session, int error) {
   pthread_mutex_lock(&session->mutex);
@@ -1318,32 +1292,6 @@ void grimalkin_session_free(GrimalkinSession *session) {
   free(session);
 }
 
-int grimalkin_session_write(GrimalkinSession *session, const uint8_t *data,
-                            size_t len) {
-  if (session == NULL || (len > 0 && data == NULL)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
-  if (len == 0) return GRIMALKIN_SESSION_OK;
-  pthread_mutex_lock(&session->mutex);
-  if (len > SIZE_MAX - session->outgoing.length ||
-      !queue_reserve(&session->outgoing, session->outgoing.length + len)) {
-    pthread_mutex_unlock(&session->mutex);
-    return GRIMALKIN_SESSION_OUT_OF_MEMORY;
-  }
-  queue_write(&session->outgoing, data, len);
-  pthread_mutex_unlock(&session->mutex);
-  wake_worker(session);
-  return GRIMALKIN_SESSION_OK;
-}
-
-size_t grimalkin_session_read(GrimalkinSession *session, uint8_t *data,
-                              size_t capacity) {
-  if (session == NULL || data == NULL || capacity == 0) return 0;
-  pthread_mutex_lock(&session->mutex);
-  size_t count = queue_read(&session->incoming, data, capacity);
-  pthread_mutex_unlock(&session->mutex);
-  if (count > 0) wake_worker(session);
-  return count;
-}
-
 int grimalkin_session_resize(GrimalkinSession *session, uint16_t cols,
                              uint16_t rows, uint32_t cell_width_px,
                              uint32_t cell_height_px) {
@@ -1358,14 +1306,41 @@ int grimalkin_session_resize(GrimalkinSession *session, uint16_t cols,
              ? GRIMALKIN_SESSION_OK : GRIMALKIN_SESSION_IO_ERROR;
 }
 
+#endif
+
+int grimalkin_session_write(GrimalkinSession *session, const uint8_t *data,
+                            size_t len) {
+  if (session == NULL || (len > 0 && data == NULL))
+    return GRIMALKIN_SESSION_INVALID_ARGUMENT;
+  if (len == 0) return GRIMALKIN_SESSION_OK;
+  session_lock(session);
+  if (len > SIZE_MAX - session->outgoing.length ||
+      !queue_reserve(&session->outgoing, session->outgoing.length + len)) {
+    session_unlock(session);
+    return GRIMALKIN_SESSION_OUT_OF_MEMORY;
+  }
+  queue_write(&session->outgoing, data, len);
+  session_unlock(session);
+  session_notify_writer(session);
+  return GRIMALKIN_SESSION_OK;
+}
+
+size_t grimalkin_session_read(GrimalkinSession *session, uint8_t *data,
+                              size_t capacity) {
+  if (session == NULL || data == NULL || capacity == 0) return 0;
+  session_lock(session);
+  size_t count = queue_read(&session->incoming, data, capacity);
+  session_unlock(session);
+  if (count > 0) session_notify_reader(session);
+  return count;
+}
+
 void grimalkin_session_status(GrimalkinSession *session,
                               GrimalkinSessionStatus *out_status) {
   if (out_status == NULL) return;
   memset(out_status, 0, sizeof(*out_status));
   if (session == NULL) return;
-  pthread_mutex_lock(&session->mutex);
+  session_lock(session);
   *out_status = session->status;
-  pthread_mutex_unlock(&session->mutex);
+  session_unlock(session);
 }
-
-#endif
