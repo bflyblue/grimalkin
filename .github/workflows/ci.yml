@@ -16,5 +16,6 @@ jobs:
     uses: ./.github/workflows/platform-ci.yml
     with:
       trusted: true
+      cache_namespace: trusted-main
       checkout_repository: ${{ github.repository }}
       checkout_ref: ${{ github.sha }}

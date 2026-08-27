@@ -37,9 +37,12 @@ of approval state or collaborator association and run the same platform matrix
 on ephemeral GitHub-hosted Ubuntu, macOS, and Windows runners. Trusted and
 untrusted dependency caches have separate key namespaces. Trusted macOS and
 Windows jobs populate caches that are reused by releases; trusted `main` also
-prebuilds the separate GitHub-hosted cache namespace used by untrusted PRs.
-Cache keys include the pinned toolchain, dependency manifest, and Ghostty
-revision, so changing any of those inputs creates a new immutable cache.
+prebuilds read-only seed namespaces for GitHub-hosted jobs. Each untrusted pull
+request writes to its own numbered namespace and may restore only its own prior
+artifacts or those trusted seeds, so one contributor cannot supply another
+contributor's required-check cache. Cache keys include the pinned toolchain,
+dependency manifest, and Ghostty revision, so changing any of those inputs
+creates a new immutable cache.
 
 `.github/workflows/pr-ci.yml` uses `pull_request_target` solely as a dispatcher
 whose definition comes from `main`. It evaluates GitHub-generated actor, author,
