@@ -820,6 +820,7 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
+		osd_global_reset_selection(&app.osd, app.settings)
 		change = {.Font_Resources, .Layout, .Cursor, .Window_Style, .Colour_Theme}
 		settings_changed(app, change)
 		return

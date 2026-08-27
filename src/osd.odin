@@ -698,6 +698,12 @@ osd_colour_theme_list_clamp_top :: proc(osd: ^Osd_State) {
 	osd.colour_theme_list_top = clamp(osd.colour_theme_list_top, 0, max(0, count - visible))
 }
 
+osd_global_reset_selection :: proc(osd: ^Osd_State, settings: Application_Settings) {
+	if osd.page != .Colour_Theme_List do return
+	osd.selected = int(settings.colour_theme)
+	osd_colour_theme_list_clamp_top(osd)
+}
+
 osd_font_list_clamp_top :: proc(osd: ^Osd_State, catalog: ^Font_Catalog) {
 	count := osd_font_list_count(catalog)
 	visible := osd_font_list_visible_rows(osd)
