@@ -509,20 +509,23 @@ selection_set_autoscroll :: proc(app: ^Grimalkin_App, framebuffer_y: f64) {
 	}
 }
 
+mouse_button_state_update :: proc(buttons: ^u16, button, action: c.int) {
+	if buttons == nil || button < 0 || button >= 16 do return
+	bit := u16(1) << u16(button)
+	if action == glfw.PRESS {
+		buttons^ |= bit
+	} else if action == glfw.RELEASE {
+		buttons^ &~= bit
+	}
+}
+
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil do return
+	mouse_button_state_update(&app.mouse_buttons, button, action)
 	if app.osd.visible || app.paste_confirmation do return
 	mouse_tracking := terminal_core_mouse_tracking(&app.demo.terminal)
-	if button >= 0 && button < 16 {
-		bit := u16(1) << u16(button)
-		if action == glfw.PRESS {
-			app.mouse_buttons |= bit
-		} else if action == glfw.RELEASE {
-			app.mouse_buttons &~= bit
-		}
-	}
 	override := !mouse_tracking || mods & glfw.MOD_SHIFT != 0
 	x, y := glfw.GetCursorPos(window)
 
