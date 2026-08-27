@@ -24,7 +24,7 @@
       ghosttyPackage =
         pkgs:
         let
-          version = "0.1.0-unstable-2026-08-03";
+          version = "0.1.0-unstable-2026-08-26";
           package = (pkgs.callPackage latestGhosttyPackage {
             zig_0_15 = pkgs.zig_0_16;
           }).overrideAttrs (previous: {
@@ -33,7 +33,7 @@
               owner = "ghostty-org";
               repo = "ghostty";
               rev = ghosttyRevision;
-              hash = "sha256-AQu0wRrl2//IGErPIo/oQQMOh7gzF6O6uOL2ytB2Vhk=";
+              hash = "sha256-fusLdmDwW3+zaGyQnrHtGySbTsPjelju74h/k08ukEA=";
             };
             deps = pkgs.callPackage ./nix/ghostty-deps.nix {
               name = "libghostty-vt-cache-${version}";
