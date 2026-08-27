@@ -160,6 +160,22 @@ srgb_transfer_and_premultiplied_alpha_match_reference_values :: proc(t: ^testing
 }
 
 @(test)
+terminal_background_clear_colour_matches_the_swapchain_encoding :: proc(t: ^testing.T) {
+	background := pack_rgba8(251, 241, 199, 255)
+	manual := terminal_background_clear_colour(background, true)
+	testing.expect(t, abs(manual[0] - f32(251.0 / 255.0)) < 0.0001)
+	testing.expect(t, abs(manual[1] - f32(241.0 / 255.0)) < 0.0001)
+	testing.expect(t, abs(manual[2] - f32(199.0 / 255.0)) < 0.0001)
+	testing.expect_value(t, manual[3], f32(1))
+
+	hardware_srgb := terminal_background_clear_colour(background, false)
+	for channel in 0 ..< 3 {
+		testing.expect(t, abs(hardware_srgb[channel] - srgb_channel_to_linear(manual[channel])) < 0.0001)
+	}
+	testing.expect_value(t, hardware_srgb[3], f32(1))
+}
+
+@(test)
 surface_format_prefers_hardware_srgb_then_manual_unorm :: proc(t: ^testing.T) {
 	formats := []vk.SurfaceFormatKHR {
 		{format = .R8G8B8A8_UNORM, colorSpace = .SRGB_NONLINEAR},
