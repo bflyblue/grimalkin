@@ -29,6 +29,7 @@ jobs:
     uses: ./.github/workflows/platform-ci.yml
     with:
       trusted: true
+      cache_namespace: trusted-pr-${{ github.event.pull_request.number }}
       checkout_repository: ${{ github.repository }}
       checkout_ref: ${{ github.event.pull_request.head.sha }}
 
@@ -41,6 +42,7 @@ jobs:
     uses: ./.github/workflows/platform-ci.yml
     with:
       trusted: false
+      cache_namespace: pr-${{ github.event.pull_request.number }}
       checkout_repository: ${{ github.event.pull_request.head.repo.full_name }}
       checkout_ref: ${{ github.event.pull_request.head.sha }}
 

@@ -1,8 +1,8 @@
 name: Native CI environments
 
-# Trusted main builds populate the cache namespace consumed by untrusted
-# GitHub-hosted PR jobs. The persistent home runners populate their separate
-# trusted namespace during ordinary CI and releases.
+# Trusted main builds populate read-only seed namespaces consumed by untrusted
+# GitHub-hosted PR jobs. Contributor-controlled jobs write only to their own PR
+# namespace; the persistent home runners keep their separate trusted caches.
 on:
   push:
     branches:
@@ -79,9 +79,9 @@ jobs:
             build/linux-native-cache/zig-cache
             build/linux-native-cache/vcpkg-cache
             build/linux-native-ci/vcpkg_installed
-          key: grimalkin-untrusted-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/native-build-common.sh', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl') }}
+          key: grimalkin-untrusted-seed-v2-linux-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/linux-toolchain.env', 'scripts/native-build-common.sh', 'scripts/build-linux-native.sh', 'scripts/libghostty-vt.pc.in', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl') }}
           restore-keys: |
-            grimalkin-untrusted-linux-x64-
+            grimalkin-untrusted-seed-v2-linux-x64-
 
       - name: Prepare pinned toolchain and native dependencies
         shell: bash
@@ -110,9 +110,9 @@ jobs:
             ~/Library/Caches/grimalkin-macos-native/ghostty
             ~/Library/Caches/grimalkin-macos-native/zig-cache
             ~/Library/Caches/grimalkin-macos-native/vcpkg-cache
-          key: grimalkin-untrusted-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/native-build-common.sh', 'scripts/build-macos-native.sh', 'scripts/stage-macos-assets.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
+          key: grimalkin-untrusted-seed-v2-macos-arm64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'Makefile', 'scripts/macos-toolchain.env', 'scripts/native-build-common.sh', 'scripts/build-macos-native.sh', 'scripts/stage-macos-assets.sh', 'src/shaders/manifest.txt', 'src/shaders/colour.glsl', 'src/shaders/text_visual.glsl', 'assets/macos/Info.plist.in', 'assets/macos/fonts.conf') }}
           restore-keys: |
-            grimalkin-untrusted-macos-arm64-
+            grimalkin-untrusted-seed-v2-macos-arm64-
 
       - name: Prepare pinned toolchain and native dependencies
         shell: bash
@@ -156,9 +156,9 @@ jobs:
             build/windows/_deps
             build/windows/vcpkg-cache
             build/windows/zig-cache
-          key: grimalkin-untrusted-windows-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'CMakeLists.txt', 'cmake/BootstrapZig.cmake', 'build-windows.ps1', 'scripts/setup-windows-release.ps1') }}
+          key: grimalkin-untrusted-seed-v2-windows-x64-${{ hashFiles('vcpkg.json', 'ghostty-revision.txt', 'CMakeLists.txt', 'cmake/BootstrapZig.cmake', 'build-windows.ps1', 'scripts/setup-windows-release.ps1') }}
           restore-keys: |
-            grimalkin-untrusted-windows-x64-
+            grimalkin-untrusted-seed-v2-windows-x64-
 
       - name: Set up pinned Windows tools
         shell: pwsh
