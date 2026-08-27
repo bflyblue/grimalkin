@@ -16,6 +16,9 @@ int grimalkin_display_rotation(void *glfw_window);
 
 #ifdef _WIN32
 void grimalkin_set_window_icon(void *glfw_window);
+/* prefer_rounded selects DWMWCP_ROUND; zero restores DWMWCP_DEFAULT. */
+int grimalkin_set_window_corner_preference(void *glfw_window,
+                                           int prefer_rounded);
 #endif
 
 enum {

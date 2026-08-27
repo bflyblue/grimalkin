@@ -255,6 +255,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 	when ODIN_OS == .Windows {
 		grimalkin_set_window_icon(rawptr(app.window))
+		apply_window_corner_preference(&app)
 	}
 	defer glfw.DestroyWindow(app.window)
 	glfw.SetWindowUserPointer(app.window, &app)
