@@ -13,7 +13,7 @@ test_font_catalog :: proc(names: []string, automatic_index := 0) -> Font_Catalog
 
 @(test)
 font_catalog_resolves_saved_names_and_missing_names_to_automatic :: proc(t: ^testing.T) {
-	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code"})
+	catalog := test_font_catalog([]string{"Consolas", "JetBrains Mono", "Fira Code", "Monospacé Élégant"})
 	defer font_catalog_destroy(&catalog)
 	index, exact := font_catalog_resolve(&catalog, "jetbrains mono")
 	testing.expect(t, exact)
@@ -24,6 +24,9 @@ font_catalog_resolves_saved_names_and_missing_names_to_automatic :: proc(t: ^tes
 	index, exact = font_catalog_resolve(&catalog, "auto")
 	testing.expect(t, exact)
 	testing.expect_value(t, index, 0)
+	index, exact = font_catalog_resolve(&catalog, "monospacé Élégant")
+	testing.expect(t, exact)
+	testing.expect_value(t, index, 3)
 }
 
 @(test)
