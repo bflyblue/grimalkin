@@ -484,15 +484,7 @@ record_command_buffer :: proc(
 		)
 		vk.CmdDraw(command_buffer, 4, 1, 0, 0)
 	}
-	indicator := scroll_indicator_geometry(
-		app.extent,
-		text_area,
-		app.demo.snapshot.scroll_total_rows,
-		app.demo.snapshot.scroll_offset_rows,
-		app.demo.snapshot.scroll_visible_rows,
-		app.content_scale_x,
-		app.content_scale_y,
-	)
+	indicator := scroll_indicator_app_geometry(app)
 	if scroll_indicator_opacity > 0 && indicator.valid {
 		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.scroll_indicator_pipeline)
 		indicator_viewport := vk.Viewport {

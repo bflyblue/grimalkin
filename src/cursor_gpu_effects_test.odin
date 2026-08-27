@@ -217,8 +217,8 @@ cursor_gpu_test_scroll_indicator :: proc(app: ^Grimalkin_App) {
 		snapshot.scroll_visible_rows = previous_visible
 		snapshot.viewport_active = previous_active
 	}
-	snapshot.scroll_total_rows = 1000
-	snapshot.scroll_offset_rows = 450
+	snapshot.scroll_total_rows = 100_000
+	snapshot.scroll_offset_rows = 49_950
 	snapshot.scroll_visible_rows = 100
 	snapshot.viewport_active = false
 	geometry := scroll_indicator_geometry(
@@ -231,6 +231,16 @@ cursor_gpu_test_scroll_indicator :: proc(app: ^Grimalkin_App) {
 		app.content_scale_y,
 	)
 	if !geometry.valid do fmt.panicf("scroll indicator GPU geometry was invalid")
+	expected_minimum_height := u32(
+		SCROLL_INDICATOR_MINIMUM_HEIGHT_LOGICAL * max(app.content_scale_y, 1) + 0.5,
+	)
+	if geometry.rect.extent.height != expected_minimum_height {
+		fmt.panicf(
+			"scroll indicator GPU geometry ignored its minimum height: got=%d expected=%d",
+			geometry.rect.extent.height,
+			expected_minimum_height,
+		)
+	}
 
 	_ = draw_frame_components(app, 0, true, scroll_indicator_opacity = 0)
 	baseline := read_framebuffer_pixels(app)
