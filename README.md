@@ -74,6 +74,8 @@ are saved automatically. Useful defaults include:
 - `Shift+Home` / `Shift+End` to jump to the oldest line or live output.
 - `Ctrl+Shift+Up` / `Ctrl+Shift+Down` to scroll one line.
 - `Ctrl+=` / `Ctrl+-` to change the font size.
+- `Alt+Enter` or `F11` to enter or leave fullscreen.
+- `F12` to switch between system and frameless window styles while windowed.
 - `Ctrl+Insert` to copy and `Shift+Insert` to paste.
 
 See the [user guide](docs/user-guide.md) for selection, clipboard security,

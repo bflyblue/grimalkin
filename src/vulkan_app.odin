@@ -273,6 +273,7 @@ Application_Input_State :: struct {
 	pending_action:     i32,
 	pending_mods:       i32,
 	pending_valid:      bool,
+	hotkey_suppressed:  u8,
 	font_size_shortcut: Font_Size_Shortcut_State,
 	selection:          Terminal_Selection,
 	clipboard_insert_suppressed: bool,
@@ -289,6 +290,23 @@ Application_Paste_State :: struct {
 	paste_confirmation: bool,
 }
 
+Window_Geometry :: struct {
+	x, y:          i32,
+	width, height: i32,
+}
+
+Fullscreen_Window_State :: struct {
+	active:            bool,
+	restore_geometry:  Window_Geometry,
+	restore_maximized: bool,
+}
+
+Application_Window_State :: struct {
+	fullscreen:              Fullscreen_Window_State,
+	windowed_geometry:       Window_Geometry,
+	windowed_geometry_valid: bool,
+}
+
 Grimalkin_App :: struct {
 	demo:   ^Grimalkin_Demo,
 	window: glfw.WindowHandle,
@@ -297,6 +315,7 @@ Grimalkin_App :: struct {
 	using settings_state: Application_Settings_State,
 	using input:          Application_Input_State,
 	using paste:          Application_Paste_State,
+	using window_state:   Application_Window_State,
 	cursor_gpu_test:   bool,
 	// No surface, no swapchain, no display server. Implied by cursor_gpu_test,
 	// which renders into an image it owns so it never waits on a compositor.

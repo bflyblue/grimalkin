@@ -11,6 +11,111 @@ app_from_window :: proc(window: glfw.WindowHandle) -> ^Grimalkin_App {
 	return cast(^Grimalkin_App)glfw.GetWindowUserPointer(window)
 }
 
+Application_Hotkey_Action :: enum u8 {
+	None,
+	Toggle_Fullscreen,
+	Toggle_Window_Style,
+}
+
+application_hotkey_event :: proc(
+	settings: Application_Settings,
+	fullscreen: bool,
+	key, action, mods: i32,
+) -> (result: Application_Hotkey_Action, consumed: bool) {
+	semantic_mods := mods & (glfw.MOD_SHIFT | glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER)
+	alt_enter_enabled := settings.fullscreen_hotkey == .Alt_Enter ||
+	                     settings.fullscreen_hotkey == .Both
+	f11_enabled := settings.fullscreen_hotkey == .F11 || settings.fullscreen_hotkey == .Both
+	matched_fullscreen := (alt_enter_enabled && key == glfw.KEY_ENTER && semantic_mods == glfw.MOD_ALT) ||
+	                      (f11_enabled && key == glfw.KEY_F11 && semantic_mods == 0)
+	if matched_fullscreen {
+		return action == glfw.PRESS ? .Toggle_Fullscreen : .None, true
+	}
+	if settings.window_style_shortcut && !fullscreen && key == glfw.KEY_F12 && semantic_mods == 0 {
+		return action == glfw.PRESS ? .Toggle_Window_Style : .None, true
+	}
+	return .None, false
+}
+
+application_hotkey_key_bit :: proc(key: i32) -> u8 {
+	switch key {
+	case glfw.KEY_ENTER: return 1 << 0
+	case glfw.KEY_F11:   return 1 << 1
+	case glfw.KEY_F12:   return 1 << 2
+	}
+	return 0
+}
+
+handle_application_hotkey :: proc(app: ^Grimalkin_App, key, action, mods: i32) -> bool {
+	if app == nil do return false
+	hotkey_bit := application_hotkey_key_bit(key)
+	if hotkey_bit != 0 && app.hotkey_suppressed & hotkey_bit != 0 && action != glfw.PRESS {
+		app.pending_valid = false
+		if action == glfw.RELEASE do app.hotkey_suppressed &~= hotkey_bit
+		return true
+	}
+	hotkey_action, consumed := application_hotkey_event(
+		app.settings,
+		app.fullscreen.active,
+		key,
+		action,
+		mods,
+	)
+	if !consumed do return false
+	app.pending_valid = false
+	if action == glfw.PRESS do app.hotkey_suppressed |= hotkey_bit
+	if action == glfw.RELEASE do app.hotkey_suppressed &~= hotkey_bit
+	if hotkey_action == .Toggle_Fullscreen {
+		toggle_fullscreen(app)
+	} else if hotkey_action == .Toggle_Window_Style {
+		toggle_window_style_shortcut(app)
+	}
+	return true
+}
+
+window_style_toggled :: proc(style: Window_Style) -> Window_Style {
+	return style == .System ? .Frameless : .System
+}
+
+screen_rect_intersection_area :: proc(a, b: Window_Geometry) -> i64 {
+	if a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0 do return 0
+	left := max(i64(a.x), i64(b.x))
+	top := max(i64(a.y), i64(b.y))
+	right := min(i64(a.x) + i64(a.width), i64(b.x) + i64(b.width))
+	bottom := min(i64(a.y) + i64(a.height), i64(b.y) + i64(b.height))
+	if right <= left || bottom <= top do return 0
+	return (right - left) * (bottom - top)
+}
+
+fullscreen_monitor_index :: proc(
+	window: Window_Geometry,
+	monitors: []Window_Geometry,
+	primary_index: int,
+) -> int {
+	if len(monitors) == 0 do return -1
+	best_index := -1
+	best_area := i64(0)
+	for monitor, index in monitors {
+		area := screen_rect_intersection_area(window, monitor)
+		if area > best_area {
+			best_area = area
+			best_index = index
+		}
+	}
+	if best_index >= 0 do return best_index
+	if primary_index >= 0 && primary_index < len(monitors) do return primary_index
+	return 0
+}
+
+fullscreen_restore_plan :: proc(
+	state: Fullscreen_Window_State,
+) -> (geometry: Window_Geometry, maximize, ok: bool) {
+	geometry = state.restore_geometry
+	maximize = state.restore_maximized
+	ok = state.active && geometry.width > 0 && geometry.height > 0
+	return
+}
+
 glfw_key_is_printable :: proc(key: i32) -> bool {
 	return(
 		(key >= glfw.KEY_A && key <= glfw.KEY_Z) ||
@@ -306,6 +411,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		}
 		return
 	}
+	if handle_application_hotkey(app, i32(key), i32(action), i32(mods)) do return
 	ctrl_comma := key == glfw.KEY_COMMA && mods & glfw.MOD_CONTROL != 0
 	if ctrl_comma || (key == glfw.KEY_COMMA && app.osd.comma_suppressed) {
 		app.pending_valid = false
@@ -737,6 +843,13 @@ framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height:
 	app.redraw = true
 }
 
+window_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: c.int) {
+	context = runtime.default_context()
+	app := app_from_window(window)
+	if app == nil || width <= 0 || height <= 0 do return
+	remember_windowed_geometry(app)
+}
+
 window_refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	context = runtime.default_context()
 	app := app_from_window(window)
@@ -747,6 +860,7 @@ window_position_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.int) {
 	context = runtime.default_context()
 	app := app_from_window(window)
 	if app == nil || app.cursor_gpu_test do return
+	remember_windowed_geometry(app)
 	app.display_rotation_check_pending = true
 	app.display_rotation_check_deadline = glfw.GetTime() + 0.15
 }
@@ -757,6 +871,7 @@ window_focus_callback :: proc "c" (window: glfw.WindowHandle, focused: c.int) {
 	if app == nil do return
 	app.focused = focused != 0
 	if !app.focused {
+		app.hotkey_suppressed = 0
 		font_size_shortcut_clear(&app.font_size_shortcut)
 		// The modifier release lands in another window, so nothing else would
 		// ever lift the underline.
@@ -837,8 +952,119 @@ window_outer_geometry :: proc(window: glfw.WindowHandle) -> [4]i32 {
 	}
 }
 
+window_client_geometry :: proc(window: glfw.WindowHandle) -> Window_Geometry {
+	x, y := glfw.GetWindowPos(window)
+	width, height := glfw.GetWindowSize(window)
+	return {x = i32(x), y = i32(y), width = i32(width), height = i32(height)}
+}
+
+remember_windowed_geometry :: proc(app: ^Grimalkin_App) {
+	if app == nil || app.window == nil || app.fullscreen.active ||
+	   glfw.GetWindowAttrib(app.window, glfw.MAXIMIZED) != 0 {
+		return
+	}
+	geometry := window_client_geometry(app.window)
+	if geometry.width <= 0 || geometry.height <= 0 do return
+	app.windowed_geometry = geometry
+	app.windowed_geometry_valid = true
+}
+
+fullscreen_monitor :: proc(window: glfw.WindowHandle) -> glfw.MonitorHandle {
+	monitors := glfw.GetMonitors()
+	if len(monitors) == 0 do return nil
+	primary := glfw.GetPrimaryMonitor()
+	primary_index := -1
+	rects := make([]Window_Geometry, len(monitors), context.temp_allocator)
+	for monitor, index in monitors {
+		if monitor == primary do primary_index = index
+		x, y := glfw.GetMonitorPos(monitor)
+		mode := glfw.GetVideoMode(monitor)
+		if mode != nil {
+			rects[index] = {
+				x = i32(x),
+				y = i32(y),
+				width = i32(mode.width),
+				height = i32(mode.height),
+			}
+		}
+	}
+	index := fullscreen_monitor_index(window_client_geometry(window), rects, primary_index)
+	if index < 0 || index >= len(monitors) do return primary
+	return monitors[index]
+}
+
+enter_fullscreen :: proc(app: ^Grimalkin_App) -> bool {
+	if app == nil || app.window == nil || app.fullscreen.active do return false
+	monitor := fullscreen_monitor(app.window)
+	if monitor == nil do return false
+	mode := glfw.GetVideoMode(monitor)
+	if mode == nil do return false
+	maximized := glfw.GetWindowAttrib(app.window, glfw.MAXIMIZED) != 0
+	restore := window_client_geometry(app.window)
+	if maximized && app.windowed_geometry_valid do restore = app.windowed_geometry
+	if restore.width <= 0 || restore.height <= 0 do return false
+	app.fullscreen = {
+		active = true,
+		restore_geometry = restore,
+		restore_maximized = maximized,
+	}
+	monitor_x, monitor_y := glfw.GetMonitorPos(monitor)
+	glfw.SetWindowMonitor(
+		app.window,
+		monitor,
+		monitor_x,
+		monitor_y,
+		mode.width,
+		mode.height,
+		mode.refresh_rate,
+	)
+	app.redraw = true
+	return true
+}
+
+exit_fullscreen :: proc(app: ^Grimalkin_App) -> bool {
+	if app == nil || app.window == nil do return false
+	geometry, maximize, ok := fullscreen_restore_plan(app.fullscreen)
+	if !ok do return false
+	glfw.SetWindowMonitor(
+		app.window,
+		nil,
+		geometry.x,
+		geometry.y,
+		geometry.width,
+		geometry.height,
+		glfw.DONT_CARE,
+	)
+	app.fullscreen.active = false
+	app.windowed_geometry = geometry
+	app.windowed_geometry_valid = true
+	apply_window_style(app)
+	// A style change preserves the old outer footprint in the ordinary
+	// windowed path. Fullscreen restoration instead owns an exact saved client
+	// geometry, so reassert it after applying the configured decoration mode.
+	glfw.SetWindowSize(app.window, geometry.width, geometry.height)
+	glfw.SetWindowPos(app.window, geometry.x, geometry.y)
+	if maximize do glfw.MaximizeWindow(app.window)
+	app.redraw = true
+	return true
+}
+
+toggle_fullscreen :: proc(app: ^Grimalkin_App) {
+	if app.fullscreen.active {
+		_ = exit_fullscreen(app)
+	} else {
+		_ = enter_fullscreen(app)
+	}
+}
+
+toggle_window_style_shortcut :: proc(app: ^Grimalkin_App) {
+	if app == nil || app.fullscreen.active do return
+	app.settings.window_style = window_style_toggled(app.settings.window_style)
+	settings_changed(app, {.Window_Style})
+}
+
 apply_window_style :: proc(app: ^Grimalkin_App) {
-	if app.window == nil do return
+	if app.window == nil || app.fullscreen.active do return
 	frameless := app.settings.window_style == .Frameless
 	outer := window_outer_geometry(app.window)
 	maximized := glfw.GetWindowAttrib(app.window, glfw.MAXIMIZED) != 0
@@ -1029,8 +1255,7 @@ osd_set_visible :: proc(app: ^Grimalkin_App, visible: bool) {
 osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
-		app.settings = application_settings_default()
-		osd_global_reset_selection(&app.osd, app.settings)
+		osd_global_reset(&app.settings, &app.osd)
 		change = APPLICATION_SETTINGS_RESET_CHANGES
 		settings_changed(app, change)
 		return

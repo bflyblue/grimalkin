@@ -29,6 +29,8 @@ settings_json_defaults_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, expected.padding_glow, Padding_Glow.Off)
 	testing.expect(t, expected.nerd_font_symbols)
 	testing.expect_value(t, expected.window_style, Window_Style.System)
+	testing.expect_value(t, expected.fullscreen_hotkey, Fullscreen_Hotkey.Both)
+	testing.expect(t, expected.window_style_shortcut)
 	testing.expect_value(t, expected.scroll_page_modifier, Scroll_Modifier.Shift)
 	testing.expect_value(t, expected.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
 	testing.expect(t, expected.font_size_shortcuts)
@@ -110,6 +112,8 @@ settings_json_accepts_partial_and_unknown_fields :: proc(t: ^testing.T) {
 	testing.expect_value(t, actual.padding_glow, Padding_Glow.Off)
 	testing.expect(t, actual.nerd_font_symbols)
 	testing.expect_value(t, actual.window_style, Window_Style.System)
+	testing.expect_value(t, actual.fullscreen_hotkey, Fullscreen_Hotkey.Both)
+	testing.expect(t, actual.window_style_shortcut)
 	testing.expect_value(t, actual.scroll_page_modifier, Scroll_Modifier.Shift)
 	testing.expect_value(t, actual.scroll_line_modifier, Scroll_Modifier.Ctrl_Shift)
 	testing.expect(t, actual.font_size_shortcuts)
@@ -334,6 +338,43 @@ settings_json_round_trips_both_window_styles :: proc(t: ^testing.T) {
 		testing.expect(t, valid)
 		testing.expect_value(t, actual.window_style, style)
 	}
+}
+
+@(test)
+settings_json_migrates_missing_hotkey_fields_to_new_defaults :: proc(t: ^testing.T) {
+	text := `{"version":1,"font_size":23}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, valid)
+	testing.expect_value(t, actual.fullscreen_hotkey, Fullscreen_Hotkey.Both)
+	testing.expect(t, actual.window_style_shortcut)
+}
+
+@(test)
+settings_json_round_trips_all_fullscreen_hotkeys_and_window_style_shortcut :: proc(t: ^testing.T) {
+	enabled_values := [?]bool{false, true}
+	for wire_name, index in SETTINGS_FULLSCREEN_HOTKEY_WIRE {
+		for enabled in enabled_values {
+			expected := application_settings_default()
+			expected.fullscreen_hotkey = Fullscreen_Hotkey(index)
+			expected.window_style_shortcut = enabled
+			data, encoded := settings_encode(expected, context.temp_allocator)
+			testing.expect(t, encoded)
+			testing.expect(t, strings.contains(string(data), fmt.tprintf(`"fullscreen_hotkey": "%s"`, wire_name)))
+			testing.expect(t, strings.contains(string(data), fmt.tprintf(`"window_style_shortcut": %t`, enabled)))
+			actual, valid := settings_decode(data)
+			testing.expect(t, valid)
+			testing.expect_value(t, actual.fullscreen_hotkey, expected.fullscreen_hotkey)
+			testing.expect_value(t, actual.window_style_shortcut, enabled)
+		}
+	}
+}
+
+@(test)
+settings_json_repairs_unknown_fullscreen_hotkey_to_both :: proc(t: ^testing.T) {
+	text := `{"version":1,"fullscreen_hotkey":"function_row"}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, !valid)
+	testing.expect_value(t, actual.fullscreen_hotkey, Fullscreen_Hotkey.Both)
 }
 
 @(test)
