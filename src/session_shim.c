@@ -267,34 +267,6 @@ int grimalkin_open_url(const char *url) {
 typedef struct GLFWwindow GLFWwindow;
 extern HWND glfwGetWin32Window(GLFWwindow *window);
 
-typedef HRESULT (WINAPI *DwmSetWindowAttributeFn)(HWND, DWORD, LPCVOID, DWORD);
-
-int grimalkin_set_window_rounded_corners(void *glfw_window) {
-  if (glfw_window == NULL) return 0;
-  HWND window = glfwGetWin32Window((GLFWwindow *)glfw_window);
-  if (window == NULL) return 0;
-
-  HMODULE dwmapi = LoadLibraryW(L"dwmapi.dll");
-  if (dwmapi == NULL) return 0;
-  DwmSetWindowAttributeFn set_window_attribute =
-      (DwmSetWindowAttributeFn)(void *)GetProcAddress(
-          dwmapi, "DwmSetWindowAttribute");
-  if (set_window_attribute == NULL) {
-    FreeLibrary(dwmapi);
-    return 0;
-  }
-
-  /* DWMWA_WINDOW_CORNER_PREFERENCE and DWMWCP_ROUND were added in Windows 11.
-     Keeping their values local lets older Windows SDKs still compile this
-     best-effort appearance helper. */
-  const DWORD window_corner_preference = 33;
-  const DWORD round = 2;
-  HRESULT result = set_window_attribute(
-      window, window_corner_preference, &round, sizeof(round));
-  FreeLibrary(dwmapi);
-  return SUCCEEDED(result);
-}
-
 void grimalkin_set_window_icon(void *glfw_window) {
   if (glfw_window == NULL) return;
   HWND window = glfwGetWin32Window((GLFWwindow *)glfw_window);

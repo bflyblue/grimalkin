@@ -16,7 +16,6 @@ int grimalkin_display_rotation(void *glfw_window);
 
 #ifdef _WIN32
 void grimalkin_set_window_icon(void *glfw_window);
-int grimalkin_set_window_rounded_corners(void *glfw_window);
 #endif
 
 enum {

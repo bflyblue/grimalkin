@@ -39,7 +39,6 @@ foreign session_shim {
 	}
 	when ODIN_OS == .Windows {
 		grimalkin_set_window_icon :: proc(glfw_window: rawptr) ---
-		grimalkin_set_window_rounded_corners :: proc(glfw_window: rawptr) -> c.int ---
 	}
 	grimalkin_session_new :: proc(cols, rows: u16, cell_width_px, cell_height_px: u32, out_session: ^Grimalkin_Session) -> c.int ---
 	grimalkin_session_free :: proc(session: Grimalkin_Session) ---
