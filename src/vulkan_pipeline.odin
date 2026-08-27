@@ -231,26 +231,37 @@ create_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 // Set 1 for the text pipeline: the Kitty placements composited between the
 // cell background and the glyph. Its own set because set 0 ends with a variable
 // descriptor count binding, which Vulkan requires to be last.
+create_descriptor_layout_from_bindings :: proc(
+	renderer: ^Vulkan_Renderer,
+	bindings: []vk.DescriptorSetLayoutBinding,
+	output: ^vk.DescriptorSetLayout,
+	name: string,
+	next: rawptr = nil,
+) {
+	create_info := vk.DescriptorSetLayoutCreateInfo {
+		sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		pNext = next,
+		bindingCount = u32(len(bindings)),
+		pBindings = raw_data(bindings),
+	}
+	vk_must(
+		vk.CreateDescriptorSetLayout(renderer.device, &create_info, nil, output),
+		fmt.tprintf("creating the %s descriptor layout", name),
+	)
+}
+
 create_image_placement_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
-	binding := vk.DescriptorSetLayoutBinding {
+	bindings := [1]vk.DescriptorSetLayoutBinding {{
 		binding = 0,
 		descriptorType = .STORAGE_BUFFER,
 		descriptorCount = 1,
 		stageFlags = {.FRAGMENT},
-	}
-	create_info := vk.DescriptorSetLayoutCreateInfo {
-		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		bindingCount = 1,
-		pBindings    = &binding,
-	}
-	vk_must(
-		vk.CreateDescriptorSetLayout(
-			renderer.device,
-			&create_info,
-			nil,
-			&renderer.image_placement_descriptor_layout,
-		),
-		"creating the image placement descriptor layout",
+	}}
+	create_descriptor_layout_from_bindings(
+		renderer,
+		bindings[:],
+		&renderer.image_placement_descriptor_layout,
+		"image placement",
 	)
 }
 
@@ -292,15 +303,12 @@ create_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
 		bindingCount  = u32(len(binding_flags)),
 		pBindingFlags = &binding_flags[0],
 	}
-	create_info := vk.DescriptorSetLayoutCreateInfo {
-		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		pNext        = &binding_flags_info,
-		bindingCount = u32(len(bindings)),
-		pBindings    = &bindings[0],
-	}
-	vk_must(
-		vk.CreateDescriptorSetLayout(renderer.device, &create_info, nil, &renderer.descriptor_layout),
-		"creating the text descriptor layout",
+	create_descriptor_layout_from_bindings(
+		renderer,
+		bindings[:],
+		&renderer.descriptor_layout,
+		"text",
+		rawptr(&binding_flags_info),
 	)
 }
 
@@ -319,20 +327,18 @@ create_padding_glow_descriptor_layout :: proc(renderer: ^Vulkan_Renderer) {
 			stageFlags = {.FRAGMENT},
 		},
 	}
-	create_info := vk.DescriptorSetLayoutCreateInfo {
-		sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		bindingCount = u32(len(bindings)),
-		pBindings = &bindings[0],
-	}
-	vk_must(
-		vk.CreateDescriptorSetLayout(
-			renderer.device,
-			&create_info,
-			nil,
-			&renderer.padding_glow_descriptor_layout,
-		),
-		"creating the padding glow descriptor layout",
+	create_descriptor_layout_from_bindings(
+		renderer,
+		bindings[:],
+		&renderer.padding_glow_descriptor_layout,
+		"padding glow",
 	)
+}
+
+Fullscreen_Pipeline :: struct {
+	layout:      vk.PipelineLayout,
+	handle:      vk.Pipeline,
+	owns_layout: bool,
 }
 
 Fullscreen_Pipeline_Spec :: struct {
@@ -352,7 +358,7 @@ Fullscreen_Pipeline_Spec :: struct {
 create_fullscreen_pipeline :: proc(
 	renderer: ^Vulkan_Renderer,
 	spec: Fullscreen_Pipeline_Spec,
-) -> (vk.PipelineLayout, vk.Pipeline) {
+) -> Fullscreen_Pipeline {
 	vertex_module := create_shader_module(renderer.device, FULLSCREEN_VERTEX_SHADER)
 	defer vk.DestroyShaderModule(renderer.device, vertex_module, nil)
 	fragment_module := create_shader_module(renderer.device, spec.fragment_shader)
@@ -403,8 +409,11 @@ create_fullscreen_pipeline :: proc(
 		pDynamicStates = &dynamic_states[0],
 	}
 
-	layout := spec.pipeline_layout
-	if layout == 0 {
+	result := Fullscreen_Pipeline {
+		layout = spec.pipeline_layout,
+		owns_layout = spec.pipeline_layout == 0,
+	}
+	if result.layout == 0 {
 		push_range := vk.PushConstantRange{stageFlags = {.FRAGMENT}, size = spec.push_constant_size}
 		layout_info := vk.PipelineLayoutCreateInfo{sType = .PIPELINE_LAYOUT_CREATE_INFO}
 		set_layouts := [2]vk.DescriptorSetLayout{spec.descriptor_layout, spec.second_descriptor_layout}
@@ -417,11 +426,10 @@ create_fullscreen_pipeline :: proc(
 			layout_info.pPushConstantRanges = &push_range
 		}
 		vk_must(
-			vk.CreatePipelineLayout(renderer.device, &layout_info, nil, &layout),
+			vk.CreatePipelineLayout(renderer.device, &layout_info, nil, &result.layout),
 			fmt.tprintf("creating the %s pipeline layout", spec.name),
 		)
 	}
-	pipeline: vk.Pipeline
 	pipeline_info := vk.GraphicsPipelineCreateInfo {
 		sType = .GRAPHICS_PIPELINE_CREATE_INFO,
 		stageCount = u32(len(stages)),
@@ -433,45 +441,25 @@ create_fullscreen_pipeline :: proc(
 		pMultisampleState = &multisample,
 		pColorBlendState = &blend,
 		pDynamicState = &dynamic_info,
-		layout = layout,
+		layout = result.layout,
 		renderPass = spec.render_pass,
 		subpass = 0,
 		basePipelineIndex = -1,
 	}
 	vk_must(
-		vk.CreateGraphicsPipelines(renderer.device, 0, 1, &pipeline_info, nil, &pipeline),
+		vk.CreateGraphicsPipelines(renderer.device, 0, 1, &pipeline_info, nil, &result.handle),
 		fmt.tprintf("creating the %s graphics pipeline", spec.name),
 	)
-	return layout, pipeline
+	return result
 }
 
-create_graphics_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.pipeline_layout, renderer.pipeline = create_fullscreen_pipeline(
-		renderer,
-		{
-			name = "text",
-			fragment_shader = FRAGMENT_SHADER,
-			render_pass = renderer.render_pass,
-			descriptor_layout = renderer.descriptor_layout,
-			second_descriptor_layout = renderer.image_placement_descriptor_layout,
-			push_constant_size = u32(size_of(Text_Layout_Push)),
-		},
-	)
-}
-
-create_image_quad_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.image_quad_pipeline_layout, renderer.image_quad_pipeline = create_fullscreen_pipeline(
-		renderer,
-		{
-			name = "image quad",
-			fragment_shader = IMAGE_QUAD_FRAGMENT_SHADER,
-			render_pass = renderer.render_pass,
-			descriptor_layout = renderer.descriptor_layout,
-			push_constant_size = u32(size_of(Image_Quad_Push)),
-			// Images arrive premultiplied, matching the shared blend factors.
-			blend = true,
-		},
-	)
+destroy_fullscreen_pipeline :: proc(device: vk.Device, pipeline: ^Fullscreen_Pipeline) {
+	if pipeline == nil do return
+	if pipeline.handle != 0 do vk.DestroyPipeline(device, pipeline.handle, nil)
+	if pipeline.owns_layout && pipeline.layout != 0 {
+		vk.DestroyPipelineLayout(device, pipeline.layout, nil)
+	}
+	pipeline^ = {}
 }
 
 create_padding_glow_source_render_pass :: proc(renderer: ^Vulkan_Renderer) {
@@ -523,40 +511,37 @@ create_padding_glow_source_render_pass :: proc(renderer: ^Vulkan_Renderer) {
 	)
 }
 
-create_padding_glow_source_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	create_padding_glow_source_pipeline_with_fragment(
+create_fullscreen_pipelines :: proc(renderer: ^Vulkan_Renderer) {
+	renderer.text_pipeline = create_fullscreen_pipeline(
 		renderer,
-		FRAGMENT_SHADER,
-		&renderer.padding_glow_source_pipeline,
+		{
+			name = "text",
+			fragment_shader = FRAGMENT_SHADER,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
+			second_descriptor_layout = renderer.image_placement_descriptor_layout,
+			push_constant_size = u32(size_of(Text_Layout_Push)),
+		},
 	)
-}
-
-create_padding_glow_background_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	create_padding_glow_source_pipeline_with_fragment(
-		renderer,
-		PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER,
-		&renderer.padding_glow_background_pipeline,
-	)
-}
-
-create_padding_glow_source_pipeline_with_fragment :: proc(
-	renderer: ^Vulkan_Renderer,
-	fragment_shader: []byte,
-	pipeline: ^vk.Pipeline,
-) {
-	_, pipeline^ = create_fullscreen_pipeline(
+	renderer.padding_glow_source_pipeline = create_fullscreen_pipeline(
 		renderer,
 		{
 			name = "padding glow source",
-			fragment_shader = fragment_shader,
+			fragment_shader = FRAGMENT_SHADER,
 			render_pass = renderer.padding_glow_source_render_pass,
-			pipeline_layout = renderer.pipeline_layout,
+			pipeline_layout = renderer.text_pipeline.layout,
 		},
 	)
-}
-
-create_padding_glow_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.padding_glow_pipeline_layout, renderer.padding_glow_pipeline = create_fullscreen_pipeline(
+	renderer.padding_glow_background_pipeline = create_fullscreen_pipeline(
+		renderer,
+		{
+			name = "padding glow background",
+			fragment_shader = PADDING_GLOW_BACKGROUND_FRAGMENT_SHADER,
+			render_pass = renderer.padding_glow_source_render_pass,
+			pipeline_layout = renderer.text_pipeline.layout,
+		},
+	)
+	renderer.padding_glow_pipeline = create_fullscreen_pipeline(
 		renderer,
 		{
 			name = "padding glow",
@@ -566,10 +551,7 @@ create_padding_glow_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 			push_constant_size = u32(size_of(Padding_Glow_Push)),
 		},
 	)
-}
-
-create_osd_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.osd_pipeline_layout, renderer.osd_pipeline = create_fullscreen_pipeline(
+	renderer.osd_pipeline = create_fullscreen_pipeline(
 		renderer,
 		{
 			name = "OSD",
@@ -580,10 +562,7 @@ create_osd_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 			blend = true,
 		},
 	)
-}
-
-create_selection_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.selection_pipeline_layout, renderer.selection_pipeline = create_fullscreen_pipeline(
+	renderer.selection_pipeline = create_fullscreen_pipeline(
 		renderer,
 		{
 			name = "selection",
@@ -594,16 +573,25 @@ create_selection_pipeline :: proc(renderer: ^Vulkan_Renderer) {
 			blend = true,
 		},
 	)
-}
-
-create_scroll_indicator_pipeline :: proc(renderer: ^Vulkan_Renderer) {
-	renderer.scroll_indicator_pipeline_layout, renderer.scroll_indicator_pipeline = create_fullscreen_pipeline(
+	renderer.scroll_indicator_pipeline = create_fullscreen_pipeline(
 		renderer,
 		{
 			name = "scroll indicator",
 			fragment_shader = SCROLL_INDICATOR_FRAGMENT_SHADER,
 			render_pass = renderer.render_pass,
 			push_constant_size = u32(size_of(Scroll_Indicator_Push)),
+			blend = true,
+		},
+	)
+	renderer.image_quad_pipeline = create_fullscreen_pipeline(
+		renderer,
+		{
+			name = "image quad",
+			fragment_shader = IMAGE_QUAD_FRAGMENT_SHADER,
+			render_pass = renderer.render_pass,
+			descriptor_layout = renderer.descriptor_layout,
+			push_constant_size = u32(size_of(Image_Quad_Push)),
+			// Images arrive premultiplied, matching the shared blend factors.
 			blend = true,
 		},
 	)

@@ -208,7 +208,7 @@ record_padding_glow_source :: proc(
 	vk.CmdBindDescriptorSets(
 		command_buffer,
 		.GRAPHICS,
-		app.pipeline_layout,
+		app.text_pipeline.layout,
 		0,
 		1,
 		&frame.descriptor_set,
@@ -245,7 +245,7 @@ record_padding_glow_source :: proc(
 	}
 	vk.CmdPushConstants(
 		command_buffer,
-		app.pipeline_layout,
+		app.text_pipeline.layout,
 		{.FRAGMENT},
 		0,
 		u32(size_of(push)),
@@ -281,7 +281,7 @@ record_command_buffer :: proc(
 			frame,
 			command_buffer,
 			text_area,
-				app.padding_glow_source_pipeline,
+				app.padding_glow_source_pipeline.handle,
 				frame.padding_glow_source.framebuffer,
 			)
 		record_padding_glow_source(
@@ -289,7 +289,7 @@ record_command_buffer :: proc(
 			frame,
 			command_buffer,
 			text_area,
-				app.padding_glow_background_pipeline,
+				app.padding_glow_background_pipeline.handle,
 				frame.padding_glow_background.framebuffer,
 			)
 	}
@@ -311,7 +311,7 @@ record_command_buffer :: proc(
 	if glow_enabled {
 		regions := padding_glow_regions(app.extent, text_area)
 		if regions.count > 0 {
-			vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.padding_glow_pipeline)
+			vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.padding_glow_pipeline.handle)
 			full_viewport := vk.Viewport {
 				width = f32(app.extent.width),
 				height = f32(app.extent.height),
@@ -321,7 +321,7 @@ record_command_buffer :: proc(
 			vk.CmdBindDescriptorSets(
 				command_buffer,
 				.GRAPHICS,
-				app.padding_glow_pipeline_layout,
+				app.padding_glow_pipeline.layout,
 				0,
 				1,
 				&frame.padding_glow_descriptor_set,
@@ -351,7 +351,7 @@ record_command_buffer :: proc(
 			}
 			vk.CmdPushConstants(
 				command_buffer,
-				app.padding_glow_pipeline_layout,
+				app.padding_glow_pipeline.layout,
 				{.FRAGMENT},
 				0,
 				u32(size_of(glow_push)),
@@ -377,12 +377,12 @@ record_command_buffer :: proc(
 	// is what puts them under it: that pass writes each background opaquely.
 	draw_image_quads(app, frame, command_buffer, text_area, viewport, .Below_Background)
 
-	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.pipeline)
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.text_pipeline.handle)
 	vk.CmdSetScissor(command_buffer, 0, 1, &text_area)
 	vk.CmdBindDescriptorSets(
 		command_buffer,
 		.GRAPHICS,
-		app.pipeline_layout,
+		app.text_pipeline.layout,
 		0,
 		1,
 		&frame.descriptor_set,
@@ -422,7 +422,7 @@ record_command_buffer :: proc(
 	}
 	vk.CmdPushConstants(
 		command_buffer,
-		app.pipeline_layout,
+		app.text_pipeline.layout,
 		{.FRAGMENT},
 		0,
 		u32(size_of(push)),
@@ -435,13 +435,13 @@ record_command_buffer :: proc(
 	draw_image_quads(app, frame, command_buffer, text_area, viewport, .Above_Text)
 
 	if app.selection.active && selection_mask_has_any(&app.selection) {
-		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.selection_pipeline)
+		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.selection_pipeline.handle)
 		vk.CmdSetViewport(command_buffer, 0, 1, &viewport)
 		vk.CmdSetScissor(command_buffer, 0, 1, &text_area)
 		vk.CmdBindDescriptorSets(
 			command_buffer,
 			.GRAPHICS,
-			app.selection_pipeline_layout,
+			app.selection_pipeline.layout,
 			0,
 			1,
 			&frame.selection_descriptor_set,
@@ -476,7 +476,7 @@ record_command_buffer :: proc(
 		}
 		vk.CmdPushConstants(
 			command_buffer,
-			app.selection_pipeline_layout,
+			app.selection_pipeline.layout,
 			{.FRAGMENT},
 			0,
 			u32(size_of(selection_push)),
@@ -486,7 +486,7 @@ record_command_buffer :: proc(
 	}
 	indicator := scroll_indicator_app_geometry(app)
 	if scroll_indicator_opacity > 0 && indicator.valid {
-		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.scroll_indicator_pipeline)
+		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.scroll_indicator_pipeline.handle)
 		indicator_viewport := vk.Viewport {
 			x = f32(indicator.rect.offset.x),
 			y = f32(indicator.rect.offset.y),
@@ -512,7 +512,7 @@ record_command_buffer :: proc(
 		}
 		vk.CmdPushConstants(
 			command_buffer,
-			app.scroll_indicator_pipeline_layout,
+			app.scroll_indicator_pipeline.layout,
 			{.FRAGMENT},
 			0,
 			u32(size_of(indicator_push)),
@@ -521,12 +521,12 @@ record_command_buffer :: proc(
 		vk.CmdDraw(command_buffer, 4, 1, 0, 0)
 	}
 	if app.osd.visible {
-		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.osd_pipeline)
+		vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.osd_pipeline.handle)
 		full_viewport := vk.Viewport{width = f32(app.extent.width), height = f32(app.extent.height), maxDepth = 1}
 		full_scissor := vk.Rect2D{extent = app.extent}
 		vk.CmdSetViewport(command_buffer, 0, 1, &full_viewport)
 		vk.CmdSetScissor(command_buffer, 0, 1, &full_scissor)
-		vk.CmdBindDescriptorSets(command_buffer, .GRAPHICS, app.osd_pipeline_layout, 0, 1, &frame.osd_descriptor_set, 0, nil)
+		vk.CmdBindDescriptorSets(command_buffer, .GRAPHICS, app.osd_pipeline.layout, 0, 1, &frame.osd_descriptor_set, 0, nil)
 		metrics := app.demo.resources.cell_metrics
 		panel := osd_panel_rect(app.extent.width, app.extent.height, metrics.cell_width, metrics.cell_height, app.osd.cols, app.osd.rows)
 		content_width := u32(app.osd.cols) * metrics.cell_width
@@ -544,7 +544,7 @@ record_command_buffer :: proc(
 			grid = {u32(app.osd.cols), u32(app.osd.rows), metrics.cell_width, metrics.cell_height},
 			font = {i32(metrics.baseline), content_x, content_y, 0},
 		}
-		vk.CmdPushConstants(command_buffer, app.osd_pipeline_layout, {.FRAGMENT}, 0, u32(size_of(osd_push)), &osd_push)
+		vk.CmdPushConstants(command_buffer, app.osd_pipeline.layout, {.FRAGMENT}, 0, u32(size_of(osd_push)), &osd_push)
 		vk.CmdDraw(command_buffer, 4, 1, 0, 0)
 	}
 	vk.CmdEndRenderPass(command_buffer)
@@ -570,7 +570,7 @@ bind_image_placement_set :: proc(
 	vk.CmdBindDescriptorSets(
 		command_buffer,
 		.GRAPHICS,
-		app.pipeline_layout,
+		app.text_pipeline.layout,
 		1,
 		1,
 		&frame.image_placement_descriptor_set,
@@ -590,15 +590,15 @@ draw_image_quads :: proc(
 	tier: Image_Tier,
 ) {
 	placements := display_images_tier_slice(&app.demo.images, tier)
-	if len(placements) == 0 || app.image_quad_pipeline == 0 do return
+	if len(placements) == 0 || app.image_quad_pipeline.handle == 0 do return
 
-	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.image_quad_pipeline)
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, app.image_quad_pipeline.handle)
 	local_viewport := viewport
 	vk.CmdSetViewport(command_buffer, 0, 1, &local_viewport)
 	vk.CmdBindDescriptorSets(
 		command_buffer,
 		.GRAPHICS,
-		app.image_quad_pipeline_layout,
+		app.image_quad_pipeline.layout,
 		0,
 		1,
 		&frame.descriptor_set,
@@ -631,7 +631,7 @@ draw_image_quads :: proc(
 		}
 		vk.CmdPushConstants(
 			command_buffer,
-			app.image_quad_pipeline_layout,
+			app.image_quad_pipeline.layout,
 			{.FRAGMENT},
 			0,
 			u32(size_of(push)),
