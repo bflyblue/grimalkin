@@ -46,7 +46,7 @@ int grimalkin_session_new(uint16_t cols,
                           GrimalkinSession **out_session);
 void grimalkin_session_free(GrimalkinSession *session);
 
-/* Copies bytes into the ordered PTY input queue. */
+/* Copies bytes into the ordered PTY input queue, growing it when necessary. */
 int grimalkin_session_write(GrimalkinSession *session,
                             const uint8_t *data,
                             size_t len);
@@ -65,9 +65,12 @@ int grimalkin_session_resize(GrimalkinSession *session,
 void grimalkin_session_status(GrimalkinSession *session,
                               GrimalkinSessionStatus *out_status);
 
-#if defined(GRIMALKIN_SESSION_TEST) && !defined(_WIN32)
+#ifdef GRIMALKIN_SESSION_TEST
+int grimalkin_session_test_queue_growth(void);
+#ifndef _WIN32
 uint16_t grimalkin_session_test_pixel_extent(uint16_t cells,
                                              uint32_t cell_pixels);
+#endif
 #endif
 
 /* Largest URL accepted by grimalkin_open_url, in bytes. */

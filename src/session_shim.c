@@ -412,6 +412,31 @@ static size_t queue_space(const ByteQueue *queue) {
   return queue->capacity - queue->length;
 }
 
+static int queue_reserve(ByteQueue *queue, size_t required) {
+  if (required <= queue->capacity) return 1;
+  size_t capacity = queue->capacity;
+  while (capacity < required) {
+    if (capacity > SIZE_MAX / 2) {
+      capacity = required;
+      break;
+    }
+    capacity *= 2;
+  }
+  uint8_t *data = (uint8_t *)malloc(capacity);
+  if (data == NULL) return 0;
+  size_t first = queue->capacity - queue->head;
+  if (first > queue->length) first = queue->length;
+  if (first > 0) memcpy(data, queue->data + queue->head, first);
+  if (queue->length > first) {
+    memcpy(data + first, queue->data, queue->length - first);
+  }
+  free(queue->data);
+  queue->data = data;
+  queue->capacity = capacity;
+  queue->head = 0;
+  return 1;
+}
+
 static size_t queue_write(ByteQueue *queue, const uint8_t *data, size_t len) {
   if (len > queue_space(queue)) len = queue_space(queue);
   size_t tail = (queue->head + queue->length) % queue->capacity;
@@ -445,11 +470,39 @@ static size_t queue_peek_contiguous(ByteQueue *queue, uint8_t **data) {
   return len;
 }
 
+/* Writers cannot retain a pointer into the queue after releasing its lock:
+   a producer may grow and relocate the queue while the OS write blocks. */
+static size_t queue_copy_contiguous(ByteQueue *queue, uint8_t *data,
+                                    size_t capacity) {
+  uint8_t *source = NULL;
+  size_t length = queue_peek_contiguous(queue, &source);
+  if (length > capacity) length = capacity;
+  if (length > 0) memcpy(data, source, length);
+  return length;
+}
+
 static void queue_consume(ByteQueue *queue, size_t len) {
   if (len > queue->length) len = queue->length;
   queue->head = (queue->head + len) % queue->capacity;
   queue->length -= len;
 }
+
+#ifdef GRIMALKIN_SESSION_TEST
+int grimalkin_session_test_queue_growth(void) {
+  ByteQueue queue = {0};
+  uint8_t discarded[4] = {0};
+  uint8_t result[6] = {0};
+  int ok = queue_init(&queue, 8) &&
+      queue_write(&queue, (const uint8_t *)"abcdef", 6) == 6 &&
+      queue_read(&queue, discarded, sizeof(discarded)) == sizeof(discarded) &&
+      queue_write(&queue, (const uint8_t *)"ghij", 4) == 4 &&
+      queue_reserve(&queue, 16) &&
+      queue_read(&queue, result, sizeof(result)) == sizeof(result) &&
+      memcmp(result, "efghij", sizeof(result)) == 0;
+  free(queue.data);
+  return ok;
+}
+#endif
 
 #ifdef _WIN32
 
@@ -531,6 +584,7 @@ static DWORD WINAPI reader_main(void *userdata) {
 
 static DWORD WINAPI writer_main(void *userdata) {
   GrimalkinSession *session = (GrimalkinSession *)userdata;
+  uint8_t buffer[16384];
   for (;;) {
     EnterCriticalSection(&session->mutex);
     while (!session->stopping && !session->status.exited &&
@@ -541,12 +595,12 @@ static DWORD WINAPI writer_main(void *userdata) {
       LeaveCriticalSection(&session->mutex);
       break;
     }
-    uint8_t *data = NULL;
-    size_t length = queue_peek_contiguous(&session->outgoing, &data);
+    size_t length = queue_copy_contiguous(
+        &session->outgoing, buffer, sizeof(buffer));
     LeaveCriticalSection(&session->mutex);
 
     DWORD written = 0;
-    if (!WriteFile(session->input_write, data, (DWORD)length, &written, NULL)) {
+    if (!WriteFile(session->input_write, buffer, (DWORD)length, &written, NULL)) {
       DWORD error = GetLastError();
       if (error != ERROR_BROKEN_PIPE && error != ERROR_OPERATION_ABORTED) {
         windows_set_error(session, error);
@@ -860,10 +914,12 @@ void grimalkin_session_free(GrimalkinSession *session) {
 int grimalkin_session_write(GrimalkinSession *session, const uint8_t *data,
                             size_t len) {
   if (session == NULL || (len > 0 && data == NULL)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
+  if (len == 0) return GRIMALKIN_SESSION_OK;
   EnterCriticalSection(&session->mutex);
-  if (len > queue_space(&session->outgoing)) {
+  if (len > SIZE_MAX - session->outgoing.length ||
+      !queue_reserve(&session->outgoing, session->outgoing.length + len)) {
     LeaveCriticalSection(&session->mutex);
-    return GRIMALKIN_SESSION_QUEUE_FULL;
+    return GRIMALKIN_SESSION_OUT_OF_MEMORY;
   }
   queue_write(&session->outgoing, data, len);
   WakeConditionVariable(&session->outgoing_data);
@@ -1011,11 +1067,11 @@ static void *unix_worker_main(void *userdata) {
     }
     if (fds[0].revents & POLLOUT) {
       pthread_mutex_lock(&session->mutex);
-      uint8_t *data = NULL;
-      size_t length = queue_peek_contiguous(&session->outgoing, &data);
+      size_t length = queue_copy_contiguous(
+          &session->outgoing, buffer, sizeof(buffer));
       pthread_mutex_unlock(&session->mutex);
       if (length > 0) {
-        ssize_t count = write(session->master, data, length);
+        ssize_t count = write(session->master, buffer, length);
         if (count > 0) {
           pthread_mutex_lock(&session->mutex);
           queue_consume(&session->outgoing, (size_t)count);
@@ -1265,10 +1321,12 @@ void grimalkin_session_free(GrimalkinSession *session) {
 int grimalkin_session_write(GrimalkinSession *session, const uint8_t *data,
                             size_t len) {
   if (session == NULL || (len > 0 && data == NULL)) return GRIMALKIN_SESSION_INVALID_ARGUMENT;
+  if (len == 0) return GRIMALKIN_SESSION_OK;
   pthread_mutex_lock(&session->mutex);
-  if (len > queue_space(&session->outgoing)) {
+  if (len > SIZE_MAX - session->outgoing.length ||
+      !queue_reserve(&session->outgoing, session->outgoing.length + len)) {
     pthread_mutex_unlock(&session->mutex);
-    return GRIMALKIN_SESSION_QUEUE_FULL;
+    return GRIMALKIN_SESSION_OUT_OF_MEMORY;
   }
   queue_write(&session->outgoing, data, len);
   pthread_mutex_unlock(&session->mutex);
