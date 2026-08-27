@@ -428,6 +428,42 @@ failed_colour_theme_apply_restores_the_last_good_theme_and_reports_the_reason ::
 }
 
 @(test)
+repeated_colour_theme_changes_queue_one_display_refresh :: proc(t: ^testing.T) {
+	demo := Grimalkin_Demo{}
+	app := Grimalkin_App {
+		demo = &demo,
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+	}
+	defer osd_state_destroy(&app.osd)
+	state := Colour_Theme_Apply_Test_State {
+		result_count = 2,
+	}
+	state.results[0] = .Success
+	state.results[1] = .Success
+
+	app.settings.colour_theme = .Dracula
+	settings_changed(
+		&app,
+		{.Colour_Theme},
+		colour_theme_apply_test_proc,
+		rawptr(&state),
+	)
+	app.settings.colour_theme = .Nord
+	settings_changed(
+		&app,
+		{.Colour_Theme},
+		colour_theme_apply_test_proc,
+		rawptr(&state),
+	)
+
+	testing.expect_value(t, state.calls, 2)
+	testing.expect_value(t, app.applied_settings.colour_theme, Colour_Theme.Nord)
+	testing.expect(t, app.settings_colour_theme_refresh_pending)
+	testing.expect(t, !app.demo.compiler.force_full_recompile)
+}
+
+@(test)
 osd_text_rendering_dependencies_disable_and_skip_inactive_rows :: proc(t: ^testing.T) {
 	settings := application_settings_default()
 

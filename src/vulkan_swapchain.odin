@@ -338,6 +338,12 @@ reset_text_resource_command_buffers :: proc(app: ^Grimalkin_App) {
 }
 
 apply_pending_settings :: proc(app: ^Grimalkin_App) {
+	// Theme keys may repeat several times while GLFW drains one event batch.
+	// Mark the compiler now so any font or layout refresh below can satisfy the
+	// request; only issue a separate refresh if none of those paths consumed it.
+	if app.settings_colour_theme_refresh_pending {
+		app.demo.compiler.force_full_recompile = true
+	}
 	if app.settings_font_rebuild_pending || app.glyph_cache_reset_pending {
 		font_index := -1
 		primary_family: ^Font_Family
@@ -374,6 +380,10 @@ apply_pending_settings :: proc(app: ^Grimalkin_App) {
 			)
 			osd_prepare(app)
 			app.redraw = true
+			if app.settings_colour_theme_refresh_pending {
+				_ = refresh_terminal_display(app)
+				app.settings_colour_theme_refresh_pending = false
+			}
 			return
 		}
 		replacement := renderer_resources_init_configured(
@@ -416,6 +426,10 @@ apply_pending_settings :: proc(app: ^Grimalkin_App) {
 	if app.settings_layout_pending {
 		resize_terminal_to_extent(app, app.extent)
 		app.settings_layout_pending = false
+	}
+	if app.settings_colour_theme_refresh_pending {
+		if app.demo.compiler.force_full_recompile do _ = refresh_terminal_display(app)
+		app.settings_colour_theme_refresh_pending = false
 	}
 	app.redraw = true
 }
