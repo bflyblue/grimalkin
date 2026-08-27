@@ -266,6 +266,16 @@ osd_fill_row :: proc(osd: ^Osd_State, row: int, background: u32) {
 	}
 }
 
+osd_text_cell_count :: proc(text: string) -> int {
+	count := 0
+	for _ in text do count += 1
+	return count
+}
+
+osd_right_aligned_column :: proc(columns: int, text: string) -> int {
+	return max(1, columns - osd_text_cell_count(text) - 1)
+}
+
 osd_write_text :: proc(
 	osd: ^Osd_State,
 	resources: ^Renderer_Resources,
@@ -852,7 +862,7 @@ osd_rebuild :: proc(
 		osd_write_text(osd, resources, row, 1, label, foreground)
 		presentation := osd_page_row_presentation(osd.page, setting_index, enabled)
 		decorated := osd_present_row_value(presentation, value)
-		value_column := max(1, int(osd.cols) - len(decorated) - 1)
+		value_column := osd_right_aligned_column(int(osd.cols), decorated)
 		osd_write_text(osd, resources, row, value_column, decorated, foreground)
 	}
 	show_footer := metadata.footer != "" && osd.rows >= metadata.preferred_rows
