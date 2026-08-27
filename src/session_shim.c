@@ -267,6 +267,37 @@ int grimalkin_open_url(const char *url) {
 typedef struct GLFWwindow GLFWwindow;
 extern HWND glfwGetWin32Window(GLFWwindow *window);
 
+typedef HRESULT (WINAPI *DwmSetWindowAttributeFn)(HWND, DWORD, LPCVOID, DWORD);
+
+int grimalkin_set_window_corner_preference(void *glfw_window,
+                                           int prefer_rounded) {
+  if (glfw_window == NULL) return 0;
+  HWND window = glfwGetWin32Window((GLFWwindow *)glfw_window);
+  if (window == NULL) return 0;
+
+  HMODULE dwmapi = LoadLibraryW(L"dwmapi.dll");
+  if (dwmapi == NULL) return 0;
+  DwmSetWindowAttributeFn set_window_attribute =
+      (DwmSetWindowAttributeFn)(void *)GetProcAddress(
+          dwmapi, "DwmSetWindowAttribute");
+  if (set_window_attribute == NULL) {
+    FreeLibrary(dwmapi);
+    return 0;
+  }
+
+  /* These Windows 11 values stay local so the build does not depend on the
+     corner-preference declarations in a particular Windows SDK version. */
+  const DWORD window_corner_preference = 33;
+  const DWORD default_preference = 0;
+  const DWORD round_preference = 2;
+  const DWORD preference =
+      prefer_rounded ? round_preference : default_preference;
+  HRESULT result = set_window_attribute(
+      window, window_corner_preference, &preference, sizeof(preference));
+  FreeLibrary(dwmapi);
+  return SUCCEEDED(result);
+}
+
 void grimalkin_set_window_icon(void *glfw_window) {
   if (glfw_window == NULL) return;
   HWND window = glfwGetWin32Window((GLFWwindow *)glfw_window);

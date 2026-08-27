@@ -75,6 +75,8 @@ restores the window's position, client size, configured style, and maximized
 state. F12 changes and saves the configured window style immediately while
 windowed. It is inactive in fullscreen, where it remains available to the
 terminal when settings are closed and to the settings overlay when it is open.
+On Windows, windowed Frameless mode requests rounded corners; System mode and
+fullscreen leave the corner policy at the Windows default.
 Both fullscreen shortcuts remain active while settings are open; paste
 confirmation remains the higher-priority modal.
 

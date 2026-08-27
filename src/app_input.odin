@@ -77,6 +77,19 @@ window_style_toggled :: proc(style: Window_Style) -> Window_Style {
 	return style == .System ? .Frameless : .System
 }
 
+Window_Corner_Preference :: enum u8 {
+	Default,
+	Round,
+}
+
+window_corner_preference_for_state :: proc(
+	style: Window_Style,
+	fullscreen: bool,
+) -> Window_Corner_Preference {
+	if !fullscreen && style == .Frameless do return .Round
+	return .Default
+}
+
 screen_rect_intersection_area :: proc(a, b: Window_Geometry) -> i64 {
 	if a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0 do return 0
 	left := max(i64(a.x), i64(b.x))
@@ -1008,6 +1021,7 @@ enter_fullscreen :: proc(app: ^Grimalkin_App) -> bool {
 		restore_geometry = restore,
 		restore_maximized = maximized,
 	}
+	apply_window_corner_preference(app)
 	monitor_x, monitor_y := glfw.GetMonitorPos(monitor)
 	glfw.SetWindowMonitor(
 		app.window,
@@ -1063,12 +1077,27 @@ toggle_window_style_shortcut :: proc(app: ^Grimalkin_App) {
 	settings_changed(app, {.Window_Style})
 }
 
+apply_window_corner_preference :: proc(app: ^Grimalkin_App) {
+	if app == nil || app.window == nil do return
+	when ODIN_OS == .Windows {
+		preference := window_corner_preference_for_state(
+			app.settings.window_style,
+			app.fullscreen.active,
+		)
+		prefer_rounded := preference == .Round ? c.int(1) : c.int(0)
+		if grimalkin_set_window_corner_preference(rawptr(app.window), prefer_rounded) == 0 {
+			fmt.eprintln("Windows DWM could not apply the window corner preference")
+		}
+	}
+}
+
 apply_window_style :: proc(app: ^Grimalkin_App) {
 	if app.window == nil || app.fullscreen.active do return
 	frameless := app.settings.window_style == .Frameless
 	outer := window_outer_geometry(app.window)
 	maximized := glfw.GetWindowAttrib(app.window, glfw.MAXIMIZED) != 0
 	glfw.SetWindowAttrib(app.window, glfw.DECORATED, frameless ? glfw.FALSE : glfw.TRUE)
+	apply_window_corner_preference(app)
 	when ODIN_OS == .Darwin {
 		if grimalkin_macos_configure_window(rawptr(app.window), frameless ? 1 : 0) == 0 {
 			fmt.eprintln("macOS could not apply native window behavior")

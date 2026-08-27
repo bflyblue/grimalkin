@@ -142,6 +142,30 @@ window_style_shortcut_forwards_when_disabled_or_fullscreen :: proc(t: ^testing.T
 }
 
 @(test)
+window_corner_preference_rounds_only_windowed_frameless :: proc(t: ^testing.T) {
+	testing.expect_value(
+		t,
+		window_corner_preference_for_state(.System, false),
+		Window_Corner_Preference.Default,
+	)
+	testing.expect_value(
+		t,
+		window_corner_preference_for_state(.Frameless, false),
+		Window_Corner_Preference.Round,
+	)
+	testing.expect_value(
+		t,
+		window_corner_preference_for_state(.System, true),
+		Window_Corner_Preference.Default,
+	)
+	testing.expect_value(
+		t,
+		window_corner_preference_for_state(.Frameless, true),
+		Window_Corner_Preference.Default,
+	)
+}
+
+@(test)
 fullscreen_monitor_selection_uses_largest_overlap_and_primary_fallback :: proc(t: ^testing.T) {
 	monitors := [?]Window_Geometry{
 		{x = 0, y = 0, width = 100, height = 100},
