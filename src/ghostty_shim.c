@@ -93,13 +93,10 @@ struct GrimalkinGhostty {
   uint32_t cell_height_px;
   GrimalkinGhosttyWritePtyFn write_pty;
   void *write_pty_userdata;
-  uint8_t osc52_state;
-  char osc52_target[9];
-  size_t osc52_target_len;
-  uint8_t *osc52_payload;
-  size_t osc52_payload_len;
-  size_t osc52_payload_capacity;
-  bool osc52_rejected;
+  uint8_t clipboard_observer_state;
+  char osc52_query[16];
+  size_t osc52_query_len;
+  bool osc52_query_rejected;
   GrimalkinClipboardEvent clipboard_events[GRIMALKIN_CLIPBOARD_EVENT_COUNT];
   size_t clipboard_event_head;
   size_t clipboard_event_count;
@@ -156,144 +153,170 @@ static bool valid_utf8(const uint8_t *data, size_t len) {
   return true;
 }
 
-static int base64_value(uint8_t c) {
-  if (c >= 'A' && c <= 'Z') return c - 'A';
-  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-  if (c >= '0' && c <= '9') return c - '0' + 52;
-  if (c == '+') return 62;
-  if (c == '/') return 63;
-  return -1;
+typedef enum {
+  CLIPBOARD_OBSERVER_GROUND = 0,
+  CLIPBOARD_OBSERVER_ESCAPE,
+  CLIPBOARD_OBSERVER_ESCAPE_INTERMEDIATE,
+  CLIPBOARD_OBSERVER_CSI,
+  CLIPBOARD_OBSERVER_STRING,
+  CLIPBOARD_OBSERVER_STRING_ESCAPE,
+  CLIPBOARD_OBSERVER_OSC,
+  CLIPBOARD_OBSERVER_OSC_ESCAPE,
+} ClipboardObserverState;
+
+static void osc52_query_reset(GrimalkinGhostty *terminal) {
+  terminal->osc52_query_len = 0;
+  terminal->osc52_query_rejected = false;
 }
 
-static bool decode_base64(const uint8_t *input,
-                          size_t input_len,
-                          uint8_t **out,
-                          size_t *out_len) {
-  *out = NULL;
-  *out_len = 0;
-  if (input_len == 0) return true;
-  if ((input_len & 3u) != 0) return false;
-  size_t padding = input[input_len - 1] == '=' ? 1 : 0;
-  if (input_len > 1 && input[input_len - 2] == '=') padding++;
-  size_t decoded_len = input_len / 4 * 3 - padding;
-  if (decoded_len > GRIMALKIN_CLIPBOARD_MAX_BYTES) return false;
-  uint8_t *decoded = decoded_len == 0 ? NULL : malloc(decoded_len);
-  if (decoded_len > 0 && decoded == NULL) return false;
-  size_t write = 0;
-  for (size_t i = 0; i < input_len; i += 4) {
-    int a = base64_value(input[i]);
-    int b = base64_value(input[i + 1]);
-    int c = input[i + 2] == '=' ? 0 : base64_value(input[i + 2]);
-    int d = input[i + 3] == '=' ? 0 : base64_value(input[i + 3]);
-    bool final = i + 4 == input_len;
-    if (a < 0 || b < 0 || c < 0 || d < 0 ||
-        (!final && (input[i + 2] == '=' || input[i + 3] == '=')) ||
-        (input[i + 2] == '=' && input[i + 3] != '=') ||
-        (final && input[i + 2] == '=' && (b & 0x0f) != 0) ||
-        (final && input[i + 2] != '=' && input[i + 3] == '=' &&
-         (c & 0x03) != 0)) {
-      free(decoded);
-      return false;
-    }
-    uint32_t value = ((uint32_t)a << 18) | ((uint32_t)b << 12) |
-                     ((uint32_t)c << 6) | (uint32_t)d;
-    if (write < decoded_len) decoded[write++] = (uint8_t)(value >> 16);
-    if (write < decoded_len) decoded[write++] = (uint8_t)(value >> 8);
-    if (write < decoded_len) decoded[write++] = (uint8_t)value;
+static bool osc52_query_finish(GrimalkinGhostty *terminal) {
+  bool query = !terminal->osc52_query_rejected &&
+      ((terminal->osc52_query_len == 5 &&
+        memcmp(terminal->osc52_query, "52;;?", 5) == 0) ||
+       (terminal->osc52_query_len == 6 &&
+        memcmp(terminal->osc52_query, "52;c;?", 6) == 0));
+  osc52_query_reset(terminal);
+  terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+  return query;
+}
+
+static void clipboard_observer_after_escape(GrimalkinGhostty *terminal,
+                                            uint8_t value) {
+  if (value == ']') {
+    osc52_query_reset(terminal);
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_OSC;
+  } else if (value == 'P' || value == 'X' || value == '^' || value == '_') {
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_STRING;
+  } else if (value == '[') {
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_CSI;
+  } else if (value == 0x1b) {
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_ESCAPE;
+  } else if (value >= 0x20 && value <= 0x2f) {
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_ESCAPE_INTERMEDIATE;
+  } else {
+    terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
   }
-  if (!valid_utf8(decoded, decoded_len)) {
-    free(decoded);
-    return false;
-  }
-  *out = decoded;
-  *out_len = decoded_len;
-  return true;
 }
 
-static void osc52_reset(GrimalkinGhostty *terminal) {
-  terminal->osc52_state = 0;
-  terminal->osc52_target_len = 0;
-  terminal->osc52_payload_len = 0;
-  terminal->osc52_rejected = false;
-}
-
-static void osc52_finish(GrimalkinGhostty *terminal) {
-  bool target_supported = terminal->osc52_target_len == 0 ||
-      (terminal->osc52_target_len == 1 && terminal->osc52_target[0] == 'c');
-  if (!terminal->osc52_rejected && target_supported) {
-    if (terminal->osc52_payload_len == 1 &&
-        terminal->osc52_payload[0] == '?') {
-      clipboard_queue(terminal, 2, NULL, 0);
-    } else {
-      uint8_t *decoded = NULL;
-      size_t decoded_len = 0;
-      if (decode_base64(terminal->osc52_payload,
-                        terminal->osc52_payload_len,
-                        &decoded,
-                        &decoded_len)) {
-        clipboard_queue(terminal, 1, decoded, decoded_len);
+static bool observe_clipboard_read_byte(GrimalkinGhostty *terminal,
+                                        uint8_t value) {
+  switch ((ClipboardObserverState)terminal->clipboard_observer_state) {
+    case CLIPBOARD_OBSERVER_GROUND:
+      if (value == 0x1b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_ESCAPE;
+      } else if (value == 0x9b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_CSI;
+      } else if (value == 0x9d) {
+        osc52_query_reset(terminal);
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_OSC;
+      } else if (value == 0x90 || value == 0x98 || value == 0x9e ||
+                 value == 0x9f) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_STRING;
       }
-    }
+      break;
+    case CLIPBOARD_OBSERVER_ESCAPE:
+      clipboard_observer_after_escape(terminal, value);
+      break;
+    case CLIPBOARD_OBSERVER_ESCAPE_INTERMEDIATE:
+      if (value == 0x1b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_ESCAPE;
+      } else if (value < 0x20 || value > 0x2f) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      }
+      break;
+    case CLIPBOARD_OBSERVER_CSI:
+      if (value == 0x18 || value == 0x1a) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      } else if (value == 0x1b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_ESCAPE;
+      } else if (value >= 0x40 && value <= 0x7e) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      }
+      break;
+    case CLIPBOARD_OBSERVER_STRING:
+      if (value == 0x18 || value == 0x1a || value == 0x9c) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      } else if (value == 0x1b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_STRING_ESCAPE;
+      }
+      break;
+    case CLIPBOARD_OBSERVER_STRING_ESCAPE:
+      if (value == '\\') {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      } else {
+        clipboard_observer_after_escape(terminal, value);
+      }
+      break;
+    case CLIPBOARD_OBSERVER_OSC:
+      if (value == 0x07 || value == 0x9c) return osc52_query_finish(terminal);
+      if (value == 0x18 || value == 0x1a) {
+        osc52_query_reset(terminal);
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_GROUND;
+      } else if (value == 0x1b) {
+        terminal->clipboard_observer_state = CLIPBOARD_OBSERVER_OSC_ESCAPE;
+      } else if (terminal->osc52_query_len < sizeof(terminal->osc52_query)) {
+        terminal->osc52_query[terminal->osc52_query_len++] = (char)value;
+      } else {
+        terminal->osc52_query_rejected = true;
+      }
+      break;
+    case CLIPBOARD_OBSERVER_OSC_ESCAPE:
+      if (value == '\\') return osc52_query_finish(terminal);
+      osc52_query_reset(terminal);
+      clipboard_observer_after_escape(terminal, value);
+      break;
   }
-  osc52_reset(terminal);
+  return false;
 }
 
-static bool osc52_append(GrimalkinGhostty *terminal, uint8_t value) {
-  const size_t encoded_limit =
-      ((GRIMALKIN_CLIPBOARD_MAX_BYTES + 2u) / 3u) * 4u;
-  if (terminal->osc52_payload_len >= encoded_limit) return false;
-  if (terminal->osc52_payload_len == terminal->osc52_payload_capacity) {
-    size_t next = terminal->osc52_payload_capacity == 0
-        ? 256 : terminal->osc52_payload_capacity * 2;
-    if (next > encoded_limit) next = encoded_limit;
-    uint8_t *replacement = realloc(terminal->osc52_payload, next);
-    if (replacement == NULL) return false;
-    terminal->osc52_payload = replacement;
-    terminal->osc52_payload_capacity = next;
-  }
-  terminal->osc52_payload[terminal->osc52_payload_len++] = value;
-  return true;
+static bool ghostty_string_equal(GhosttyString value, const char *expected) {
+  size_t length = strlen(expected);
+  return value.len == length && (value.len == 0 || value.ptr != NULL) &&
+      (length == 0 || memcmp(value.ptr, expected, length) == 0);
 }
 
-static void observe_osc52(GrimalkinGhostty *terminal,
-                          const uint8_t *data,
-                          size_t len) {
-  for (size_t i = 0; i < len; ++i) {
-    uint8_t value = data[i];
-    switch (terminal->osc52_state) {
-      case 0: terminal->osc52_state = value == 0x1b ? 1 : 0; break;
-      case 1: terminal->osc52_state = value == ']' ? 2 : (value == 0x1b ? 1 : 0); break;
-      case 2: terminal->osc52_state = value == '5' ? 3 : 0; break;
-      case 3: terminal->osc52_state = value == '2' ? 4 : 0; break;
-      case 4: terminal->osc52_state = value == ';' ? 5 : 0; break;
-      case 5:
-        if (value == ';') {
-          terminal->osc52_state = 6;
-        } else if (terminal->osc52_target_len < sizeof(terminal->osc52_target)) {
-          terminal->osc52_target[terminal->osc52_target_len++] = (char)value;
-        } else {
-          terminal->osc52_rejected = true;
-        }
-        break;
-      case 6:
-        if (value == 0x07) osc52_finish(terminal);
-        else if (value == 0x1b) terminal->osc52_state = 7;
-        else if (!osc52_append(terminal, value)) terminal->osc52_rejected = true;
-        break;
-      case 7:
-        if (value == '\\') {
-          osc52_finish(terminal);
-        } else {
-          if (!osc52_append(terminal, 0x1b) ||
-              !osc52_append(terminal, value)) {
-            terminal->osc52_rejected = true;
-          }
-          terminal->osc52_state = 6;
-        }
-        break;
-      default: osc52_reset(terminal); break;
-    }
+static GhosttyClipboardWriteResult terminal_clipboard_write(
+    GhosttyTerminal terminal_handle,
+    void *userdata,
+    const GhosttyClipboardWrite *write) {
+  (void)terminal_handle;
+  GrimalkinGhostty *terminal = userdata;
+  if (terminal == NULL || write == NULL ||
+      write->size < sizeof(GhosttyClipboardWrite)) {
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA;
   }
+  if (write->location != GHOSTTY_CLIPBOARD_LOCATION_STANDARD) {
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
+  }
+  if (write->contents_len > 0 && write->contents == NULL) {
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA;
+  }
+  if (write->contents_len == 0) {
+    clipboard_queue(terminal, 1, NULL, 0);
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
+  }
+  for (size_t i = 0; i < write->contents_len; ++i) {
+    const GhosttyClipboardContent *content = &write->contents[i];
+    if (!ghostty_string_equal(content->mime, "text/plain") &&
+        !ghostty_string_equal(content->mime, "text/plain;charset=utf-8")) {
+      continue;
+    }
+    if ((content->data.len > 0 && content->data.ptr == NULL) ||
+        content->data.len > GRIMALKIN_CLIPBOARD_MAX_BYTES ||
+        !valid_utf8(content->data.ptr, content->data.len)) {
+      return GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA;
+    }
+    uint8_t *copy = content->data.len == 0 ? NULL : malloc(content->data.len);
+    if (content->data.len > 0 && copy == NULL) {
+      return GHOSTTY_CLIPBOARD_WRITE_RESULT_IO_ERROR;
+    }
+    if (content->data.len > 0) {
+      memcpy(copy, content->data.ptr, content->data.len);
+    }
+    clipboard_queue(terminal, 1, copy, content->data.len);
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
+  }
+  return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
 }
 
 static void terminal_write_pty(GhosttyTerminal terminal_handle,
@@ -857,6 +880,10 @@ int grimalkin_ghostty_new(uint16_t cols,
   ghostty_terminal_set(terminal->terminal,
                        GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                        terminal_write_pty);
+  result = ghostty_terminal_set(terminal->terminal,
+                                GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
+                                terminal_clipboard_write);
+  if (result != GHOSTTY_SUCCESS) goto ghostty_error;
 
   *out_terminal = terminal;
   return GRIMALKIN_GHOSTTY_OK;
@@ -910,7 +937,6 @@ void grimalkin_ghostty_free(GrimalkinGhostty *terminal) {
   for (size_t i = 0; i < GRIMALKIN_CLIPBOARD_EVENT_COUNT; ++i) {
     clipboard_event_clear(&terminal->clipboard_events[i]);
   }
-  free(terminal->osc52_payload);
   clear_images(terminal);
   free(terminal->image_allocations);
   free(terminal->images);
@@ -938,8 +964,22 @@ void grimalkin_ghostty_free(GrimalkinGhostty *terminal) {
 
 void grimalkin_ghostty_write(GrimalkinGhostty *terminal, const uint8_t *data, size_t len) {
   if (terminal == NULL || data == NULL || len == 0) return;
-  observe_osc52(terminal, data, len);
-  ghostty_terminal_vt_write(terminal->terminal, data, len);
+  /* Writes use libghostty-vt's normalized clipboard callback. The pinned ABI
+     deliberately discards read queries, so observe only those here and flush
+     each query through the terminal before queueing it. This preserves event
+     order when one input buffer interleaves writes and reads. */
+  size_t segment_start = 0;
+  for (size_t i = 0; i < len; ++i) {
+    if (!observe_clipboard_read_byte(terminal, data[i])) continue;
+    ghostty_terminal_vt_write(
+        terminal->terminal, data + segment_start, i + 1 - segment_start);
+    clipboard_queue(terminal, 2, NULL, 0);
+    segment_start = i + 1;
+  }
+  if (segment_start < len) {
+    ghostty_terminal_vt_write(
+        terminal->terminal, data + segment_start, len - segment_start);
+  }
 }
 
 int grimalkin_ghostty_resize(GrimalkinGhostty *terminal,
