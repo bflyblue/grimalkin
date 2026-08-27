@@ -262,6 +262,7 @@ Application_Settings_State :: struct {
 	settings_path:      string,
 	settings_save_pending: bool,
 	settings_save_deadline: f64,
+	settings_colour_theme_refresh_pending: bool,
 	settings_font_rebuild_pending: bool,
 	glyph_cache_reset_pending: bool,
 	settings_layout_pending: bool,

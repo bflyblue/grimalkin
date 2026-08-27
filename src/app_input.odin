@@ -833,15 +833,23 @@ settings_apply_colour_theme :: proc(
 	return false
 }
 
-settings_changed :: proc(app: ^Grimalkin_App, change: Application_Settings_Change) {
+settings_changed :: proc(
+	app: ^Grimalkin_App,
+	change: Application_Settings_Change,
+	apply_colour_theme: Colour_Theme_Apply_Proc = apply_terminal_colour_theme,
+	apply_colour_theme_userdata: rawptr = nil,
+) {
 	if change == {} do return
 	app.settings_save_pending = true
 	app.settings_save_deadline = glfw.GetTime() + 0.4
 	if .Colour_Theme in change {
 		if app.demo != nil {
-			_ = settings_apply_colour_theme(app)
-			app.demo.compiler.force_full_recompile = true
-			_ = refresh_terminal_display(app)
+			_ = settings_apply_colour_theme(
+				app,
+				apply_colour_theme,
+				apply_colour_theme_userdata,
+			)
+			app.settings_colour_theme_refresh_pending = true
 		}
 	}
 	if .Font_Resources in change do app.settings_font_rebuild_pending = true
