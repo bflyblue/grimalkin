@@ -177,6 +177,7 @@ Osd_State :: struct {
 	font_search:         string,
 	font_search_deadline: f64,
 	font_error:          string,
+	colour_theme_error:  string,
 	paste_bytes:         int,
 	paste_lines:         int,
 }
@@ -212,6 +213,7 @@ osd_state_destroy :: proc(osd: ^Osd_State) {
 	delete(osd.cells)
 	delete(osd.font_search)
 	delete(osd.font_error)
+	delete(osd.colour_theme_error)
 	osd^ = {}
 }
 
@@ -273,6 +275,16 @@ osd_fill_row :: proc(osd: ^Osd_State, row: int, background: u32) {
 	for column := 0; column < int(osd.cols); column += 1 {
 		osd.cells[row * int(osd.cols) + column].background = background
 	}
+}
+
+osd_text_cell_count :: proc(text: string) -> int {
+	count := 0
+	for _ in text do count += 1
+	return count
+}
+
+osd_right_aligned_column :: proc(columns: int, text: string) -> int {
+	return max(1, columns - osd_text_cell_count(text) - 1)
 }
 
 osd_write_text :: proc(
@@ -725,6 +737,17 @@ osd_scrollable_list_navigate :: proc(
 	return true
 }
 
+osd_global_reset_selection :: proc(osd: ^Osd_State, settings: Application_Settings) {
+	if osd.page != .Colour_Theme_List do return
+	osd.selected = int(settings.colour_theme)
+	osd_scrollable_list_clamp(
+		osd,
+		len(COLOUR_THEMES),
+		&osd.selected,
+		&osd.colour_theme_list_top,
+	)
+}
+
 osd_ascii_prefix_match :: proc(value, prefix: string) -> bool {
 	if len(prefix) > len(value) do return false
 	for byte, index in prefix {
@@ -855,9 +878,11 @@ osd_rebuild :: proc(
 	}
 	if osd.page == .Colour_Theme_List {
 		metadata := osd_page_metadata(.Colour_Theme_List)
+		footer := metadata.footer
+		if osd.colour_theme_error != "" do footer = osd.colour_theme_error
 		osd_render_scrollable_list(osd, resources, {
 			title = metadata.title,
-			footer = metadata.footer,
+			footer = footer,
 			count = len(COLOUR_THEMES),
 			selected = &osd.selected,
 			top = &osd.colour_theme_list_top,
@@ -896,7 +921,7 @@ osd_rebuild :: proc(
 		osd_write_text(osd, resources, row, 1, label, foreground)
 		presentation := osd_page_row_presentation(osd.page, setting_index, enabled)
 		decorated := osd_present_row_value(presentation, value)
-		value_column := max(1, int(osd.cols) - len(decorated) - 1)
+		value_column := osd_right_aligned_column(int(osd.cols), decorated)
 		osd_write_text(osd, resources, row, value_column, decorated, foreground)
 	}
 	show_footer := metadata.footer != "" && osd.rows >= metadata.preferred_rows

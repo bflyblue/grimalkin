@@ -181,12 +181,10 @@ record_padding_glow_source :: proc(
 	framebuffer: vk.Framebuffer,
 ) {
 	clear_value := vk.ClearValue{}
-	clear_value.color.float32 = {
-		srgb_channel_to_linear(f32(6.0 / 255.0)),
-		srgb_channel_to_linear(f32(9.0 / 255.0)),
-		srgb_channel_to_linear(f32(18.0 / 255.0)),
-		1,
-	}
+	clear_value.color.float32 = terminal_background_clear_colour(
+		app.demo.snapshot.default_background_rgba,
+		false,
+	)
 	render_pass_info := vk.RenderPassBeginInfo {
 		sType = .RENDER_PASS_BEGIN_INFO,
 		renderPass = app.padding_glow_source_render_pass,
@@ -297,15 +295,10 @@ record_command_buffer :: proc(
 	}
 
 	clear_value := vk.ClearValue{}
-	clear_red := f32(6.0 / 255.0)
-	clear_green := f32(9.0 / 255.0)
-	clear_blue := f32(18.0 / 255.0)
-	if !app.manual_srgb_output {
-		clear_red = srgb_channel_to_linear(clear_red)
-		clear_green = srgb_channel_to_linear(clear_green)
-		clear_blue = srgb_channel_to_linear(clear_blue)
-	}
-	clear_value.color.float32 = {clear_red, clear_green, clear_blue, 1.0}
+	clear_value.color.float32 = terminal_background_clear_colour(
+		app.demo.snapshot.default_background_rgba,
+		app.manual_srgb_output,
+	)
 	render_pass_info := vk.RenderPassBeginInfo {
 		sType = .RENDER_PASS_BEGIN_INFO,
 		renderPass = app.render_pass,
@@ -354,7 +347,7 @@ record_command_buffer :: proc(
 					u32(app.demo.grid.cols),
 					u32(app.demo.grid.rows),
 				},
-				style = {pack_rgba8(6, 9, 18, 255), 0, 0, 0},
+				style = {app.demo.snapshot.default_background_rgba, 0, 0, 0},
 			}
 			vk.CmdPushConstants(
 				command_buffer,

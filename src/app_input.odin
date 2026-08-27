@@ -735,15 +735,91 @@ apply_window_style :: proc(app: ^Grimalkin_App) {
 	app.redraw = true
 }
 
+Colour_Theme_Apply_Proc :: #type proc(
+	userdata: rawptr,
+	terminal: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> Terminal_Colour_Theme_Result
+
+apply_terminal_colour_theme :: proc(
+	_: rawptr,
+	terminal: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> Terminal_Colour_Theme_Result {
+	return terminal_core_apply_colour_theme(terminal, theme)
+}
+
+colour_theme_result_name :: proc(result: Terminal_Colour_Theme_Result) -> string {
+	switch result {
+	case .Success:          return "success"
+	case .Invalid_Argument: return "invalid argument"
+	case .Out_Of_Memory:    return "out of memory"
+	case .Ghostty_Error:    return "libghostty-vt error"
+	}
+	return "unknown error"
+}
+
+colour_theme_failure_text :: proc(
+	result, recovery: Terminal_Colour_Theme_Result,
+) -> string {
+	if recovery == .Success {
+		switch result {
+		case .Invalid_Argument: return "Theme failed: invalid input; previous kept"
+		case .Out_Of_Memory:    return "Theme failed: out of memory; previous kept"
+		case .Ghostty_Error:    return "Theme failed: libghostty-vt; previous kept"
+		case .Success:          return ""
+		}
+	}
+	switch result {
+	case .Invalid_Argument: return "Theme invalid and recovery failed"
+	case .Out_Of_Memory:    return "Theme OOM and recovery failed"
+	case .Ghostty_Error:    return "Theme and recovery failed"
+	case .Success:          return "Theme recovery failed"
+	}
+	return "Theme and recovery failed"
+}
+
+settings_apply_colour_theme :: proc(
+	app: ^Grimalkin_App,
+	apply: Colour_Theme_Apply_Proc = apply_terminal_colour_theme,
+	userdata: rawptr = nil,
+) -> bool {
+	requested := app.settings.colour_theme
+	previous := app.applied_settings.colour_theme
+	result := apply(userdata, &app.demo.terminal, requested)
+	delete(app.osd.colour_theme_error)
+	app.osd.colour_theme_error = ""
+	if result == .Success do return true
+
+	recovery := apply(userdata, &app.demo.terminal, previous)
+	app.settings.colour_theme = previous
+	if app.osd.page == .Colour_Theme_List {
+		app.osd.selected = int(previous)
+		osd_scrollable_list_clamp(
+			&app.osd,
+			len(COLOUR_THEMES),
+			&app.osd.selected,
+			&app.osd.colour_theme_list_top,
+		)
+	}
+	app.osd.colour_theme_error = strings.clone(colour_theme_failure_text(result, recovery))
+	fmt.eprintfln(
+		"Grimalkin could not apply colour theme %s (%s); restoring %s returned %s",
+		colour_theme_name(requested),
+		colour_theme_result_name(result),
+		colour_theme_name(previous),
+		colour_theme_result_name(recovery),
+	)
+	return false
+}
+
 settings_changed :: proc(app: ^Grimalkin_App, change: Application_Settings_Change) {
 	if change == {} do return
 	app.settings_save_pending = true
 	app.settings_save_deadline = glfw.GetTime() + 0.4
 	if .Colour_Theme in change {
 		if app.demo != nil {
-			if !terminal_core_set_colour_theme(&app.demo.terminal, app.settings.colour_theme) {
-				fmt.panicf("libghostty-vt could not apply colour theme %s", colour_theme_name(app.settings.colour_theme))
-			}
+			_ = settings_apply_colour_theme(app)
 			app.demo.compiler.force_full_recompile = true
 			_ = refresh_terminal_display(app)
 		}
@@ -820,6 +896,7 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 	change := Application_Settings_Change{}
 	if mods & glfw.MOD_SHIFT != 0 && key == glfw.KEY_R {
 		app.settings = application_settings_default()
+		osd_global_reset_selection(&app.osd, app.settings)
 		change = APPLICATION_SETTINGS_RESET_CHANGES
 		settings_changed(app, change)
 		return

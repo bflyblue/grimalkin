@@ -37,6 +37,27 @@ ghostty_test_theme_rgba :: proc(rgb: u32) -> u32 {
 }
 
 @(test)
+ghostty_colour_theme_results_preserve_the_bridge_error_category :: proc(t: ^testing.T) {
+	testing.expect_value(t, terminal_colour_theme_result(GRIMALKIN_GHOSTTY_OK), Terminal_Colour_Theme_Result.Success)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_INVALID_ARGUMENT),
+		Terminal_Colour_Theme_Result.Invalid_Argument,
+	)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_OUT_OF_MEMORY),
+		Terminal_Colour_Theme_Result.Out_Of_Memory,
+	)
+	testing.expect_value(
+		t,
+		terminal_colour_theme_result(GRIMALKIN_GHOSTTY_GHOSTTY_ERROR),
+		Terminal_Colour_Theme_Result.Ghostty_Error,
+	)
+	testing.expect_value(t, terminal_colour_theme_result(-999), Terminal_Colour_Theme_Result.Ghostty_Error)
+}
+
+@(test)
 ghostty_colour_themes_update_defaults_ansi_palette_and_existing_rows :: proc(t: ^testing.T) {
 	terminal := terminal_core_init(8, 2, 32)
 	defer terminal_core_destroy(&terminal)

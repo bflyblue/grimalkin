@@ -4,6 +4,25 @@ import "core:fmt"
 import "core:testing"
 import "vendor:glfw"
 
+Colour_Theme_Apply_Test_State :: struct {
+	results: [4]Terminal_Colour_Theme_Result,
+	result_count: int,
+	calls: int,
+	themes: [4]Colour_Theme,
+}
+
+colour_theme_apply_test_proc :: proc(
+	userdata: rawptr,
+	_: ^Terminal_Core,
+	theme: Colour_Theme,
+) -> Terminal_Colour_Theme_Result {
+	state := cast(^Colour_Theme_Apply_Test_State)userdata
+	index := min(state.calls, max(0, state.result_count - 1))
+	state.themes[state.calls] = theme
+	state.calls += 1
+	return state.results[index]
+}
+
 @(test)
 osd_settings_adjust_wrap_clamp_and_report_live_change_kinds :: proc(t: ^testing.T) {
 	settings := application_settings_default()
@@ -176,6 +195,18 @@ osd_footer_help_fits_the_preferred_panel_width :: proc(t: ^testing.T) {
 }
 
 @(test)
+osd_right_alignment_counts_rendered_cells_instead_of_utf8_bytes :: proc(t: ^testing.T) {
+	rose_pine := osd_present_row_value(.Submenu, "Rosé Pine")
+	frappe := osd_present_row_value(.Submenu, "Catppuccin Frappé")
+	testing.expect_value(t, len(rose_pine), 12)
+	testing.expect_value(t, osd_text_cell_count(rose_pine), 11)
+	testing.expect_value(t, osd_right_aligned_column(44, rose_pine), 32)
+	testing.expect_value(t, len(frappe), 20)
+	testing.expect_value(t, osd_text_cell_count(frappe), 19)
+	testing.expect_value(t, osd_right_aligned_column(44, frappe), 24)
+}
+
+@(test)
 osd_page_metadata_owns_layout_navigation_and_row_presentation :: proc(t: ^testing.T) {
 	main := osd_page_metadata(.Main)
 	testing.expect_value(t, main.preferred_rows, OSD_PREFERRED_ROWS)
@@ -319,6 +350,74 @@ osd_colour_theme_browser_applies_navigation_and_keeps_latest_on_escape :: proc(t
 	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Rose_Pine_Dawn)
 	osd_handle_key(&app, glfw.KEY_R, 0)
 	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Ghostty)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+}
+
+@(test)
+osd_global_reset_resynchronizes_the_colour_theme_browser :: proc(t: ^testing.T) {
+	app := Grimalkin_App {
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		osd = {
+			visible = true,
+			page = .Colour_Theme_List,
+			selected = int(Colour_Theme.Rose_Pine_Dawn),
+			rows = OSD_COLOUR_THEME_LIST_PREFERRED_ROWS,
+			cols = OSD_PREFERRED_COLUMNS,
+			colour_theme_list_top = int(Colour_Theme.Rose_Pine),
+		},
+	}
+	defer osd_state_destroy(&app.osd)
+
+	osd_global_reset_selection(&app.osd, app.settings)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+	testing.expect_value(t, app.osd.colour_theme_list_top, 0)
+	osd_handle_key(&app, glfw.KEY_DOWN, 0)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Dracula)
+}
+
+@(test)
+failed_colour_theme_apply_restores_the_last_good_theme_and_reports_the_reason :: proc(t: ^testing.T) {
+	demo := Grimalkin_Demo{}
+	app := Grimalkin_App {
+		demo = &demo,
+		settings = application_settings_default(),
+		applied_settings = application_settings_default(),
+		osd = {
+			visible = true,
+			page = .Colour_Theme_List,
+			selected = int(Colour_Theme.Dracula),
+			rows = OSD_COLOUR_THEME_LIST_PREFERRED_ROWS,
+			cols = OSD_PREFERRED_COLUMNS,
+		},
+	}
+	defer osd_state_destroy(&app.osd)
+	app.settings.colour_theme = .Dracula
+	state := Colour_Theme_Apply_Test_State {
+		result_count = 2,
+	}
+	state.results[0] = .Out_Of_Memory
+	state.results[1] = .Success
+
+	applied := settings_apply_colour_theme(&app, colour_theme_apply_test_proc, rawptr(&state))
+	testing.expect(t, !applied)
+	testing.expect_value(t, state.calls, 2)
+	testing.expect_value(t, state.themes[0], Colour_Theme.Dracula)
+	testing.expect_value(t, state.themes[1], Colour_Theme.Ghostty)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Ghostty)
+	testing.expect_value(t, app.osd.selected, int(Colour_Theme.Ghostty))
+	testing.expect_value(t, app.osd.colour_theme_error, "Theme failed: out of memory; previous kept")
+
+	app.settings.colour_theme = .Dracula
+	state = {
+		result_count = 1,
+	}
+	state.results[0] = .Success
+	applied = settings_apply_colour_theme(&app, colour_theme_apply_test_proc, rawptr(&state))
+	testing.expect(t, applied)
+	testing.expect_value(t, state.calls, 1)
+	testing.expect_value(t, app.settings.colour_theme, Colour_Theme.Dracula)
+	testing.expect_value(t, app.osd.colour_theme_error, "")
 }
 
 @(test)
