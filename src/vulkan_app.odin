@@ -168,6 +168,22 @@ Queue_Families :: struct {
 	has_present:  bool,
 }
 
+Gpu_Device_Candidate :: struct {
+	device:             vk.PhysicalDevice,
+	properties:         vk.PhysicalDeviceProperties,
+	queue_families:     Queue_Families,
+	enumeration_index:  int,
+}
+
+Gpu_Selection_Status :: struct {
+	active_name:          string,
+	active_type:          vk.PhysicalDeviceType,
+	suitable_count:       int,
+	integrated_available: bool,
+	discrete_available:   bool,
+	fallback_active:      bool,
+}
+
 Swapchain_Support :: struct {
 	capabilities:  vk.SurfaceCapabilitiesKHR,
 	formats:       []vk.SurfaceFormatKHR,
@@ -260,6 +276,8 @@ Application_Settings_State :: struct {
 	settings_font_rebuild_pending: bool,
 	glyph_cache_reset_pending: bool,
 	settings_layout_pending: bool,
+	gpu_rebuild_pending: bool,
+	gpu_selection:       Gpu_Selection_Status,
 	detected_display_rotation: Display_Rotation,
 	display_rotation_check_pending: bool,
 	display_rotation_check_deadline: f64,

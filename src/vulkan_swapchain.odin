@@ -5,31 +5,57 @@ import "core:strings"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-init_vulkan :: proc(app: ^Grimalkin_App) {
+init_vulkan :: proc(app: ^Grimalkin_App) -> bool {
 	vk.load_proc_addresses_global(rawptr(glfw.GetInstanceProcAddress))
 	if vk.CreateInstance == nil {
-		fmt.panicf("Vulkan global procedure loading failed")
+		fmt.eprintln("grimalkin: Vulkan global procedure loading failed")
+		return false
 	}
 
-	create_instance(app)
+	if !create_instance(app) do return false
 	vk.load_proc_addresses_instance(app.instance)
-	create_debug_messenger(app)
+	if !create_debug_messenger(app) {
+		destroy_vulkan(app)
+		return false
+	}
 
 	if !app.headless {
-		vk_must(
-			glfw.CreateWindowSurface(app.instance, app.window, nil, &app.surface),
-			"creating the GLFW window surface",
-		)
+		result := glfw.CreateWindowSurface(app.instance, app.window, nil, &app.surface)
+		if result != .SUCCESS {
+			fmt.eprintfln("grimalkin: window surface creation failed: %v", result)
+			destroy_vulkan(app)
+			return false
+		}
 	}
 
-	pick_physical_device(app)
-	create_logical_device(app)
-	vk.load_proc_addresses_device(app.device)
+	if !init_vulkan_device(app) {
+		fmt.eprintln("grimalkin: could not create a logical device on a suitable Vulkan adapter")
+		destroy_vulkan(app)
+		return false
+	}
+	return true
+}
 
-	if app.headless {
-		create_headless_target(&app.renderer)
-	} else {
-		create_swapchain(&app.renderer, app.window, app.framebuffer_readback)
+init_vulkan_device :: proc(app: ^Grimalkin_App) -> bool {
+	failed: [dynamic]vk.PhysicalDevice
+	defer delete(failed)
+	for {
+		if !pick_physical_device(app, failed[:]) do return false
+		vk.load_proc_addresses_device(app.device)
+
+		target_ok := true
+		if app.headless {
+			create_headless_target(&app.renderer)
+		} else {
+			target_ok = create_swapchain(&app.renderer, app.window, app.framebuffer_readback)
+		}
+		if target_ok do break
+		fmt.eprintfln(
+			"grimalkin: %s could not create a swapchain for this window; trying the next adapter",
+			app.gpu_selection.active_name,
+		)
+		append(&failed, app.physical_device)
+		destroy_vulkan_device(app)
 	}
 	resize_terminal_to_extent(app, app.extent)
 	osd_prepare(app)
@@ -44,6 +70,22 @@ init_vulkan :: proc(app: ^Grimalkin_App) {
 	}
 	create_text_resources(app)
 	create_synchronization(app)
+	return true
+}
+
+rebuild_vulkan_device :: proc(app: ^Grimalkin_App) -> bool {
+	previous := strings.clone(app.gpu_selection.active_name, context.temp_allocator)
+	destroy_vulkan_device(app)
+	if !init_vulkan_device(app) {
+		fmt.eprintfln("grimalkin: GPU switch failed after releasing %s", previous)
+		return false
+	}
+	app.demo.compiler.force_full_recompile = true
+	_ = refresh_terminal_display(app)
+	osd_prepare(app)
+	app.capture_complete = false
+	app.redraw = true
+	return true
 }
 
 create_swapchain_resources :: proc(renderer: ^Vulkan_Renderer) {
@@ -200,7 +242,7 @@ renderer_recreate_swapchain :: proc(
 	delete(renderer.render_finished)
 	renderer.render_finished = nil
 	destroy_swapchain_resources(renderer)
-	create_swapchain(renderer, window, framebuffer_readback)
+	if !create_swapchain(renderer, window, framebuffer_readback) do return {}, false
 	create_swapchain_image_synchronization(renderer)
 	return renderer.extent, true
 }
@@ -240,7 +282,10 @@ destroy_frame_text_buffers :: proc(device: vk.Device, frame: ^Frame_Context) {
 	frame.visuals_uploaded = 0
 }
 
-destroy_vulkan :: proc(app: ^Grimalkin_App) {
+destroy_vulkan_device :: proc(app: ^Grimalkin_App) {
+	instance := app.instance
+	debug_messenger := app.debug_messenger
+	surface := app.surface
 	if app.device != nil {
 		vk.DeviceWaitIdle(app.device)
 
@@ -272,17 +317,33 @@ destroy_vulkan :: proc(app: ^Grimalkin_App) {
 		}
 		vk.DestroyDevice(app.device, nil)
 	}
+	app.renderer.device_resources = {
+		instance = instance,
+		debug_messenger = debug_messenger,
+		surface = surface,
+	}
+	app.renderer.swapchain_resources = {}
+	app.frame_index = 0
+}
 
+destroy_vulkan :: proc(app: ^Grimalkin_App) {
+	destroy_vulkan_device(app)
 	if app.surface != 0 {
 		vk.DestroySurfaceKHR(app.instance, app.surface, nil)
+		app.surface = 0
 	}
 	if app.debug_messenger != 0 {
 		vk.DestroyDebugUtilsMessengerEXT(app.instance, app.debug_messenger, nil)
+		app.debug_messenger = 0
 	}
 	if app.instance != nil {
 		vk.DestroyInstance(app.instance, nil)
+		app.instance = nil
 	}
 	delete(app.capture_path)
+	app.capture_path = ""
+	delete(app.gpu_selection.active_name)
+	app.gpu_selection.active_name = ""
 }
 
 destroy_gpu_text_resources :: proc(app: ^Grimalkin_App) {

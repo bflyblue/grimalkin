@@ -15,6 +15,7 @@ Osd_Main_Row :: enum int {
 	Window_Style,
 	Key_Bindings,
 	Copy_Paste,
+	Graphics,
 }
 
 Osd_Text_Rendering_Row :: enum int {
@@ -48,6 +49,11 @@ Osd_Copy_Paste_Row :: enum int {
 	Selection_Style,
 }
 
+Osd_Graphics_Row :: enum int {
+	Active_Device,
+	Gpu_Preference,
+}
+
 Osd_Setting :: enum u8 {
 	Text_Rendering,
 	Font,
@@ -59,6 +65,7 @@ Osd_Setting :: enum u8 {
 	Window_Style,
 	Key_Bindings,
 	Copy_Paste,
+	Graphics,
 	Text_Smoothing,
 	Text_Contrast,
 	Font_Hinting,
@@ -78,21 +85,25 @@ Osd_Setting :: enum u8 {
 	Terminal_Clipboard,
 	Block_Whitespace,
 	Selection_Style,
+	Active_Gpu,
+	Gpu_Preference,
 }
 
-OSD_MAIN_ROW_COUNT :: int(Osd_Main_Row.Copy_Paste) + 1
+OSD_MAIN_ROW_COUNT :: int(Osd_Main_Row.Graphics) + 1
 OSD_TEXT_RENDERING_COUNT :: int(Osd_Text_Rendering_Row.Rotation) + 1
 OSD_FONT_COUNT :: int(Osd_Font_Row.Size) + 1
 OSD_KEY_BINDING_COUNT :: int(Osd_Key_Binding_Row.Window_Style) + 1
 OSD_COPY_PASTE_COUNT :: int(Osd_Copy_Paste_Row.Selection_Style) + 1
+OSD_GRAPHICS_COUNT :: int(Osd_Graphics_Row.Gpu_Preference) + 1
 OSD_PREFERRED_COLUMNS :: u16(46)
-OSD_PREFERRED_ROWS :: u16(13)
+OSD_PREFERRED_ROWS :: u16(14)
 OSD_TEXT_RENDERING_PREFERRED_ROWS :: u16(8)
 OSD_FONT_PREFERRED_ROWS :: u16(5)
 OSD_FONT_LIST_PREFERRED_ROWS :: u16(14)
 OSD_COLOUR_THEME_LIST_PREFERRED_ROWS :: u16(14)
 OSD_KEY_BINDING_PREFERRED_ROWS :: u16(8)
 OSD_COPY_PASTE_PREFERRED_ROWS :: u16(10)
+OSD_GRAPHICS_PREFERRED_ROWS :: u16(5)
 OSD_PASTE_CONFIRM_PREFERRED_ROWS :: u16(6)
 OSD_FOREGROUND :: u32(0xfff0eae7)
 OSD_MUTED :: u32(0xffa59b87)
@@ -109,6 +120,7 @@ OSD_MAIN_SETTINGS := [OSD_MAIN_ROW_COUNT]Osd_Setting {
 	.Window_Style,
 	.Key_Bindings,
 	.Copy_Paste,
+	.Graphics,
 }
 OSD_TEXT_RENDERING_SETTINGS := [OSD_TEXT_RENDERING_COUNT]Osd_Setting {
 	.Text_Smoothing,
@@ -134,6 +146,7 @@ OSD_COPY_PASTE_SETTINGS := [OSD_COPY_PASTE_COUNT]Osd_Setting {
 	.Block_Whitespace,
 	.Selection_Style,
 }
+OSD_GRAPHICS_SETTINGS := [OSD_GRAPHICS_COUNT]Osd_Setting{.Active_Gpu, .Gpu_Preference}
 
 Osd_Page :: enum u8 {
 	Main,
@@ -143,6 +156,7 @@ Osd_Page :: enum u8 {
 	Colour_Theme_List,
 	Key_Bindings,
 	Copy_Paste,
+	Graphics,
 	Paste_Confirm,
 }
 
@@ -222,6 +236,15 @@ osd_page_metadata :: proc(page: Osd_Page) -> Osd_Page_Metadata {
 			parent = .Main,
 			return_row = int(Osd_Main_Row.Copy_Paste),
 		}
+	case .Graphics:
+		return {
+			title = "Graphics",
+			preferred_rows = OSD_GRAPHICS_PREFERRED_ROWS,
+			footer = "↕↔ Adjust  R Reset  Esc Back",
+			settings = OSD_GRAPHICS_SETTINGS[:],
+			parent = .Main,
+			return_row = int(Osd_Main_Row.Graphics),
+		}
 	case .Paste_Confirm:
 		return {
 			title = "Confirm paste",
@@ -260,6 +283,7 @@ Application_Settings_Change_Flag :: enum u8 {
 	Cursor,
 	Window_Style,
 	Colour_Theme,
+	Gpu_Device,
 	Persist,
 }
 
@@ -269,6 +293,7 @@ APPLICATION_SETTINGS_RESET_CHANGES :: Application_Settings_Change {
 	.Cursor,
 	.Window_Style,
 	.Colour_Theme,
+	.Gpu_Device,
 }
 
 Osd_Push :: struct {
@@ -437,6 +462,7 @@ osd_setting_text :: proc(
 	setting: Osd_Setting,
 	catalog: ^Font_Catalog = nil,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> (string, string) {
 	switch setting {
 	case .Text_Rendering: return "Text rendering", ">"
@@ -450,6 +476,10 @@ osd_setting_text :: proc(
 	case .Window_Style: return "Window style", settings_window_style_name(settings.window_style)
 	case .Key_Bindings: return "Key bindings", ">"
 	case .Copy_Paste: return "Copy & paste", ">"
+	case .Graphics:
+		value := "Unavailable"
+		if gpu_selection != nil && gpu_selection.active_name != "" do value = gpu_selection.active_name
+		return "Graphics", value
 	case .Text_Smoothing: return "Smoothing", settings_text_smoothing_name(settings.text_smoothing)
 	case .Text_Contrast:
 		value := "Inactive"
@@ -483,6 +513,12 @@ osd_setting_text :: proc(
 	case .Terminal_Clipboard: return "Terminal clipboard", settings_terminal_clipboard_name(settings.terminal_clipboard)
 	case .Block_Whitespace: return "Block whitespace", settings_block_whitespace_name(settings.block_selection_whitespace)
 	case .Selection_Style: return "Selection style", settings_selection_style_name(settings.selection_style)
+	case .Active_Gpu:
+		return "Active device", gpu_selection != nil && gpu_selection.active_name != "" ? gpu_selection.active_name : "Unavailable"
+	case .Gpu_Preference:
+		value := settings_gpu_preference_name(settings.gpu_preference)
+		if gpu_selection != nil && gpu_selection.fallback_active do value = fmt.tprintf("%s (fallback)", value)
+		return "Preference", value
 	}
 	return "", ""
 }
@@ -492,6 +528,7 @@ osd_setting_enabled :: proc(
 	setting: Osd_Setting,
 	catalog: ^Font_Catalog,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> bool {
 	#partial switch setting {
 	case .Padding_Glow: return settings.padding > 0
@@ -501,6 +538,10 @@ osd_setting_enabled :: proc(
 		return settings.text_smoothing == .Subpixel && known
 	case .Subpixel_Rotation: return settings.text_smoothing == .Subpixel
 	case .Font_Family: return catalog != nil && !catalog.environment_override && len(catalog.families) > 0
+	case .Active_Gpu: return false
+	case .Gpu_Preference:
+		return gpu_selection != nil && gpu_selection.integrated_available &&
+			gpu_selection.discrete_available
 	}
 	return true
 }
@@ -521,9 +562,10 @@ osd_page_row_enabled :: proc(
 	catalog: ^Font_Catalog,
 	row: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> bool {
 	setting, ok := osd_page_setting(page, row)
-	return ok && osd_setting_enabled(settings, setting, catalog, detected_rotation)
+	return ok && osd_setting_enabled(settings, setting, catalog, detected_rotation, gpu_selection)
 }
 
 osd_page_row_presentation :: proc(
@@ -534,7 +576,7 @@ osd_page_row_presentation :: proc(
 	setting, ok := osd_page_setting(page, row)
 	if !enabled || !ok do return .Read_Only
 	#partial switch setting {
-	case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste, .Font_Family:
+	case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste, .Graphics, .Font_Family:
 		return .Submenu
 	}
 	return .Adjustable
@@ -555,6 +597,7 @@ osd_page_move_selection :: proc(
 	catalog: ^Font_Catalog,
 	selected, direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> int {
 	count := osd_page_row_count(page)
 	if count == 0 do return selected
@@ -562,7 +605,7 @@ osd_page_move_selection :: proc(
 	candidate := clamp(selected, 0, count - 1)
 	for _ in 0 ..< count {
 		candidate = (candidate + step + count) % count
-		if osd_page_row_enabled(page, settings, catalog, candidate, detected_rotation) {
+		if osd_page_row_enabled(page, settings, catalog, candidate, detected_rotation, gpu_selection) {
 			return candidate
 		}
 	}
@@ -575,10 +618,11 @@ osd_page_row_text :: proc(
 	catalog: ^Font_Catalog,
 	row: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> (string, string) {
 	setting, ok := osd_page_setting(page, row)
 	if !ok do return "", ""
-	return osd_setting_text(settings, setting, catalog, detected_rotation)
+	return osd_setting_text(settings, setting, catalog, detected_rotation, gpu_selection)
 }
 
 osd_page_adjust_setting :: proc(
@@ -587,10 +631,11 @@ osd_page_adjust_setting :: proc(
 	catalog: ^Font_Catalog,
 	selected, direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> Application_Settings_Change {
-	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
+	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation, gpu_selection) do return {}
 	setting, _ := osd_page_setting(page, selected)
-	return osd_adjust_setting(settings, setting, direction, detected_rotation)
+	return osd_adjust_setting(settings, setting, direction, detected_rotation, gpu_selection)
 }
 
 osd_page_reset_setting :: proc(
@@ -599,8 +644,9 @@ osd_page_reset_setting :: proc(
 	catalog: ^Font_Catalog,
 	selected: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> Application_Settings_Change {
-	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation) do return {}
+	if !osd_page_row_enabled(page, settings^, catalog, selected, detected_rotation, gpu_selection) do return {}
 	setting, _ := osd_page_setting(page, selected)
 	return osd_reset_setting(settings, setting, detected_rotation)
 }
@@ -617,6 +663,7 @@ osd_open_submenu :: proc(
 	osd: ^Osd_State,
 	settings: Application_Settings,
 	catalog: ^Font_Catalog,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> bool {
 	if osd == nil do return false
 	if osd.page == .Main {
@@ -642,6 +689,12 @@ osd_open_submenu :: proc(
 		case .Copy_Paste:
 			osd.page = .Copy_Paste
 			osd.selected = int(Osd_Copy_Paste_Row.Insert_Shortcuts)
+		case .Graphics:
+			osd.page = .Graphics
+			osd.selected = int(Osd_Graphics_Row.Gpu_Preference)
+			if !osd_setting_enabled(settings, .Gpu_Preference, catalog, .Degrees_0, gpu_selection) {
+				osd.selected = int(Osd_Graphics_Row.Active_Device)
+			}
 		}
 		if osd.page == .Main do return false
 		return true
@@ -814,6 +867,7 @@ osd_rebuild :: proc(
 	settings: Application_Settings,
 	catalog: ^Font_Catalog = nil,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) {
 	osd_clear_cells(osd)
 	if osd.rows == 0 || osd.cols == 0 do return
@@ -883,6 +937,7 @@ osd_rebuild :: proc(
 			catalog,
 			setting_index,
 			detected_rotation,
+			gpu_selection,
 		)
 		enabled := osd_page_row_enabled(
 			osd.page,
@@ -890,6 +945,7 @@ osd_rebuild :: proc(
 			catalog,
 			setting_index,
 			detected_rotation,
+			gpu_selection,
 		)
 		foreground := OSD_FOREGROUND
 		if !enabled {
@@ -961,6 +1017,9 @@ osd_reset_setting :: proc(
 		settings.block_selection_whitespace = defaults.block_selection_whitespace
 		settings.selection_style = defaults.selection_style
 		return {.Persist}
+	case .Graphics:
+		settings.gpu_preference = defaults.gpu_preference
+		return {.Gpu_Device}
 	case .Text_Smoothing, .Text_Contrast, .Font_Hinting, .Subpixel_Layout, .Subpixel_Rotation:
 		if !osd_setting_enabled(settings^, selected, nil, detected_rotation) do return {}
 		before := settings^
@@ -1014,6 +1073,11 @@ osd_reset_setting :: proc(
 	case .Selection_Style:
 		settings.selection_style = defaults.selection_style
 		return {.Persist}
+	case .Active_Gpu:
+		return {}
+	case .Gpu_Preference:
+		settings.gpu_preference = defaults.gpu_preference
+		return {.Gpu_Device}
 	}
 	return {}
 }
@@ -1034,9 +1098,10 @@ osd_adjust_setting :: proc(
 	selected: Osd_Setting,
 	direction: int,
 	detected_rotation := Display_Rotation.Degrees_0,
+	gpu_selection: ^Gpu_Selection_Status = nil,
 ) -> Application_Settings_Change {
 	switch selected {
-	case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste, .Font_Family:
+	case .Text_Rendering, .Font, .Colour_Themes, .Key_Bindings, .Copy_Paste, .Graphics, .Font_Family, .Active_Gpu:
 		return {}
 	case .Cursor_Animation:
 		count := int(Cursor_Animation_Policy.Steady) + 1
@@ -1130,6 +1195,26 @@ osd_adjust_setting :: proc(
 		settings.selection_style = Selection_Style(
 			settings_cycle_index(int(settings.selection_style), count, direction),
 		)
+	case .Gpu_Preference:
+		if gpu_selection == nil do return {}
+		available: [3]Gpu_Preference
+		count := 0
+		available[count] = .Automatic
+		count += 1
+		if gpu_selection.integrated_available {
+			available[count] = .Integrated
+			count += 1
+		}
+		if gpu_selection.discrete_available {
+			available[count] = .Discrete
+			count += 1
+		}
+		current := 0
+		for value, index in available[:count] {
+			if value == settings.gpu_preference do current = index
+		}
+		settings.gpu_preference = available[settings_cycle_index(current, count, direction)]
+		return {.Gpu_Device}
 	}
 	return {.Persist}
 }

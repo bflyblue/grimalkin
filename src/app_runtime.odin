@@ -57,7 +57,7 @@ sample_render_frame_input :: proc(
 	}, cursor, indicator
 }
 
-run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
+run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 	demo_mode := mode == .Demo
 	cursor_gpu_test := mode == .Cursor_Gpu_Test
 	if cursor_gpu_test {
@@ -68,7 +68,8 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 	if !glfw.Init() {
 		description, code := glfw.GetError()
-		fmt.panicf("GLFW initialization failed (%d): %s", code, description)
+		fmt.eprintfln("grimalkin: GLFW initialization failed (%d): %s", code, description)
+		return false
 	}
 	defer glfw.Terminate()
 	// The null backend reports no monitors, and the suite pins scaling anyway so
@@ -99,7 +100,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	if !demo_mode && !cursor_gpu_test {
 		started: bool
 		session, started = terminal_session_init(GRID_COLUMNS, GRID_ROWS, 10, 22)
-		if !started do return
+		if !started do return false
 	}
 
 	font_catalog, catalog_ok := font_catalog_init()
@@ -165,7 +166,8 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 
 	if !glfw.VulkanSupported() {
 		description, code := glfw.GetError()
-		fmt.panicf("GLFW could not find a Vulkan loader (%d): %s", code, description)
+		fmt.eprintfln("grimalkin: GLFW could not find a Vulkan loader (%d): %s", code, description)
+		return false
 	}
 
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
@@ -234,7 +236,8 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	app.window = glfw.CreateWindow(window_width, window_height, "Grimalkin", nil, nil)
 	if app.window == nil {
 		description, code := glfw.GetError()
-		fmt.panicf("window creation failed (%d): %s", code, description)
+		fmt.eprintfln("grimalkin: window creation failed (%d): %s", code, description)
+		return false
 	}
 	app.windowed_geometry = window_client_geometry(app.window)
 	app.windowed_geometry_valid = app.windowed_geometry.width > 0 && app.windowed_geometry.height > 0
@@ -281,7 +284,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 		app.detected_display_rotation = window_rotation
 	}
 
-	init_vulkan(&app)
+	if !init_vulkan(&app) do return false
 	defer destroy_vulkan(&app)
 	defer settings_flush(&app)
 	scrollback_compression_capture_baseline(&app)
@@ -291,7 +294,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	frames_rendered := 0
 	if cursor_gpu_test {
 		run_cursor_gpu_tests(&app)
-		return
+		return true
 	}
 	when BENCHMARK_MODE {
 		for !glfw.WindowShouldClose(app.window) {
@@ -337,6 +340,12 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 				_ = application_recreate_swapchain(&app)
 				app.framebuffer_dirty = false
 				app.redraw = true
+			}
+			if app.gpu_rebuild_pending {
+				app.gpu_rebuild_pending = false
+				settings_flush(&app)
+				if !rebuild_vulkan_device(&app) do return false
+				app.applied_settings.gpu_preference = app.settings.gpu_preference
 			}
 			apply_pending_settings(&app)
 			if app.settings_save_pending && glfw.GetTime() >= app.settings_save_deadline do settings_flush(&app)
@@ -458,4 +467,5 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) {
 	}
 
 	vk_must(vk.DeviceWaitIdle(app.device), "waiting for the device to become idle")
+	return true
 }

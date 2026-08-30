@@ -59,5 +59,5 @@ main :: proc() {
 	case .Run:
 	}
 	configure_macos_bundle_environment()
-	run_grimalkin(mode)
+	if !run_grimalkin(mode) do os.exit(1)
 }
