@@ -381,18 +381,13 @@ adjust_font_size_from_shortcut :: proc(app: ^Grimalkin_App, delta: int) {
 	}
 }
 
-flush_pending_key :: proc(app: ^Grimalkin_App) {
-	if !app.pending_valid do return
-	name := glfw.GetKeyName(app.pending_key, app.pending_scancode)
-	send_key_event(
-		app,
-		app.pending_key,
-		app.pending_scancode,
-		app.pending_action,
-		app.pending_mods,
-		transmute([]u8)name,
-	)
-	app.pending_valid = false
+printable_key_waits_for_character :: proc(mods: i32) -> bool {
+	semantic := mods & (glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER)
+	// GLFW character callbacks own text, including Alt and Ctrl+Alt/AltGr
+	// layouts. Ctrl without Alt and Super are terminal/application shortcuts
+	// and do not reliably produce a character callback.
+	return semantic & glfw.MOD_SUPER == 0 &&
+	       !(semantic & glfw.MOD_CONTROL != 0 && semantic & glfw.MOD_ALT == 0)
 }
 
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: c.int) {
@@ -453,11 +448,10 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		app.settings.font_size_shortcuts,
 	)
 	if font_handled {
-		flush_pending_key(app)
+		app.pending_valid = false
 		if font_delta != 0 do adjust_font_size_from_shortcut(app, font_delta)
 		return
 	}
-	flush_pending_key(app)
 	scroll_delta, scroll_handled := scroll_delta_for_key(
 		i32(key),
 		i32(action),
@@ -472,7 +466,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		return
 	}
 	printable := glfw_key_is_printable(i32(key))
-	if printable && action != glfw.RELEASE {
+	if printable && action != glfw.RELEASE && printable_key_waits_for_character(i32(mods)) {
 		app.pending_key = i32(key)
 		app.pending_scancode = i32(scancode)
 		app.pending_action = i32(action)
@@ -480,6 +474,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		app.pending_valid = true
 		return
 	}
+	if action != glfw.RELEASE do app.pending_valid = false
 	send_key_event(app, i32(key), i32(scancode), i32(action), i32(mods))
 }
 

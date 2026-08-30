@@ -374,7 +374,6 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 				app.redraw = false
 				if drain_budget_exhausted {
 					glfw.PollEvents()
-					flush_pending_key(&app)
 					continue
 				}
 				wait_deadline := scrollback_compression_wait_deadline(app.compression)
@@ -384,7 +383,6 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 				} else {
 					glfw.WaitEvents()
 				}
-				flush_pending_key(&app)
 				continue
 			}
 			now := glfw.GetTime()
@@ -462,7 +460,6 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 			} else {
 				glfw.WaitEvents()
 			}
-			flush_pending_key(&app)
 		}
 	}
 
