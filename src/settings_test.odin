@@ -494,3 +494,24 @@ settings_json_rejects_kitty_image_storage_outside_range :: proc(t: ^testing.T) {
 		)
 	}
 }
+@(test)
+settings_json_round_trips_gpu_preferences :: proc(t: ^testing.T) {
+	for preference in Gpu_Preference {
+		expected := application_settings_default()
+		expected.gpu_preference = preference
+		data, encoded := settings_encode(expected)
+		testing.expect(t, encoded)
+		actual, decoded := settings_decode(data)
+		delete(data)
+		testing.expect(t, decoded)
+		testing.expect_value(t, actual.gpu_preference, preference)
+	}
+}
+
+@(test)
+settings_json_repairs_invalid_gpu_preference :: proc(t: ^testing.T) {
+	text := `{"version":1,"gpu_preference":"warp"}`
+	actual, valid := settings_decode(transmute([]byte)text)
+	testing.expect(t, !valid)
+	testing.expect_value(t, actual.gpu_preference, Gpu_Preference.Automatic)
+}

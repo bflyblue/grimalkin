@@ -4,10 +4,11 @@ import "base:runtime"
 import "core:fmt"
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-create_instance :: proc(app: ^Grimalkin_App) {
+create_instance :: proc(app: ^Grimalkin_App) -> bool {
 	application_info := vk.ApplicationInfo {
 		sType              = .APPLICATION_INFO,
 		pApplicationName   = "Grimalkin",
@@ -48,17 +49,24 @@ create_instance :: proc(app: ^Grimalkin_App) {
 		create_info.pNext = &debug_info
 	}
 
-	vk_must(vk.CreateInstance(&create_info, nil, &app.instance), "creating the Vulkan instance")
+	result := vk.CreateInstance(&create_info, nil, &app.instance)
+	if result != .SUCCESS {
+		fmt.eprintfln("grimalkin: Vulkan instance creation failed: %v", result)
+		return false
+	}
+	return true
 }
 
-create_debug_messenger :: proc(app: ^Grimalkin_App) {
+create_debug_messenger :: proc(app: ^Grimalkin_App) -> bool {
 	when ENABLE_VALIDATION {
 		create_info := debug_messenger_create_info()
-		vk_must(
-			vk.CreateDebugUtilsMessengerEXT(app.instance, &create_info, nil, &app.debug_messenger),
-			"creating the Vulkan debug messenger",
-		)
+		result := vk.CreateDebugUtilsMessengerEXT(app.instance, &create_info, nil, &app.debug_messenger)
+		if result != .SUCCESS {
+			fmt.eprintfln("grimalkin: Vulkan debug messenger creation failed: %v", result)
+			return false
+		}
 	}
+	return true
 }
 
 debug_messenger_create_info :: proc() -> vk.DebugUtilsMessengerCreateInfoEXT {
@@ -81,75 +89,187 @@ vulkan_debug_callback :: proc "system" (
 	return false
 }
 
-pick_physical_device :: proc(app: ^Grimalkin_App) {
-	device_count: u32
-	vk_must(
-		vk.EnumeratePhysicalDevices(app.instance, &device_count, nil),
-		"counting physical devices",
-	)
-	if device_count == 0 {
-		fmt.panicf("no Vulkan-capable device was found")
+gpu_preference_matches :: proc(preference: Gpu_Preference, device_type: vk.PhysicalDeviceType) -> bool {
+	switch preference {
+	case .Automatic:  return true
+	case .Integrated: return device_type == .INTEGRATED_GPU
+	case .Discrete:   return device_type == .DISCRETE_GPU
 	}
+	return true
+}
 
-	devices := make([]vk.PhysicalDevice, device_count, context.temp_allocator)
-	vk_must(
-		vk.EnumeratePhysicalDevices(app.instance, &device_count, raw_data(devices)),
-		"enumerating physical devices",
+gpu_candidate_texture_capacity :: proc(properties: vk.PhysicalDeviceProperties) -> u32 {
+	return min(
+		MAX_TEXTURE_RESOURCES_CAP,
+		properties.limits.maxPerStageDescriptorSampledImages,
+		properties.limits.maxDescriptorSetSampledImages,
 	)
+}
 
-	preference := os.get_env("GRIMALKIN_GPU_TEST_DEVICE", context.temp_allocator)
-	if preference != "" && preference != "cpu" && preference != "hardware" && preference != "any" {
-		fmt.panicf("GRIMALKIN_GPU_TEST_DEVICE must be cpu, hardware, or any; got %q", preference)
-	}
-	pass_count := 1
-	if app.cursor_gpu_test && preference == "" do pass_count = 2
-	for pass := 0; pass < pass_count; pass += 1 {
-		require_cpu := preference == "cpu" || (app.cursor_gpu_test && preference == "" && pass == 0)
-		require_hardware := preference == "hardware"
-		for device in devices {
-			properties: vk.PhysicalDeviceProperties
-			vk.GetPhysicalDeviceProperties(device, &properties)
-			if require_cpu && properties.deviceType != .CPU do continue
-			if require_hardware && properties.deviceType == .CPU do continue
-
-			families := find_queue_families(app, device)
-			if !families.has_graphics ||
-			   !families.has_present ||
-			   !supports_required_extensions(device, app.headless) ||
-			   !supports_descriptor_indexing(device) {
-				continue
-			}
-
-			if !app.headless {
-				format_count, present_mode_count := swapchain_option_counts(app, device)
-				if format_count == 0 || present_mode_count == 0 {
-					continue
-				}
-			}
-
-			app.physical_device = device
-			app.queue_families = families
-			app.texture_capacity = min(
-				MAX_TEXTURE_RESOURCES_CAP,
-				properties.limits.maxPerStageDescriptorSampledImages,
-				properties.limits.maxDescriptorSetSampledImages,
-			)
-			if app.texture_capacity == 0 do continue
-			app.demo.resources.textures.maximum_count = int(app.texture_capacity)
-			renderer_resources_apply_texture_limits(
-				&app.demo.resources,
-				properties.limits.maxImageDimension2D,
-				properties.limits.maxImageArrayLayers,
-			)
-			fmt.printfln("Using Vulkan device: %s", fixed_byte_string(&properties.deviceName))
-			fmt.printfln("Texture descriptor capacity: %d", app.texture_capacity)
-			return
+gpu_candidate_supports_resources :: proc(app: ^Grimalkin_App, properties: vk.PhysicalDeviceProperties) -> bool {
+	capacity := gpu_candidate_texture_capacity(properties)
+	if capacity == 0 do return false
+	if app.demo == nil do return true
+	live_resources := 0
+	for resource in app.demo.resources.textures.resources {
+		if resource == nil do continue
+		live_resources += 1
+		if resource.width > properties.limits.maxImageDimension2D ||
+		   resource.height > properties.limits.maxImageDimension2D ||
+		   resource.layers > properties.limits.maxImageArrayLayers {
+			return false
 		}
 	}
+	return live_resources <= int(capacity)
+}
 
-	fmt.panicf(
-		"no Vulkan 1.2 device supports swapchains plus non-uniform sampled-image indexing, runtime descriptor arrays, partially-bound descriptors, and variable descriptor counts",
-	)
+gpu_candidate_surface_suitable :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> bool {
+	if app.headless do return true
+	capabilities: vk.SurfaceCapabilitiesKHR
+	if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(device, app.surface, &capabilities) != .SUCCESS {
+		return false
+	}
+	if .COLOR_ATTACHMENT not_in capabilities.supportedUsageFlags do return false
+	if app.framebuffer_readback && .TRANSFER_SRC not_in capabilities.supportedUsageFlags do return false
+	if .OPAQUE not_in capabilities.supportedCompositeAlpha do return false
+
+	format_count: u32
+	if vk.GetPhysicalDeviceSurfaceFormatsKHR(device, app.surface, &format_count, nil) != .SUCCESS || format_count == 0 {
+		return false
+	}
+	formats := make([]vk.SurfaceFormatKHR, format_count, context.temp_allocator)
+	if vk.GetPhysicalDeviceSurfaceFormatsKHR(device, app.surface, &format_count, raw_data(formats)) != .SUCCESS {
+		return false
+	}
+	_, format_ok := try_choose_surface_format(formats)
+	if !format_ok do return false
+
+	present_mode_count: u32
+	return vk.GetPhysicalDeviceSurfacePresentModesKHR(device, app.surface, &present_mode_count, nil) == .SUCCESS &&
+		present_mode_count > 0
+}
+
+discover_gpu_candidates :: proc(app: ^Grimalkin_App) -> [dynamic]Gpu_Device_Candidate {
+	device_count: u32
+	if vk.EnumeratePhysicalDevices(app.instance, &device_count, nil) != .SUCCESS || device_count == 0 {
+		return nil
+	}
+	devices := make([]vk.PhysicalDevice, device_count, context.temp_allocator)
+	if vk.EnumeratePhysicalDevices(app.instance, &device_count, raw_data(devices)) != .SUCCESS {
+		return nil
+	}
+	candidates: [dynamic]Gpu_Device_Candidate
+	for device, index in devices {
+		properties: vk.PhysicalDeviceProperties
+		vk.GetPhysicalDeviceProperties(device, &properties)
+		families, families_ok := find_queue_families(app, device)
+		if !families_ok || !families.has_graphics || !families.has_present ||
+		   !supports_required_extensions(device, app.headless) ||
+		   !supports_descriptor_indexing(device) ||
+		   !gpu_candidate_supports_resources(app, properties) ||
+		   !gpu_candidate_surface_suitable(app, device) {
+			continue
+		}
+		append(&candidates, Gpu_Device_Candidate {
+			device = device,
+			properties = properties,
+			queue_families = families,
+			enumeration_index = index,
+		})
+	}
+	return candidates
+}
+
+ordered_gpu_candidate_indices :: proc(
+	candidates: []Gpu_Device_Candidate,
+	preference: Gpu_Preference,
+	allocator := context.temp_allocator,
+) -> [dynamic]int {
+	indices := make([dynamic]int, 0, len(candidates), allocator)
+	if preference != .Automatic {
+		for candidate, index in candidates {
+			if gpu_preference_matches(preference, candidate.properties.deviceType) do append(&indices, index)
+		}
+	}
+	for candidate, index in candidates {
+		if preference == .Automatic || !gpu_preference_matches(preference, candidate.properties.deviceType) {
+			append(&indices, index)
+		}
+	}
+	return indices
+}
+
+gpu_selection_status_update_candidates :: proc(app: ^Grimalkin_App, candidates: []Gpu_Device_Candidate) {
+	app.gpu_selection.suitable_count = len(candidates)
+	app.gpu_selection.integrated_available = false
+	app.gpu_selection.discrete_available = false
+	for candidate in candidates {
+		if candidate.properties.deviceType == .INTEGRATED_GPU {
+			app.gpu_selection.integrated_available = true
+		} else if candidate.properties.deviceType == .DISCRETE_GPU {
+			app.gpu_selection.discrete_available = true
+		}
+	}
+}
+
+pick_physical_device :: proc(app: ^Grimalkin_App, excluded: []vk.PhysicalDevice = nil) -> bool {
+	candidates := discover_gpu_candidates(app)
+	defer delete(candidates)
+	gpu_selection_status_update_candidates(app, candidates[:])
+	if len(candidates) == 0 {
+		fmt.eprintln("grimalkin: no Vulkan 1.2 device is compatible with the current window surface and renderer requirements")
+		return false
+	}
+
+	test_preference := os.get_env("GRIMALKIN_GPU_TEST_DEVICE", context.temp_allocator)
+	if test_preference != "" && test_preference != "cpu" && test_preference != "hardware" && test_preference != "any" {
+		fmt.eprintfln("grimalkin: GRIMALKIN_GPU_TEST_DEVICE must be cpu, hardware, or any; got %q", test_preference)
+		return false
+	}
+	indices := ordered_gpu_candidate_indices(candidates[:], app.settings.gpu_preference)
+	defer delete(indices)
+	has_cpu_candidate := false
+	for candidate in candidates do has_cpu_candidate = has_cpu_candidate || candidate.properties.deviceType == .CPU
+	for index in indices {
+		candidate := candidates[index]
+		excluded_candidate := false
+		for device in excluded {
+			if device == candidate.device do excluded_candidate = true
+		}
+		if excluded_candidate do continue
+		if app.cursor_gpu_test {
+			require_cpu := test_preference == "cpu" || (test_preference == "" && has_cpu_candidate)
+			require_hardware := test_preference == "hardware"
+			if require_cpu && candidate.properties.deviceType != .CPU do continue
+			if require_hardware && candidate.properties.deviceType == .CPU do continue
+		}
+		app.physical_device = candidate.device
+		app.queue_families = candidate.queue_families
+		app.texture_capacity = gpu_candidate_texture_capacity(candidate.properties)
+		if !create_logical_device(app) {
+			fmt.eprintfln(
+				"grimalkin: could not create a logical device on %s; trying the next adapter",
+				fixed_byte_string(&candidate.properties.deviceName),
+			)
+			continue
+		}
+		app.demo.resources.textures.maximum_count = int(app.texture_capacity)
+		renderer_resources_apply_texture_limits(
+			&app.demo.resources,
+			candidate.properties.limits.maxImageDimension2D,
+			candidate.properties.limits.maxImageArrayLayers,
+		)
+		delete(app.gpu_selection.active_name)
+		app.gpu_selection.active_name = strings.clone(fixed_byte_string(&candidate.properties.deviceName))
+		app.gpu_selection.active_type = candidate.properties.deviceType
+		app.gpu_selection.fallback_active = app.settings.gpu_preference != .Automatic &&
+			!gpu_preference_matches(app.settings.gpu_preference, candidate.properties.deviceType)
+		fmt.printfln("Using Vulkan device: %s", app.gpu_selection.active_name)
+		fmt.printfln("Texture descriptor capacity: %d", app.texture_capacity)
+		return true
+	}
+	fmt.eprintln("grimalkin: no Vulkan device matches the requested GPU test preference")
+	return false
 }
 
 supports_descriptor_indexing :: proc(device: vk.PhysicalDevice) -> bool {
@@ -169,7 +289,7 @@ supports_descriptor_indexing :: proc(device: vk.PhysicalDevice) -> bool {
 	)
 }
 
-find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Queue_Families {
+find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> (Queue_Families, bool) {
 	result := Queue_Families{}
 	count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(device, &count, nil)
@@ -190,15 +310,14 @@ find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Q
 			result.has_present = result.has_graphics
 		} else {
 			present_supported: b32
-			vk_must(
-				vk.GetPhysicalDeviceSurfaceSupportKHR(
+			if vk.GetPhysicalDeviceSurfaceSupportKHR(
 					device,
 					u32(index),
 					app.surface,
 					&present_supported,
-				),
-				"querying presentation support",
-			)
+				) != .SUCCESS {
+					return {}, false
+				}
 			if present_supported {
 				result.present = u32(index)
 				result.has_present = true
@@ -210,7 +329,7 @@ find_queue_families :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> Q
 		}
 	}
 
-	return result
+	return result, true
 }
 
 supports_required_extensions :: proc(device: vk.PhysicalDevice, headless := false) -> bool {
@@ -246,19 +365,7 @@ has_extension :: proc(available: []vk.ExtensionProperties, wanted: cstring) -> b
 	return false
 }
 
-swapchain_option_counts :: proc(app: ^Grimalkin_App, device: vk.PhysicalDevice) -> (u32, u32) {
-	format_count, present_mode_count: u32
-	if vk.GetPhysicalDeviceSurfaceFormatsKHR(device, app.surface, &format_count, nil) != .SUCCESS {
-		return 0, 0
-	}
-	if vk.GetPhysicalDeviceSurfacePresentModesKHR(device, app.surface, &present_mode_count, nil) !=
-	   .SUCCESS {
-		return 0, 0
-	}
-	return format_count, present_mode_count
-}
-
-create_logical_device :: proc(app: ^Grimalkin_App) {
+create_logical_device :: proc(app: ^Grimalkin_App) -> bool {
 	priority := f32(1.0)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
 	queue_infos[0] = vk.DeviceQueueCreateInfo {
@@ -306,10 +413,11 @@ create_logical_device :: proc(app: ^Grimalkin_App) {
 		ppEnabledExtensionNames = &device_extensions[0],
 	}
 
-	vk_must(
-		vk.CreateDevice(app.physical_device, &create_info, nil, &app.device),
-		"creating the logical device",
-	)
+	if vk.CreateDevice(app.physical_device, &create_info, nil, &app.device) != .SUCCESS {
+		app.device = nil
+		return false
+	}
 	vk.GetDeviceQueue(app.device, app.queue_families.graphics, 0, &app.graphics_queue)
 	vk.GetDeviceQueue(app.device, app.queue_families.present, 0, &app.present_queue)
+	return true
 }

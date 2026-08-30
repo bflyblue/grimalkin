@@ -718,9 +718,9 @@ osd_panel_is_centered_and_constrained_to_the_framebuffer :: proc(t: ^testing.T) 
 	testing.expect_value(t, rows, OSD_PREFERRED_ROWS)
 	rect := osd_panel_rect(1200, 880, 10, 22, cols, rows)
 	testing.expect_value(t, rect.extent.width, u32(480))
-	testing.expect_value(t, rect.extent.height, u32(330))
+	testing.expect_value(t, rect.extent.height, u32(352))
 	testing.expect_value(t, rect.offset.x, i32(360))
-	testing.expect_value(t, rect.offset.y, i32(275))
+	testing.expect_value(t, rect.offset.y, i32(264))
 
 	cols, rows = osd_layout_dimensions(1200, 880, 10, 22, .Text_Rendering)
 	testing.expect_value(t, cols, OSD_PREFERRED_COLUMNS)
@@ -766,4 +766,42 @@ osd_panel_is_centered_and_constrained_to_the_framebuffer :: proc(t: ^testing.T) 
 	rect = osd_panel_rect(80, 44, 10, 22, cols, rows)
 	testing.expect(t, rect.extent.width <= 80)
 	testing.expect(t, rect.extent.height <= 44)
+}
+@(test)
+osd_graphics_preference_cycles_available_gpu_classes :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	selection := Gpu_Selection_Status {
+		suitable_count = 2,
+		integrated_available = true,
+		discrete_available = true,
+	}
+	change := osd_adjust_setting(&settings, .Gpu_Preference, 1, .Degrees_0, &selection)
+	testing.expect(t, .Gpu_Device in change)
+	testing.expect_value(t, settings.gpu_preference, Gpu_Preference.Integrated)
+	change = osd_adjust_setting(&settings, .Gpu_Preference, 1, .Degrees_0, &selection)
+	testing.expect(t, .Gpu_Device in change)
+	testing.expect_value(t, settings.gpu_preference, Gpu_Preference.Discrete)
+}
+
+@(test)
+osd_graphics_reports_active_device_and_single_gpu_preference_is_read_only :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	selection := Gpu_Selection_Status {
+		active_name = "Test Integrated GPU",
+		suitable_count = 1,
+		integrated_available = true,
+	}
+	label, value := osd_setting_text(settings, .Active_Gpu, nil, .Degrees_0, &selection)
+	testing.expect_value(t, label, "Active device")
+	testing.expect_value(t, value, "Test Integrated GPU")
+	testing.expect(t, !osd_setting_enabled(settings, .Gpu_Preference, nil, .Degrees_0, &selection))
+}
+
+@(test)
+osd_graphics_marks_an_unavailable_saved_preference_as_fallback :: proc(t: ^testing.T) {
+	settings := application_settings_default()
+	settings.gpu_preference = .Integrated
+	selection := Gpu_Selection_Status{active_name = "Discrete GPU", fallback_active = true}
+	_, value := osd_setting_text(settings, .Gpu_Preference, nil, .Degrees_0, &selection)
+	testing.expect_value(t, value, "Power saving (fallback)")
 }

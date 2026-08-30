@@ -5,75 +5,75 @@ import "core:slice"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-query_swapchain_support :: proc(renderer: ^Vulkan_Renderer) -> Swapchain_Support {
+query_swapchain_support :: proc(renderer: ^Vulkan_Renderer) -> (Swapchain_Support, bool) {
 	support := Swapchain_Support{}
-	vk_must(
-		vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
+	if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
 			renderer.physical_device,
 			renderer.surface,
 			&support.capabilities,
-		),
-		"querying surface capabilities",
-	)
+		) != .SUCCESS {
+		return {}, false
+	}
 
 	format_count: u32
-	vk_must(
-		vk.GetPhysicalDeviceSurfaceFormatsKHR(
+	if vk.GetPhysicalDeviceSurfaceFormatsKHR(
 			renderer.physical_device,
 			renderer.surface,
 			&format_count,
 			nil,
-		),
-		"counting surface formats",
-	)
+		) != .SUCCESS || format_count == 0 {
+		return {}, false
+	}
 	support.formats = make([]vk.SurfaceFormatKHR, format_count, context.temp_allocator)
-	vk_must(
-		vk.GetPhysicalDeviceSurfaceFormatsKHR(
+	if vk.GetPhysicalDeviceSurfaceFormatsKHR(
 			renderer.physical_device,
 			renderer.surface,
 			&format_count,
 			raw_data(support.formats),
-		),
-		"querying surface formats",
-	)
+		) != .SUCCESS {
+		return {}, false
+	}
 
 	present_mode_count: u32
-	vk_must(
-		vk.GetPhysicalDeviceSurfacePresentModesKHR(
+	if vk.GetPhysicalDeviceSurfacePresentModesKHR(
 			renderer.physical_device,
 			renderer.surface,
 			&present_mode_count,
 			nil,
-		),
-		"counting presentation modes",
-	)
+		) != .SUCCESS || present_mode_count == 0 {
+		return {}, false
+	}
 	support.present_modes = make([]vk.PresentModeKHR, present_mode_count, context.temp_allocator)
-	vk_must(
-		vk.GetPhysicalDeviceSurfacePresentModesKHR(
+	if vk.GetPhysicalDeviceSurfacePresentModesKHR(
 			renderer.physical_device,
 			renderer.surface,
 			&present_mode_count,
 			raw_data(support.present_modes),
-		),
-		"querying presentation modes",
-	)
+		) != .SUCCESS {
+		return {}, false
+	}
 
-	return support
+	return support, true
 }
 
 create_swapchain :: proc(
 	renderer: ^Vulkan_Renderer,
 	window: glfw.WindowHandle,
 	framebuffer_readback: bool,
-) {
-	support := query_swapchain_support(renderer)
-	renderer.surface_format = choose_surface_format(support.formats)
+) -> bool {
+	support, support_ok := query_swapchain_support(renderer)
+	if !support_ok do return false
+	if format, ok := try_choose_surface_format(support.formats); ok {
+		renderer.surface_format = format
+	} else {
+		return false
+	}
 	renderer.manual_srgb_output = !surface_format_is_srgb(renderer.surface_format.format)
 	renderer.extent = choose_extent(renderer, window, support.capabilities)
 	image_usage := vk.ImageUsageFlags{.COLOR_ATTACHMENT}
 	if framebuffer_readback {
 		if .TRANSFER_SRC not_in support.capabilities.supportedUsageFlags {
-			fmt.panicf("the Vulkan surface does not support framebuffer readback")
+			return false
 		}
 		image_usage |= {.TRANSFER_SRC}
 	}
@@ -105,26 +105,25 @@ create_swapchain :: proc(
 		create_info.pQueueFamilyIndices = &queue_family_indices[0]
 	}
 
-	vk_must(
-		vk.CreateSwapchainKHR(renderer.device, &create_info, nil, &renderer.swapchain),
-		"creating the swapchain",
-	)
+	if vk.CreateSwapchainKHR(renderer.device, &create_info, nil, &renderer.swapchain) != .SUCCESS {
+		renderer.swapchain = 0
+		return false
+	}
 
 	actual_image_count: u32
-	vk_must(
-		vk.GetSwapchainImagesKHR(renderer.device, renderer.swapchain, &actual_image_count, nil),
-		"counting swapchain images",
-	)
+	if vk.GetSwapchainImagesKHR(renderer.device, renderer.swapchain, &actual_image_count, nil) != .SUCCESS ||
+	   actual_image_count == 0 {
+		return false
+	}
 	renderer.swapchain_images = make([]vk.Image, actual_image_count)
-	vk_must(
-		vk.GetSwapchainImagesKHR(
+	if vk.GetSwapchainImagesKHR(
 			renderer.device,
 			renderer.swapchain,
 			&actual_image_count,
 			raw_data(renderer.swapchain_images),
-		),
-		"getting swapchain images",
-	)
+		) != .SUCCESS {
+		return false
+	}
 
 	renderer.image_views = make([]vk.ImageView, actual_image_count)
 	for image, index in renderer.swapchain_images {
@@ -135,22 +134,27 @@ create_swapchain :: proc(
 			format = renderer.surface_format.format,
 			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
 		}
-		vk_must(
-			vk.CreateImageView(renderer.device, &view_info, nil, &renderer.image_views[index]),
-			"creating a swapchain image view",
-		)
+		if vk.CreateImageView(renderer.device, &view_info, nil, &renderer.image_views[index]) != .SUCCESS {
+			return false
+		}
 	}
+	return true
 }
 
-choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceFormatKHR {
+try_choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> (vk.SurfaceFormatKHR, bool) {
 	preferred := [4]vk.Format{.B8G8R8A8_SRGB, .R8G8B8A8_SRGB, .B8G8R8A8_UNORM, .R8G8B8A8_UNORM}
 	for candidate in preferred {
 		for format in formats {
 			if format.format == candidate && format.colorSpace == .SRGB_NONLINEAR {
-				return format
+				return format, true
 			}
 		}
 	}
+	return {}, false
+}
+
+choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceFormatKHR {
+	if format, ok := try_choose_surface_format(formats); ok do return format
 	fmt.panicf("the Vulkan surface exposes no supported sRGB display format")
 }
 

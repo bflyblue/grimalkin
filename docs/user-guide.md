@@ -27,7 +27,17 @@ The overlay controls:
 - terminal padding, optional background/tint glow, and window style;
 - scrollback, font-size, fullscreen, and window-style key bindings;
 - selection appearance and copy/paste behaviour;
+- graphics-device preference on systems with suitable integrated and discrete GPUs;
 - OSC 52 terminal clipboard access.
+
+The **Graphics** menu shows the active Vulkan device. When both integrated and
+discrete devices can render to the current window surface, choose **Power
+saving** to prefer the integrated GPU or **High performance** to prefer the
+discrete GPU. **Automatic** preserves the Vulkan driver's device order. The
+change applies immediately without restarting the terminal and is saved as
+`gpu_preference` in `settings.json`. If the preferred class later becomes
+unavailable, Grimalkin keeps the saved preference, uses the first suitable
+fallback, and marks the preference as a fallback in the overlay.
 
 The **Colour themes** menu includes Ghostty, Dracula, Nord, Gruvbox,
 Solarized, all four Catppuccin flavours, Tokyo Night, and all three Rosé Pine

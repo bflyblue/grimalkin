@@ -187,7 +187,8 @@ benchmark_print :: proc(app: ^Grimalkin_App, samples: ^Benchmark_Samples) {
 		app.extent.width,
 		app.extent.height,
 	)
-	fmt.printfln("  Present mode: %v", choose_present_mode(query_swapchain_support(app).present_modes))
+	swapchain_support, _ := query_swapchain_support(app)
+	fmt.printfln("  Present mode: %v", choose_present_mode(swapchain_support.present_modes))
 	benchmark_print_series("CPU prepare/record/submit", benchmark_summarize(samples.cpu_redraw[:]))
 	if len(samples.gpu_draw) == len(samples.total) {
 		gpu := benchmark_summarize(samples.gpu_draw[:])

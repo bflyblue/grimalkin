@@ -1209,7 +1209,8 @@ settings_changed :: proc(
 		}
 	}
 	if .Font_Resources in change do app.settings_font_rebuild_pending = true
-	if .Font_Resources not_in change do app.applied_settings = app.settings
+	if .Gpu_Device in change do app.gpu_rebuild_pending = true
+	if .Font_Resources not_in change && .Gpu_Device not_in change do app.applied_settings = app.settings
 	if .Layout in change do app.settings_layout_pending = true
 	if .Cursor in change do reset_cursor_animation(app, glfw.GetTime())
 	if .Window_Style in change do apply_window_style(app)
@@ -1225,6 +1226,7 @@ osd_prepare :: proc(app: ^Grimalkin_App) {
 		app.font_catalog,
 		app.osd.selected,
 		app.detected_display_rotation,
+		&app.gpu_selection,
 	) {
 		app.osd.selected = osd_page_move_selection(
 			app.osd.page,
@@ -1233,6 +1235,7 @@ osd_prepare :: proc(app: ^Grimalkin_App) {
 			app.osd.selected,
 			1,
 			app.detected_display_rotation,
+			&app.gpu_selection,
 		)
 	}
 	metrics := app.demo.resources.cell_metrics
@@ -1250,6 +1253,7 @@ osd_prepare :: proc(app: ^Grimalkin_App) {
 		app.settings,
 		app.font_catalog,
 		app.detected_display_rotation,
+		&app.gpu_selection,
 	)
 }
 
@@ -1262,6 +1266,7 @@ osd_set_visible :: proc(app: ^Grimalkin_App, visible: bool) {
 		case .Colour_Theme_List: app.osd.selected = int(Osd_Main_Row.Colour_Themes)
 		case .Key_Bindings: app.osd.selected = int(Osd_Main_Row.Key_Bindings)
 		case .Copy_Paste: app.osd.selected = int(Osd_Main_Row.Copy_Paste)
+		case .Graphics: app.osd.selected = int(Osd_Main_Row.Graphics)
 		case .Main, .Paste_Confirm:
 		}
 		app.osd.page = .Main
@@ -1382,6 +1387,7 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 			app.osd.selected,
 			-1,
 			app.detected_display_rotation,
+			&app.gpu_selection,
 		)
 	case glfw.KEY_DOWN:
 		app.osd.selected = osd_page_move_selection(
@@ -1391,6 +1397,7 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 			app.osd.selected,
 			1,
 			app.detected_display_rotation,
+			&app.gpu_selection,
 		)
 	case glfw.KEY_LEFT:
 		change = osd_page_adjust_setting(
@@ -1400,9 +1407,10 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 			app.osd.selected,
 			-1,
 			app.detected_display_rotation,
+			&app.gpu_selection,
 		)
 	case glfw.KEY_RIGHT:
-		if !osd_open_submenu(&app.osd, app.settings, app.font_catalog) {
+		if !osd_open_submenu(&app.osd, app.settings, app.font_catalog, &app.gpu_selection) {
 			change = osd_page_adjust_setting(
 				app.osd.page,
 				&app.settings,
@@ -1410,10 +1418,11 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 				app.osd.selected,
 				1,
 				app.detected_display_rotation,
+				&app.gpu_selection,
 			)
 		}
 	case glfw.KEY_ENTER, glfw.KEY_SPACE:
-		_ = osd_open_submenu(&app.osd, app.settings, app.font_catalog)
+		_ = osd_open_submenu(&app.osd, app.settings, app.font_catalog, &app.gpu_selection)
 	case glfw.KEY_R:
 		change = osd_page_reset_setting(
 			app.osd.page,
@@ -1421,6 +1430,7 @@ osd_handle_key :: proc(app: ^Grimalkin_App, key, mods: i32) {
 			app.font_catalog,
 			app.osd.selected,
 			app.detected_display_rotation,
+			&app.gpu_selection,
 		)
 	}
 	settings_changed(app, change)
