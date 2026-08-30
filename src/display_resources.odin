@@ -22,6 +22,7 @@ renderer_resources_init_configured :: proc(
 		font_face_lookup = make(map[Font_Instance_Key]^Font_Face),
 		fallback_cache = make(map[u64]Font_Selection),
 		fallback_misses = make(map[u64]bool),
+		raster_warnings = make(map[u64]bool),
 		render_config = render_config,
 	}
 	atlas_format := font_atlas_format(render_config)
@@ -55,7 +56,12 @@ renderer_resources_init_configured :: proc(
 		cap_glyph := font_glyph_index(&resources.font_faces[0].font, 'H')
 		cap_height := resources.cell_metrics.cell_height
 		if cap_glyph != 0 {
-			cap_height = font_rasterize_borrowed(&resources.font_faces[0].font, cap_glyph).height
+			if bitmap, result := font_try_rasterize_borrowed(
+				&resources.font_faces[0].font,
+				cap_glyph,
+			); result == GRIMALKIN_FONT_OK {
+				cap_height = bitmap.height
+			}
 		}
 		// Match Nerd Fonts' monospaced target: icons may be taller than
 		// capitals, but should not occupy the entire line box.
@@ -82,6 +88,7 @@ renderer_resources_destroy :: proc(resources: ^Renderer_Resources) {
 	delete(resources.images)
 	delete(resources.fallback_cache)
 	delete(resources.fallback_misses)
+	delete(resources.raster_warnings)
 	visual_cache_destroy(&resources.visuals)
 	texture_registry_destroy(&resources.textures)
 	resources^ = {}

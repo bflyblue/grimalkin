@@ -88,6 +88,10 @@ void grimalkin_bgra_to_straight_rgba(const uint8_t *source,
                                      uint8_t *destination,
                                      size_t pixel_count);
 
+void grimalkin_gray_to_neutral_rgba(const uint8_t *source,
+                                    uint8_t *destination,
+                                    size_t pixel_count);
+
 int grimalkin_font_open(const char *path,
                    int32_t face_index,
                    uint32_t pixel_height,

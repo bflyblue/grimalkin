@@ -38,6 +38,11 @@ Font_Selection :: struct {
 	forced_replacement:  bool,
 }
 
+Glyph_Raster_Error :: struct {
+	glyph_index: u32,
+	result:      int,
+}
+
 Image_Resource_State :: struct {
 	resource_id: u32,
 	generation:  u64,
@@ -57,6 +62,7 @@ Renderer_Resources :: struct {
 	images:       map[u32]Image_Resource_State,
 	fallback_cache: map[u64]Font_Selection,
 	fallback_misses: map[u64]bool,
+	raster_warnings: map[u64]bool,
 	glyph_cache_full: bool,
 	cell_metrics: Font_Metrics,
 	render_config: Font_Render_Config,

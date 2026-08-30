@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:math"
 
 hash_mix :: proc(hash: u64, value: u64) -> u64 {
@@ -159,13 +160,14 @@ compose_colour_group :: proc(
 	glyphs: []Shaped_Glyph,
 	canvas: []u8,
 	canvas_width, canvas_height: u32,
-) {
+) -> Glyph_Raster_Error {
 	copies := make([dynamic]Colour_Glyph_Copy, 0, len(glyphs), context.temp_allocator)
 	pen_x: i64
 	left, top := i32(0x7fffffff), i32(0x7fffffff)
 	right, bottom := i32(-0x7fffffff), i32(-0x7fffffff)
 	for glyph in glyphs {
-		bitmap := font_rasterize_borrowed(&face.font, glyph.glyph_index)
+		bitmap, result := font_try_rasterize_borrowed(&face.font, glyph.glyph_index)
+		if result != GRIMALKIN_FONT_OK do return {glyph_index = glyph.glyph_index, result = result}
 		x := i32((pen_x + i64(glyph.x_offset)) / 64) + bitmap.bearing_x
 		y := -bitmap.bitmap_top - glyph.y_offset / 64
 		pen_x += i64(glyph.x_advance)
@@ -196,7 +198,7 @@ compose_colour_group :: proc(
 			}
 		}
 	}
-	if len(copies) == 0 || right <= left || bottom <= top do return
+	if len(copies) == 0 || right <= left || bottom <= top do return {}
 
 	source_width := right - left
 	source_height := bottom - top
@@ -229,6 +231,7 @@ compose_colour_group :: proc(
 		canvas_width,
 		canvas_height,
 	)
+	return {}
 }
 
 resolve_shaped_group :: proc(
@@ -237,7 +240,7 @@ resolve_shaped_group :: proc(
 	glyphs: []Shaped_Glyph,
 	span: u32,
 	force_fit := false,
-) -> []u32 {
+) -> ([]u32, Glyph_Raster_Error) {
 	cell_width := resources.cell_metrics.cell_width
 	cell_height := resources.cell_metrics.cell_height
 	shape_hash := shaped_group_hash(face, glyphs, span)
@@ -256,13 +259,13 @@ resolve_shaped_group :: proc(
 		}
 	}
 	if all_cached {
-		return visual_ids
+		return visual_ids, {}
 	}
 
 	canvas_width_64 := u64(cell_width) * u64(span)
 	if canvas_width_64 == 0 || canvas_width_64 > u64(max(u32)) {
 		resources.glyph_cache_full = true
-		return visual_ids
+		return visual_ids, {}
 	}
 	canvas_width := u32(canvas_width_64)
 	if face.is_colour && !resources.colour_glyph_atlas_initialized {
@@ -274,11 +277,13 @@ resolve_shaped_group :: proc(
 	canvas_bytes, canvas_bytes_ok := texture_byte_count(canvas_width, cell_height, 1, bpp)
 	if !canvas_bytes_ok {
 		resources.glyph_cache_full = true
-		return visual_ids
+		return visual_ids, {}
 	}
 	canvas := make([]u8, canvas_bytes, context.temp_allocator)
 	if face.is_colour {
-		compose_colour_group(face, glyphs, canvas, canvas_width, cell_height)
+		if raster_error := compose_colour_group(face, glyphs, canvas, canvas_width, cell_height); raster_error.result != GRIMALKIN_FONT_OK {
+			return visual_ids, raster_error
+		}
 	} else {
 	// A terminal cluster always begins at its own cell boundary. HarfBuzz
 	// advances and offsets position glyphs only inside this cluster (or an
@@ -294,12 +299,15 @@ resolve_shaped_group :: proc(
 		}
 	}
 	for glyph in render_glyphs {
-		bitmap := font_rasterize_borrowed(&face.font, glyph.glyph_index)
+		bitmap, result := font_try_rasterize_borrowed(&face.font, glyph.glyph_index)
+		if result != GRIMALKIN_FONT_OK {
+			return visual_ids, {glyph_index = glyph.glyph_index, result = result}
+		}
 		x_origin := i32((pen_x + i64(glyph.x_offset)) / 64) + bitmap.bearing_x
 		y_origin := resources.cell_metrics.baseline - bitmap.bitmap_top - glyph.y_offset / 64
 		if face.is_nerd_symbols && !nerd_font_powerline_glyph(&face.font, glyph.glyph_index) {
 			ink_bounds: Glyph_Ink_Bounds
-			bitmap, ink_bounds = glyph_rasterize_fitted(
+			bitmap, ink_bounds, result = glyph_rasterize_fitted(
 				&face.font,
 				glyph.glyph_index,
 				canvas_width,
@@ -307,6 +315,9 @@ resolve_shaped_group :: proc(
 				bitmap,
 				bpp,
 			)
+			if result != GRIMALKIN_FONT_OK {
+				return visual_ids, {glyph_index = glyph.glyph_index, result = result}
+			}
 			ink_width := ink_bounds.right - ink_bounds.left
 			ink_height := ink_bounds.bottom - ink_bounds.top
 			x_origin = (i32(canvas_width) - ink_width) / 2 - ink_bounds.left
@@ -320,7 +331,7 @@ resolve_shaped_group :: proc(
 				canvas_width,
 				cell_height,
 			) {
-				bitmap, ink_bounds = glyph_rasterize_fitted(
+				bitmap, ink_bounds, result = glyph_rasterize_fitted(
 					&face.font,
 					glyph.glyph_index,
 					canvas_width,
@@ -328,6 +339,9 @@ resolve_shaped_group :: proc(
 					bitmap,
 					bpp,
 				)
+				if result != GRIMALKIN_FONT_OK {
+					return visual_ids, {glyph_index = glyph.glyph_index, result = result}
+				}
 				ink_width := ink_bounds.right - ink_bounds.left
 				ink_height := ink_bounds.bottom - ink_bounds.top
 				x_origin = (i32(canvas_width) - ink_width) / 2 - ink_bounds.left
@@ -369,7 +383,7 @@ resolve_shaped_group :: proc(
 		tile_bytes, tile_bytes_ok := texture_byte_count(cell_width, cell_height, 1, bpp)
 		if !tile_bytes_ok {
 			resources.glyph_cache_full = true
-			return visual_ids
+			return visual_ids, {}
 		}
 		tile := make([]u8, tile_bytes, context.temp_allocator)
 		for row := u32(0); row < cell_height; row += 1 {
@@ -393,11 +407,65 @@ resolve_shaped_group :: proc(
 		)
 		if !added {
 			resources.glyph_cache_full = true
-			return visual_ids
+			return visual_ids, {}
 		}
 		visual_ids[slice_index] = visual_id
 	}
-	return visual_ids
+	return visual_ids, {}
+}
+
+warn_glyph_raster_failure :: proc(
+	resources: ^Renderer_Resources,
+	face: ^Font_Face,
+	raster_error: Glyph_Raster_Error,
+) {
+	if raster_error.result == GRIMALKIN_FONT_OK do return
+	key := hash_mix(u64(1469598103934665603), u64(face.id))
+	key = hash_mix(key, u64(raster_error.glyph_index))
+	key = hash_mix(key, u64(u32(raster_error.result)))
+	if resources.raster_warnings == nil do resources.raster_warnings = make(map[u64]bool)
+	if resources.raster_warnings[key] do return
+	resources.raster_warnings[key] = true
+	fmt.eprintfln(
+		"grimalkin: could not rasterize glyph %d from %s (error %d); trying a replacement glyph",
+		raster_error.glyph_index,
+		face.font.path,
+		raster_error.result,
+	)
+}
+
+resolve_shaped_group_resilient :: proc(
+	resources: ^Renderer_Resources,
+	face: ^Font_Face,
+	glyphs: []Shaped_Glyph,
+	span: u32,
+	force_fit := false,
+) -> []u32 {
+	visual_ids, raster_error := resolve_shaped_group(resources, face, glyphs, span, force_fit)
+	if raster_error.result == GRIMALKIN_FONT_OK do return visual_ids
+	warn_glyph_raster_failure(resources, face, raster_error)
+
+	style_index := int(face.font.key.style)
+	if style_index < 0 || style_index >= 4 || style_index >= len(resources.font_faces) {
+		return visual_ids
+	}
+	primary := resources.font_faces[style_index]
+	if primary == nil || primary == face && raster_error.glyph_index == 0 do return visual_ids
+	cluster := u32(0)
+	if len(glyphs) > 0 do cluster = glyphs[0].cluster
+	replacement := [1]Shaped_Glyph{{glyph_index = 0, cluster = cluster}}
+	replacement_ids, replacement_error := resolve_shaped_group(
+		resources,
+		primary,
+		replacement[:],
+		span,
+		true,
+	)
+	if replacement_error.result != GRIMALKIN_FONT_OK {
+		warn_glyph_raster_failure(resources, primary, replacement_error)
+		return visual_ids
+	}
+	return replacement_ids
 }
 
 display_cell_colours :: proc(cell: ^Terminal_Cell) -> (u32, u32) {
@@ -435,7 +503,7 @@ compile_text_run :: proc(
 				span += 1
 			}
 			replacement := [1]Shaped_Glyph{{glyph_index = 0, cluster = u32(column)}}
-			visual_ids := resolve_shaped_group(resources, face, replacement[:], u32(span), true)
+			visual_ids := resolve_shaped_group_resilient(resources, face, replacement[:], u32(span), true)
 			for slice_index := 0; slice_index < span; slice_index += 1 {
 				grid.cells[row * int(grid.cols) + column + slice_index].visual_id = visual_ids[slice_index]
 			}
@@ -462,7 +530,7 @@ compile_text_run :: proc(
 	defer delete(groups)
 	for group in groups {
 		span := group.cell_end - group.cell_start
-		visual_ids := resolve_shaped_group(
+		visual_ids := resolve_shaped_group_resilient(
 			resources,
 			face,
 			shaped[group.glyph_start:group.glyph_end],

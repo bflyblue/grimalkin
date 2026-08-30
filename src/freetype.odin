@@ -66,6 +66,7 @@ SHAPED_GLYPH_UNSAFE_TO_BREAK :: u32(1)
 foreign freetype_shim {
 	grimalkin_font_configure :: proc(path: cstring) -> c.int ---
 	grimalkin_bgra_to_straight_rgba :: proc(source, destination: [^]u8, pixel_count: c.size_t) ---
+	grimalkin_gray_to_neutral_rgba :: proc(source, destination: [^]u8, pixel_count: c.size_t) ---
 	grimalkin_font_open :: proc(path: cstring, face_index: i32, pixel_height: u32, require_fixed_width, require_colour: u8, render_config: ^Font_Render_Config, out_font: ^Grimalkin_Font, out_metrics: ^Font_Metrics) -> c.int ---
 
 	grimalkin_font_close :: proc(font: Grimalkin_Font) ---
@@ -334,6 +335,16 @@ font_rasterize_at_pixel_height_borrowed :: proc(
 	glyph_index: u32,
 	pixel_height: u16,
 ) -> Glyph_Bitmap {
+	bitmap, result := font_try_rasterize_at_pixel_height_borrowed(font, glyph_index, pixel_height)
+	if result == GRIMALKIN_FONT_OK do return bitmap
+	fmt.panicf("FreeType could not rasterize glyph %d at %d px (error %d)", glyph_index, pixel_height, result)
+}
+
+font_try_rasterize_at_pixel_height_borrowed :: proc(
+	font: ^Font_Instance,
+	glyph_index: u32,
+	pixel_height: u16,
+) -> (Glyph_Bitmap, int) {
 	bitmap := Glyph_Bitmap{}
 	result := int(grimalkin_font_rasterize_at_pixel_height(
 		font.handle,
@@ -341,11 +352,8 @@ font_rasterize_at_pixel_height_borrowed :: proc(
 		u32(pixel_height),
 		&bitmap,
 	))
-	if result != GRIMALKIN_FONT_OK {
-		fmt.panicf("FreeType could not rasterize glyph %d at %d px (error %d)", glyph_index, pixel_height, result)
-	}
-	font.rasterization_count += 1
-	return bitmap
+	if result == GRIMALKIN_FONT_OK do font.rasterization_count += 1
+	return bitmap, result
 }
 
 font_shape :: proc(

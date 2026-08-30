@@ -40,6 +40,18 @@ freetype_bgra_colour_bitmaps_are_swizzled_and_unpremultiplied :: proc(t: ^testin
 }
 
 @(test)
+freetype_grayscale_bitmaps_promote_to_neutral_subpixel_coverage :: proc(t: ^testing.T) {
+	source := [3]u8{0, 127, 255}
+	destination: [12]u8
+	grimalkin_gray_to_neutral_rgba(&source[0], &destination[0], c.size_t(len(source)))
+	testing.expect_value(t, destination, [12]u8 {
+		0, 0, 0, 0,
+		127, 127, 127, 127,
+		255, 255, 255, 255,
+	})
+}
+
+@(test)
 font_render_configs_cover_stripes_qd_oled_and_grayscale :: proc(t: ^testing.T) {
 	rgb := font_render_config_rgb()
 	testing.expect_value(t, rgb.render_mode, Font_Render_Mode.Harmony)

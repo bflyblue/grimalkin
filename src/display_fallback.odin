@@ -140,12 +140,12 @@ glyph_rasterize_fitted :: proc(
 	glyph_index, target_width, target_height: u32,
 	initial: Glyph_Bitmap,
 	bytes_per_pixel: int,
-) -> (Glyph_Bitmap, Glyph_Ink_Bounds) {
+) -> (Glyph_Bitmap, Glyph_Ink_Bounds, int) {
 	bitmap := initial
 	bounds := glyph_ink_bounds(&bitmap, bytes_per_pixel)
-	if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds
+	if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds, GRIMALKIN_FONT_OK
 	requested_height := font.key.pixel_height
-	if requested_height <= 1 do return bitmap, bounds
+	if requested_height <= 1 do return bitmap, bounds, GRIMALKIN_FONT_OK
 	// Descend one pixel at a time rather than bisecting. Ink extent is not
 	// reliably monotonic in pixel height - hinting can round a smaller size out
 	// to a wider or taller bitmap - so a binary search could both miss the
@@ -154,12 +154,14 @@ glyph_rasterize_fitted :: proc(
 	// bounded by the font size and paid once per glyph before the visual cache
 	// takes over.
 	for candidate := requested_height - 1; candidate >= 1; candidate -= 1 {
-		bitmap = font_rasterize_at_pixel_height_borrowed(font, glyph_index, candidate)
+		result: int
+		bitmap, result = font_try_rasterize_at_pixel_height_borrowed(font, glyph_index, candidate)
+		if result != GRIMALKIN_FONT_OK do return {}, {}, result
 		bounds = glyph_ink_bounds(&bitmap, bytes_per_pixel)
-		if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds
+		if glyph_ink_fits(bounds, target_width, target_height) do return bitmap, bounds, GRIMALKIN_FONT_OK
 		if candidate == 1 do break
 	}
-	return bitmap, bounds
+	return bitmap, bounds, GRIMALKIN_FONT_OK
 }
 
 fallback_cache_has_capacity :: proc(resources: ^Renderer_Resources) -> bool {
