@@ -400,7 +400,8 @@ jobs:
             exit 0
           fi
           if [[ "${{ matrix.distro }}" == debian-12 ]] &&
-             grep -Fq "no Vulkan 1.2 device supports swapchains plus non-uniform sampled-image indexing" "$smoke_log"; then
+             { grep -Fq "no Vulkan 1.2 device supports swapchains plus non-uniform sampled-image indexing" "$smoke_log" ||
+               grep -Fq "no Vulkan 1.2 device is compatible with the current window surface and renderer requirements" "$smoke_log"; }; then
             echo "Debian 12 llvmpipe reached the expected unsupported-device gate"
             exit 0
           fi
