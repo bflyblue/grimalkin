@@ -54,20 +54,38 @@ FALLBACK_CACHE_MAX_ENTRIES :: 65_536
 Renderer_Resources :: struct {
 	textures:     Texture_Registry,
 	visuals:      Visual_Cache,
-	glyph_atlas:  Raster_Atlas,
-	colour_glyph_atlas: Raster_Atlas,
+	glyph_atlas:  Raster_Atlas_Pool,
+	colour_glyph_atlas: Raster_Atlas_Pool,
 	colour_glyph_atlas_initialized: bool,
 	font_faces:   [dynamic]^Font_Face,
 	font_face_lookup: map[Font_Instance_Key]^Font_Face,
 	images:       map[u32]Image_Resource_State,
 	fallback_cache: map[u64]Font_Selection,
 	fallback_misses: map[u64]bool,
+	fallback_cache_order: [dynamic]u64,
+	fallback_cache_cursor: int,
 	raster_warnings: map[u64]bool,
+	atlas_pressure_warning_emitted: bool,
+	fallback_catalogs: [4]Grimalkin_Fallback_Catalog,
+	colour_fallback_catalog: Grimalkin_Fallback_Catalog,
+	performance: Font_Performance_Stats,
+	text_atlas_budget: u64,
 	glyph_cache_full: bool,
 	cell_metrics: Font_Metrics,
 	render_config: Font_Render_Config,
 	nerd_symbols_path: string,
 	nerd_icon_height: u32,
+}
+
+Font_Performance_Stats :: struct {
+	fallback_queries:          u64,
+	fallback_candidates:       u64,
+	fallback_cache_hits:       u64,
+	fallback_cache_misses:     u64,
+	colour_queries:            u64,
+	face_opens:                u64,
+	atlas_generations_created: u64,
+	atlas_generations_retired: u64,
 }
 
 Display_Row_State :: struct {
@@ -192,6 +210,7 @@ display_compile :: proc(
 	stats.rasterizations = after_rasters - before_rasters
 	stats.new_visuals = u32(resources.visuals.additions - before_visuals)
 	stats.glyph_cache_full = resources.glyph_cache_full
+	renderer_resources_retire_cold_atlases(resources, grid)
 	return stats
 }
 

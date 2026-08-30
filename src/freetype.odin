@@ -32,6 +32,8 @@ Grimalkin_Font_Impl :: struct {}
 Grimalkin_Font :: ^Grimalkin_Font_Impl
 Grimalkin_Font_Catalog_Impl :: struct {}
 Grimalkin_Font_Catalog :: ^Grimalkin_Font_Catalog_Impl
+Grimalkin_Fallback_Catalog_Impl :: struct {}
+Grimalkin_Fallback_Catalog :: ^Grimalkin_Fallback_Catalog_Impl
 
 Font_Metrics :: struct {
 	cell_width:  u32,
@@ -75,6 +77,9 @@ foreign freetype_shim {
 	grimalkin_font_rasterize_at_pixel_height :: proc(font: Grimalkin_Font, glyph_index, pixel_height: u32, out_bitmap: ^Glyph_Bitmap) -> c.int ---
 	grimalkin_font_shape :: proc(font: Grimalkin_Font, codepoints, clusters: [^]u32, codepoint_count: c.size_t, out_glyphs: ^[^]Shaped_Glyph, out_glyph_count: ^c.size_t) -> c.int ---
 	grimalkin_font_match :: proc(family, style: cstring, codepoints: [^]u32, codepoint_count: c.size_t, require_colour: u8, candidate_index: c.size_t, path: [^]u8, path_capacity: c.size_t, out_face_index: ^i32) -> c.int ---
+	grimalkin_fallback_catalog_create :: proc(style: cstring, require_colour: u8, out_catalog: ^Grimalkin_Fallback_Catalog) -> c.int ---
+	grimalkin_fallback_catalog_destroy :: proc(catalog: Grimalkin_Fallback_Catalog) ---
+	grimalkin_fallback_catalog_match :: proc(catalog: Grimalkin_Fallback_Catalog, codepoints: [^]u32, codepoint_count, candidate_index: c.size_t, path: [^]u8, path_capacity: c.size_t, out_face_index: ^i32, out_candidates_checked: ^c.size_t) -> c.int ---
 	grimalkin_font_catalog_create :: proc(out_catalog: ^Grimalkin_Font_Catalog) -> c.int ---
 	grimalkin_font_catalog_destroy :: proc(catalog: Grimalkin_Font_Catalog) ---
 	grimalkin_font_catalog_count :: proc(catalog: Grimalkin_Font_Catalog) -> c.size_t ---

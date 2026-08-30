@@ -186,10 +186,6 @@ refresh_terminal_display :: proc(app: ^Grimalkin_App) -> Display_Compile_Stats {
 	url_hover_before_compile(app)
 	stats := grimalkin_view_refresh(app.demo)
 	url_hover_after_compile(app)
-	if stats.glyph_cache_full {
-		app.glyph_cache_reset_pending = true
-		app.redraw = true
-	}
 	return stats
 }
 
@@ -378,7 +374,7 @@ apply_pending_settings :: proc(app: ^Grimalkin_App) {
 	if app.settings_colour_theme_refresh_pending {
 		app.demo.compiler.force_full_recompile = true
 	}
-	if app.settings_font_rebuild_pending || app.glyph_cache_reset_pending {
+	if app.settings_font_rebuild_pending {
 		font_index := -1
 		primary_family: ^Font_Family
 		if app.font_catalog != nil && app.font_catalog.automatic_index >= 0 {
@@ -433,6 +429,7 @@ apply_pending_settings :: proc(app: ^Grimalkin_App) {
 			&replacement,
 			properties.limits.maxImageDimension2D,
 			properties.limits.maxImageArrayLayers,
+			gpu_text_atlas_budget(app.physical_device),
 		)
 		vk_must(vk.DeviceWaitIdle(app.device), "waiting to rebuild text resources")
 		reset_text_resource_command_buffers(app)
@@ -450,7 +447,6 @@ apply_pending_settings :: proc(app: ^Grimalkin_App) {
 			app.demo.tile_atlases[1] = raster_atlas_init(&app.demo.resources.textures, .Colour_RGBA8)
 		}
 		app.settings_font_rebuild_pending = false
-		app.glyph_cache_reset_pending = false
 		app.settings_layout_pending = true
 		resize_terminal_to_extent(app, app.extent, true)
 		_ = refresh_terminal_display(app)

@@ -35,6 +35,16 @@ Raster_Atlas :: struct {
 	format:      Texture_Format,
 }
 
+ATLAS_GENERATION_LAYERS :: u32(8)
+DEFAULT_TEXT_ATLAS_BUDGET :: u64(64 * 1024 * 1024)
+
+Raster_Atlas_Pool :: struct {
+	atlases:      [dynamic]Raster_Atlas,
+	format:       Texture_Format,
+	budget_bytes: u64,
+	used_bytes:   u64,
+}
+
 atlas_packer_init :: proc(width, height, padding: u32, maximum_layers := u32(0)) -> Atlas_Packer {
 	packer := Atlas_Packer {
 		width          = width,
@@ -120,6 +130,80 @@ raster_atlas_init :: proc(registry: ^Texture_Registry, format: Texture_Format, m
 
 raster_atlas_destroy :: proc(atlas: ^Raster_Atlas) {
 	atlas_packer_destroy(&atlas.packer)
+}
+
+raster_atlas_pool_init :: proc(
+	registry: ^Texture_Registry,
+	format: Texture_Format,
+	budget_bytes := DEFAULT_TEXT_ATLAS_BUDGET,
+) -> Raster_Atlas_Pool {
+	pool := Raster_Atlas_Pool{format = format, budget_bytes = budget_bytes}
+	append(&pool.atlases, raster_atlas_init(registry, format, ATLAS_GENERATION_LAYERS))
+	pool.used_bytes = u64(ATLAS_WIDTH) * u64(ATLAS_HEIGHT) * u64(ATLAS_GENERATION_LAYERS) * u64(texture_bytes_per_pixel(format))
+	return pool
+}
+
+raster_atlas_pool_destroy :: proc(pool: ^Raster_Atlas_Pool) {
+	for &atlas in pool.atlases do raster_atlas_destroy(&atlas)
+	delete(pool.atlases)
+	pool^ = {}
+}
+
+raster_atlas_pool_generation_bytes :: proc(pool: ^Raster_Atlas_Pool) -> u64 {
+	return u64(ATLAS_WIDTH) * u64(ATLAS_HEIGHT) * u64(ATLAS_GENERATION_LAYERS) * u64(texture_bytes_per_pixel(pool.format))
+}
+
+raster_atlas_pool_add :: proc(
+	pool: ^Raster_Atlas_Pool,
+	registry: ^Texture_Registry,
+	pixels: []u8,
+	width, height: u32,
+) -> (Atlas_Placement, u32, bool, bool) {
+	if len(pool.atlases) == 0 do return {}, 0, false, false
+	index := len(pool.atlases) - 1
+	if placement, added := raster_atlas_add(&pool.atlases[index], registry, pixels, width, height); added {
+		return placement, pool.atlases[index].resource_id, true, false
+	}
+	generation_bytes := raster_atlas_pool_generation_bytes(pool)
+	if pool.used_bytes + generation_bytes > pool.budget_bytes do return {}, 0, false, false
+	resource_id, resource_added := texture_registry_try_add(
+		registry,
+		pool.format,
+		.Exact,
+		ATLAS_WIDTH,
+		ATLAS_HEIGHT,
+		1,
+		pool.format == .Colour_RGBA8 ? Texture_Encoding.SRGB : .Linear,
+		pool.format == .Colour_RGBA8 ? Texture_Alpha_Mode.Premultiplied : .Mask,
+	)
+	if !resource_added do return {}, 0, false, false
+	atlas := Raster_Atlas {
+		packer = atlas_packer_init(ATLAS_WIDTH, ATLAS_HEIGHT, ATLAS_PADDING, ATLAS_GENERATION_LAYERS),
+		resource_id = resource_id,
+		format = pool.format,
+	}
+	append(&pool.atlases, atlas)
+	pool.used_bytes += generation_bytes
+	index = len(pool.atlases) - 1
+	placement, added := raster_atlas_add(&pool.atlases[index], registry, pixels, width, height)
+	return placement, resource_id, added, true
+}
+
+raster_atlas_pool_retire :: proc(
+	pool: ^Raster_Atlas_Pool,
+	registry: ^Texture_Registry,
+	resource_id: u32,
+) -> bool {
+	if len(pool.atlases) <= 1 do return false
+	for index in 0 ..< len(pool.atlases) - 1 {
+		if pool.atlases[index].resource_id != resource_id do continue
+		raster_atlas_destroy(&pool.atlases[index])
+		_ = texture_registry_remove(registry, resource_id)
+		ordered_remove(&pool.atlases, index)
+		pool.used_bytes -= raster_atlas_pool_generation_bytes(pool)
+		return true
+	}
+	return false
 }
 
 raster_atlas_add :: proc(

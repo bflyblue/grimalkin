@@ -582,6 +582,24 @@ bundled_nerd_font_glyphs_are_fitted_individually :: proc(t: ^testing.T) {
 }
 
 @(test)
+emoji_presentation_does_not_treat_width_as_colour_intent :: proc(t: ^testing.T) {
+	attempt, strict := emoji_presentation_intent([]u32{0x4e2d}, .Wide)
+	testing.expect(t, !attempt && !strict)
+	attempt, strict = emoji_presentation_intent([]u32{0xac00}, .Wide)
+	testing.expect(t, !attempt && !strict)
+	// U+2600 is Extended_Pictographic for grapheme breaking, but its default
+	// presentation is text unless VS16 explicitly requests emoji.
+	attempt, strict = emoji_presentation_intent([]u32{0x2600}, .Wide)
+	testing.expect(t, !attempt && !strict)
+	attempt, strict = emoji_presentation_intent([]u32{0x1f600}, .Wide)
+	testing.expect(t, attempt && strict)
+	attempt, strict = emoji_presentation_intent([]u32{'#', 0xfe0f, 0x20e3}, .Wide)
+	testing.expect(t, attempt && strict)
+	attempt, strict = emoji_presentation_intent([]u32{0x1f600, 0xfe0e}, .Wide)
+	testing.expect(t, !attempt && !strict)
+}
+
+@(test)
 fallback_fitting_detects_ink_outside_its_terminal_span :: proc(t: ^testing.T) {
 	bounds := Glyph_Ink_Bounds{left = 1, top = 2, right = 13, bottom = 15}
 	testing.expect(t, glyph_ink_position_fits(bounds, 0, 0, 16, 18))
@@ -734,7 +752,7 @@ kitty_images_with_invalid_dimensions_or_payloads_are_dropped :: proc(t: ^testing
 }
 
 @(test)
-fallback_cache_budget_requests_a_renderer_reset :: proc(t: ^testing.T) {
+fallback_cache_budget_evicts_without_a_renderer_reset :: proc(t: ^testing.T) {
 	resources := Renderer_Resources {
 		fallback_cache = make(map[u64]Font_Selection),
 		fallback_misses = make(map[u64]bool),
@@ -743,8 +761,9 @@ fallback_cache_budget_requests_a_renderer_reset :: proc(t: ^testing.T) {
 	for index := 0; index < FALLBACK_CACHE_MAX_ENTRIES; index += 1 {
 		resources.fallback_misses[u64(index)] = true
 	}
-	testing.expect(t, !fallback_cache_store(&resources, u64(FALLBACK_CACHE_MAX_ENTRIES), {}))
-	testing.expect(t, resources.glyph_cache_full)
+	testing.expect(t, fallback_cache_store(&resources, u64(FALLBACK_CACHE_MAX_ENTRIES), {}))
+	testing.expect(t, !resources.glyph_cache_full)
+	testing.expect_value(t, len(resources.fallback_cache) + len(resources.fallback_misses), FALLBACK_CACHE_MAX_ENTRIES)
 }
 
 @(test)

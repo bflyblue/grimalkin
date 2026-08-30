@@ -99,6 +99,32 @@ visual_cache_reports_atlas_capacity_without_growing :: proc(t: ^testing.T) {
 }
 
 @(test)
+atlas_pool_rolls_over_to_a_new_texture_resource :: proc(t: ^testing.T) {
+	registry := Texture_Registry{}
+	defer texture_registry_destroy(&registry)
+	pool := raster_atlas_pool_init(&registry, .Mask_R8, 4 * 1024 * 1024)
+	defer raster_atlas_pool_destroy(&pool)
+	pixels := make([]u8, 250 * 250, context.temp_allocator)
+	created := false
+	first_resource := pool.atlases[0].resource_id
+	last_resource := first_resource
+	for _ in 0 ..< 40 {
+		_, resource_id, added, generation_created := raster_atlas_pool_add(
+			&pool, &registry, pixels, 250, 250,
+		)
+		testing.expect(t, added)
+		created = created || generation_created
+		last_resource = resource_id
+	}
+	testing.expect(t, created)
+	testing.expect(t, last_resource != first_resource)
+	testing.expect_value(t, len(pool.atlases), 2)
+	testing.expect(t, raster_atlas_pool_retire(&pool, &registry, first_resource))
+	testing.expect_value(t, len(pool.atlases), 1)
+	testing.expect(t, registry.resources[first_resource] == nil)
+}
+
+@(test)
 subpixel_atlas_is_linear_rgba_mask_with_four_byte_uploads :: proc(t: ^testing.T) {
 	registry := Texture_Registry{}
 	defer texture_registry_destroy(&registry)

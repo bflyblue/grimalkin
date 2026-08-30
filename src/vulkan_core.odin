@@ -106,6 +106,17 @@ gpu_candidate_texture_capacity :: proc(properties: vk.PhysicalDeviceProperties) 
 	)
 }
 
+gpu_text_atlas_budget :: proc(device: vk.PhysicalDevice) -> u64 {
+	memory: vk.PhysicalDeviceMemoryProperties
+	vk.GetPhysicalDeviceMemoryProperties(device, &memory)
+	largest_device_local: u64
+	for index := u32(0); index < memory.memoryHeapCount; index += 1 {
+		heap := memory.memoryHeaps[index]
+		if .DEVICE_LOCAL in heap.flags do largest_device_local = max(largest_device_local, u64(heap.size))
+	}
+	return clamp(largest_device_local / 64, u64(64 * 1024 * 1024), u64(256 * 1024 * 1024))
+}
+
 gpu_candidate_supports_resources :: proc(app: ^Grimalkin_App, properties: vk.PhysicalDeviceProperties) -> bool {
 	capacity := gpu_candidate_texture_capacity(properties)
 	if capacity == 0 do return false
@@ -259,6 +270,7 @@ pick_physical_device :: proc(app: ^Grimalkin_App, excluded: []vk.PhysicalDevice 
 			&app.demo.resources,
 			candidate.properties.limits.maxImageDimension2D,
 			candidate.properties.limits.maxImageArrayLayers,
+			gpu_text_atlas_budget(candidate.device),
 		)
 		delete(app.gpu_selection.active_name)
 		app.gpu_selection.active_name = strings.clone(fixed_byte_string(&candidate.properties.deviceName))
