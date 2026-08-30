@@ -316,6 +316,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 			}
 		}
 	} else {
+		FRAME_RETRY_SECONDS :: 0.001
 		for !glfw.WindowShouldClose(app.window) {
 			// Reclaim shaping, dirty-range, descriptor, and upload scratch from
 			// the previous pass before callbacks or terminal output allocate more.
@@ -422,11 +423,13 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 				frame_time := glfw.GetTime()
 				input: Render_Frame_Input
 				input, cursor_sample, indicator_sample = sample_render_frame_input(&app, frame_time)
-				_ = draw_frame(&app, input)
-				app.redraw = false
-				frames_rendered += 1
-				if app.capture_complete && app.capture_exit do break
-				if DEMO_FRAME_LIMIT > 0 && frames_rendered >= DEMO_FRAME_LIMIT do break
+				frame := draw_frame(&app, input, nonblocking = true)
+				if frame.submitted {
+					app.redraw = false
+					frames_rendered += 1
+					if app.capture_complete && app.capture_exit do break
+					if DEMO_FRAME_LIMIT > 0 && frames_rendered >= DEMO_FRAME_LIMIT do break
+				}
 			}
 			wait_deadline := max(f64)
 			if cursor_sample.animated {
@@ -449,6 +452,9 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 			}
 			if app.selection.dragging && app.selection.autoscroll_rows != 0 {
 				wait_deadline = min(wait_deadline, app.selection.autoscroll_next_at)
+			}
+			if app.redraw {
+				wait_deadline = min(wait_deadline, glfw.GetTime() + FRAME_RETRY_SECONDS)
 			}
 			wait_deadline = scrollback_compression_wait_deadline(app.compression, wait_deadline)
 			if drain_budget_exhausted {

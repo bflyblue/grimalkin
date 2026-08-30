@@ -52,13 +52,35 @@ draw_frame_components :: proc(
 	)
 }
 
-draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_Frame_Sample {
+draw_frame :: proc(
+	app: ^Grimalkin_App,
+	input: Render_Frame_Input,
+	nonblocking := false,
+) -> Benchmark_Frame_Sample {
 	total_start := time.tick_now()
+	if nonblocking && !app.headless {
+		ready_index := -1
+		for offset in 0 ..< app.active_frame_count {
+			candidate := (app.frame_index + offset) % app.active_frame_count
+			status := vk.GetFenceStatus(app.device, app.frames[candidate].in_flight)
+			if status == .SUCCESS {
+				ready_index = candidate
+				break
+			}
+			if status != .NOT_READY {
+				fmt.panicf("checking an in-flight frame fence failed: %v", status)
+			}
+		}
+		if ready_index < 0 do return {}
+		app.frame_index = ready_index
+	}
 	frame := &app.frames[app.frame_index]
-	vk_must(
-		vk.WaitForFences(app.device, 1, &frame.in_flight, true, max(u64)),
-		"waiting to reuse a frame context",
-	)
+	if !nonblocking || app.headless {
+		vk_must(
+			vk.WaitForFences(app.device, 1, &frame.in_flight, true, max(u64)),
+			"waiting to reuse a frame context",
+		)
+	}
 	gpu_draw_ms, has_gpu_time := read_gpu_draw_time(app, frame)
 
 	// Headless rendering owns its single target, so there is nothing to acquire
@@ -68,11 +90,14 @@ draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_
 		acquire_result := vk.AcquireNextImageKHR(
 			app.device,
 			app.swapchain,
-			max(u64),
+			0 if nonblocking else max(u64),
 			frame.image_available,
 			0,
 			&image_index,
 		)
+		if nonblocking && (acquire_result == .NOT_READY || acquire_result == .TIMEOUT) {
+			return {}
+		}
 		if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
 			if acquire_result == .ERROR_OUT_OF_DATE_KHR {
 				_ = application_recreate_swapchain(app)
@@ -163,6 +188,7 @@ draw_frame :: proc(app: ^Grimalkin_App, input: Render_Frame_Input) -> Benchmark_
 	frame.timestamp_pending = frame.timestamp_pool != 0
 	app.frame_index = (app.frame_index + 1) % app.active_frame_count
 	return {
+		submitted = true,
 		cpu_redraw_ms = cpu_redraw_ms,
 		gpu_draw_ms = gpu_draw_ms,
 		total_ms = time.duration_milliseconds(time.tick_since(total_start)),
