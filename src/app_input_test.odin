@@ -4,6 +4,17 @@ import "core:testing"
 import "vendor:glfw"
 
 @(test)
+printable_text_and_shortcut_modifiers_choose_their_glfw_stream :: proc(t: ^testing.T) {
+	testing.expect(t, printable_key_waits_for_character(0))
+	testing.expect(t, printable_key_waits_for_character(glfw.MOD_SHIFT))
+	testing.expect(t, printable_key_waits_for_character(glfw.MOD_ALT))
+	testing.expect(t, printable_key_waits_for_character(glfw.MOD_CONTROL | glfw.MOD_ALT))
+	testing.expect(t, !printable_key_waits_for_character(glfw.MOD_CONTROL))
+	testing.expect(t, !printable_key_waits_for_character(glfw.MOD_CONTROL | glfw.MOD_SHIFT))
+	testing.expect(t, !printable_key_waits_for_character(glfw.MOD_SUPER))
+}
+
+@(test)
 mouse_button_state_tracks_events_before_ui_routing :: proc(t: ^testing.T) {
 	buttons := u16(0)
 	mouse_button_state_update(&buttons, glfw.MOUSE_BUTTON_LEFT, glfw.PRESS)
