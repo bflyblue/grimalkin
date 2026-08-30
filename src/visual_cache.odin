@@ -106,6 +106,37 @@ visual_cache_add_atlas :: proc(
 	return visual_id, true
 }
 
+visual_cache_add_atlas_pool :: proc(
+	cache: ^Visual_Cache,
+	key: Visual_Cache_Key,
+	pool: ^Raster_Atlas_Pool,
+	registry: ^Texture_Registry,
+	pixels: []u8,
+	width, height: u32,
+	kind: Visual_Kind,
+	destination: [4]i32,
+) -> (u32, bool, bool) {
+	if visual_id, found := cache.lookup[key]; found do return visual_id, true, false
+	placement, resource_id, added, generation_created := raster_atlas_pool_add(
+		pool,
+		registry,
+		pixels,
+		width,
+		height,
+	)
+	if !added do return 0, false, generation_created
+	visual_id := visual_cache_store(
+		cache,
+		Gpu_Visual_Record {
+			source_rect = {placement.x, placement.y, placement.width, placement.height},
+			destination_rect = destination,
+			resource = {resource_id, placement.layer, u32(kind), 0},
+		},
+	)
+	cache.lookup[key] = visual_id
+	return visual_id, true, generation_created
+}
+
 visual_cache_add_image_tile :: proc(
 	cache: ^Visual_Cache,
 	key: Image_Visual_Cache_Key,
@@ -151,4 +182,23 @@ visual_cache_clear_images :: proc(cache: ^Visual_Cache) {
 		append(&cache.free_records, visual_id)
 	}
 	clear(&cache.image_lookup)
+}
+
+visual_cache_retire_atlas_resource :: proc(cache: ^Visual_Cache, resource_id: u32) -> u32 {
+	retired: u32
+	keys := make([dynamic]Visual_Cache_Key, context.temp_allocator)
+	for key, visual_id in cache.lookup {
+		if visual_id == 0 || int(visual_id) >= len(cache.records) do continue
+		if cache.records[visual_id].resource[0] == resource_id do append(&keys, key)
+	}
+	for key in keys {
+		visual_id, found := cache.lookup[key]
+		if !found do continue
+		delete_key(&cache.lookup, key)
+		cache.records[visual_id] = {}
+		append(&cache.free_records, visual_id)
+		retired += 1
+	}
+	if retired > 0 do cache.revision += 1
+	return retired
 }

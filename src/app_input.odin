@@ -358,6 +358,27 @@ clipboard_insert_key_event :: proc(
 	return true
 }
 
+modal_key_lifecycle_event :: proc(app: ^Grimalkin_App, key, action, mods: i32) -> bool {
+	if app == nil do return false
+	// A paste prompt can open on Shift+Insert's press. Its release must still
+	// reach the shortcut lifecycle or character callbacks remain suppressed
+	// after the prompt closes.
+	if app.clipboard_insert_suppressed && key == glfw.KEY_INSERT {
+		consumed := clipboard_insert_key_event(app, key, action, mods)
+		if consumed do app.pending_valid = false
+		return consumed
+	}
+	// Accept and cancel presses belong to the modal. Keep their matching
+	// releases away from applications that request key-release reporting.
+	if app.paste_confirmation_suppressed_key != 0 &&
+	   key == app.paste_confirmation_suppressed_key {
+		app.pending_valid = false
+		if action == glfw.RELEASE do app.paste_confirmation_suppressed_key = 0
+		return true
+	}
+	return false
+}
+
 scroll_terminal_rows :: proc(app: ^Grimalkin_App, delta: i64) {
 	if app.demo == nil || app.demo.terminal.handle == nil || delta == 0 do return
 	previous_offset := app.demo.snapshot.scroll_offset_rows
@@ -398,9 +419,11 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	// Holding the modifier over a stationary pointer produces no cursor event,
 	// so the hover has to be recomputed when the modifier itself changes.
 	defer if url_hover_modifier_key(i32(key)) do url_hover_update(app)
+	if modal_key_lifecycle_event(app, i32(key), i32(action), i32(mods)) do return
 	if app.paste_confirmation {
 		app.pending_valid = false
 		if action == glfw.PRESS && key == glfw.KEY_ENTER {
+			app.paste_confirmation_suppressed_key = i32(key)
 			pending := app.pending_paste
 			app.pending_paste = nil
 			app.paste_confirmation = false
@@ -410,6 +433,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 			delete(pending)
 			settings_flush(app)
 		} else if action == glfw.PRESS && key == glfw.KEY_ESCAPE {
+			app.paste_confirmation_suppressed_key = i32(key)
 			delete(app.pending_paste)
 			app.pending_paste = nil
 			app.paste_confirmation = false

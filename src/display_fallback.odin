@@ -1,7 +1,6 @@
 package main
 
 import "core:os"
-import "core:unicode"
 
 font_style_from_flags :: proc(flags: u16) -> Font_Style {
 	bold := flags & GRIMALKIN_CELL_BOLD != 0
@@ -46,6 +45,110 @@ font_face_renders_colour_grapheme :: proc(face: ^Font_Face, graphemes: []u32) ->
 	return has_ink
 }
 
+// Generated from Unicode 17.0 emoji-data.txt, Emoji_Presentation. Keep this
+// table pinned so presentation decisions do not silently change with the Odin
+// toolchain's broader Extended_Pictographic grapheme-break property.
+EMOJI_PRESENTATION_RANGES := [][2]u32{
+	{0x231A, 0x231B},
+	{0x23E9, 0x23EC},
+	{0x23F0, 0x23F0},
+	{0x23F3, 0x23F3},
+	{0x25FD, 0x25FE},
+	{0x2614, 0x2615},
+	{0x2648, 0x2653},
+	{0x267F, 0x267F},
+	{0x2693, 0x2693},
+	{0x26A1, 0x26A1},
+	{0x26AA, 0x26AB},
+	{0x26BD, 0x26BE},
+	{0x26C4, 0x26C5},
+	{0x26CE, 0x26CE},
+	{0x26D4, 0x26D4},
+	{0x26EA, 0x26EA},
+	{0x26F2, 0x26F3},
+	{0x26F5, 0x26F5},
+	{0x26FA, 0x26FA},
+	{0x26FD, 0x26FD},
+	{0x2705, 0x2705},
+	{0x270A, 0x270B},
+	{0x2728, 0x2728},
+	{0x274C, 0x274C},
+	{0x274E, 0x274E},
+	{0x2753, 0x2755},
+	{0x2757, 0x2757},
+	{0x2795, 0x2797},
+	{0x27B0, 0x27B0},
+	{0x27BF, 0x27BF},
+	{0x2B1B, 0x2B1C},
+	{0x2B50, 0x2B50},
+	{0x2B55, 0x2B55},
+	{0x1F004, 0x1F004},
+	{0x1F0CF, 0x1F0CF},
+	{0x1F18E, 0x1F18E},
+	{0x1F191, 0x1F19A},
+	{0x1F1E6, 0x1F1FF},
+	{0x1F201, 0x1F201},
+	{0x1F21A, 0x1F21A},
+	{0x1F22F, 0x1F22F},
+	{0x1F232, 0x1F236},
+	{0x1F238, 0x1F23A},
+	{0x1F250, 0x1F251},
+	{0x1F300, 0x1F320},
+	{0x1F32D, 0x1F335},
+	{0x1F337, 0x1F37C},
+	{0x1F37E, 0x1F393},
+	{0x1F3A0, 0x1F3CA},
+	{0x1F3CF, 0x1F3D3},
+	{0x1F3E0, 0x1F3F0},
+	{0x1F3F4, 0x1F3F4},
+	{0x1F3F8, 0x1F43E},
+	{0x1F440, 0x1F440},
+	{0x1F442, 0x1F4FC},
+	{0x1F4FF, 0x1F53D},
+	{0x1F54B, 0x1F54E},
+	{0x1F550, 0x1F567},
+	{0x1F57A, 0x1F57A},
+	{0x1F595, 0x1F596},
+	{0x1F5A4, 0x1F5A4},
+	{0x1F5FB, 0x1F64F},
+	{0x1F680, 0x1F6C5},
+	{0x1F6CC, 0x1F6CC},
+	{0x1F6D0, 0x1F6D2},
+	{0x1F6D5, 0x1F6D8},
+	{0x1F6DC, 0x1F6DF},
+	{0x1F6EB, 0x1F6EC},
+	{0x1F6F4, 0x1F6FC},
+	{0x1F7E0, 0x1F7EB},
+	{0x1F7F0, 0x1F7F0},
+	{0x1F90C, 0x1F93A},
+	{0x1F93C, 0x1F945},
+	{0x1F947, 0x1F9FF},
+	{0x1FA70, 0x1FA7C},
+	{0x1FA80, 0x1FA8A},
+	{0x1FA8E, 0x1FAC6},
+	{0x1FAC8, 0x1FAC8},
+	{0x1FACD, 0x1FADC},
+	{0x1FADF, 0x1FAEA},
+	{0x1FAEF, 0x1FAF8},
+}
+
+emoji_default_presentation :: proc(codepoint: u32) -> bool {
+	left := 0
+	right := len(EMOJI_PRESENTATION_RANGES)
+	for left < right {
+		middle := left + (right - left) / 2
+		range := EMOJI_PRESENTATION_RANGES[middle]
+		if codepoint < range[0] {
+			right = middle
+		} else if codepoint > range[1] {
+			left = middle + 1
+		} else {
+			return true
+		}
+	}
+	return false
+}
+
 emoji_presentation_intent :: proc(graphemes: []u32, wide: Terminal_Wide) -> (attempt_colour, strict: bool) {
 	if len(graphemes) == 0 do return false, false
 	for codepoint in graphemes {
@@ -57,13 +160,13 @@ emoji_presentation_intent :: proc(graphemes: []u32, wide: Terminal_Wide) -> (att
 	// Powerline and Nerd Font private-use glyphs can deliberately occupy a
 	// wide terminal span, but they are never default emoji presentation.
 	if wide != .Wide || nerd_font_symbol_grapheme(graphemes) do return false, false
-	first := rune(graphemes[0])
-	default_emoji := unicode.is_emoji_extended_pictographic(first) ||
-	                 unicode.is_regional_indicator(first)
-	// All wide graphemes get a harmless colour-font coverage query. Only a
-	// Unicode emoji-presentation base makes failure strict; CJK and other wide
-	// text continue through the ordinary fallback cascade.
-	return true, default_emoji
+	default_emoji := emoji_default_presentation(graphemes[0])
+	// Cell width is layout metadata, not presentation intent. Probing a colour
+	// font for every wide CJK or Hangul grapheme is both semantically wrong and
+	// catastrophically expensive for streams of unique codepoints. Explicit
+	// VS16, regional indicators, and extended pictographs retain the existing
+	// emoji path; all other wide text goes directly to normal fallback.
+	return default_emoji, default_emoji
 }
 
 nerd_font_powerline_glyph :: proc(font: ^Font_Instance, glyph_index: u32) -> bool {
@@ -164,25 +267,45 @@ glyph_rasterize_fitted :: proc(
 	return bitmap, bounds, GRIMALKIN_FONT_OK
 }
 
-fallback_cache_has_capacity :: proc(resources: ^Renderer_Resources) -> bool {
-	return len(resources.fallback_cache) + len(resources.fallback_misses) < FALLBACK_CACHE_MAX_ENTRIES
+fallback_cache_make_room :: proc(resources: ^Renderer_Resources) {
+	for len(resources.fallback_cache) + len(resources.fallback_misses) >= FALLBACK_CACHE_MAX_ENTRIES &&
+	    resources.fallback_cache_cursor < len(resources.fallback_cache_order) {
+		key := resources.fallback_cache_order[resources.fallback_cache_cursor]
+		resources.fallback_cache_cursor += 1
+		delete_key(&resources.fallback_cache, key)
+		delete_key(&resources.fallback_misses, key)
+	}
+	if resources.fallback_cache_cursor > FALLBACK_CACHE_MAX_ENTRIES {
+		remaining := resources.fallback_cache_order[resources.fallback_cache_cursor:]
+		copy(resources.fallback_cache_order[:len(remaining)], remaining)
+		resize(&resources.fallback_cache_order, len(remaining))
+		resources.fallback_cache_cursor = 0
+	}
+	if len(resources.fallback_cache) + len(resources.fallback_misses) >= FALLBACK_CACHE_MAX_ENTRIES {
+		for key in resources.fallback_misses {
+			delete_key(&resources.fallback_misses, key)
+			break
+		}
+	}
+	if len(resources.fallback_cache) + len(resources.fallback_misses) >= FALLBACK_CACHE_MAX_ENTRIES {
+		for key in resources.fallback_cache {
+			delete_key(&resources.fallback_cache, key)
+			break
+		}
+	}
 }
 
 fallback_cache_store :: proc(resources: ^Renderer_Resources, key: u64, selection: Font_Selection) -> bool {
-	if !fallback_cache_has_capacity(resources) {
-		resources.glyph_cache_full = true
-		return false
-	}
+	fallback_cache_make_room(resources)
 	resources.fallback_cache[key] = selection
+	append(&resources.fallback_cache_order, key)
 	return true
 }
 
 fallback_miss_store :: proc(resources: ^Renderer_Resources, key: u64) -> bool {
-	if !fallback_cache_has_capacity(resources) {
-		resources.glyph_cache_full = true
-		return false
-	}
+	fallback_cache_make_room(resources)
 	resources.fallback_misses[key] = true
+	append(&resources.fallback_cache_order, key)
 	return true
 }
 
@@ -227,9 +350,14 @@ font_selection_for_cell :: proc(
 	key := fallback_grapheme_key(style, graphemes)
 	if attempt_colour {
 		key = hash_mix(key, 0xc010face)
-		if selection, found := resources.fallback_cache[key]; found do return selection
+		if selection, found := resources.fallback_cache[key]; found {
+			resources.performance.fallback_cache_hits += 1
+			return selection
+		}
+		resources.performance.fallback_cache_misses += 1
 		for candidate_index := 0; ; candidate_index += 1 {
 			path, face_index, found := font_match_fallback_candidate(
+				resources,
 				style,
 				graphemes,
 				candidate_index,
@@ -270,6 +398,7 @@ font_selection_for_cell :: proc(
 				false,
 				true,
 			)
+			resources.performance.face_opens += 1
 			delete(path)
 			if open_result != GRIMALKIN_FONT_OK {
 				free(face)
@@ -309,13 +438,17 @@ font_selection_for_cell :: proc(
 	if missing == 0 do return {face = primary}
 
 	key = fallback_grapheme_key(style, graphemes)
-	if selection, found := resources.fallback_cache[key]; found do return selection
+	if selection, found := resources.fallback_cache[key]; found {
+		resources.performance.fallback_cache_hits += 1
+		return selection
+	}
+	resources.performance.fallback_cache_misses += 1
 	if resources.fallback_misses[key] do return {face = primary}
 
 	for candidate_index := 0; ; candidate_index += 1 {
 		preferred := ""
 		if nerd_font_symbol_grapheme(graphemes) do preferred = resources.nerd_symbols_path
-		path, face_index, found := font_match_fallback_candidate(style, graphemes, candidate_index, preferred)
+		path, face_index, found := font_match_fallback_candidate(resources, style, graphemes, candidate_index, preferred)
 		if !found do break
 		existing := fallback_face_lookup(
 			resources,
@@ -346,6 +479,7 @@ font_selection_for_cell :: proc(
 			resources.render_config,
 			false,
 		)
+		resources.performance.face_opens += 1
 		delete(path)
 		if !font_face_shapes_grapheme(face, graphemes) {
 			font_instance_close(&face.font)

@@ -15,6 +15,26 @@ printable_text_and_shortcut_modifiers_choose_their_glfw_stream :: proc(t: ^testi
 }
 
 @(test)
+paste_confirmation_drains_opening_and_decision_key_lifecycles :: proc(t: ^testing.T) {
+	app := Grimalkin_App {
+		clipboard_insert_suppressed = true,
+		paste_confirmation = true,
+		pending_valid = true,
+	}
+	testing.expect(t, modal_key_lifecycle_event(&app, glfw.KEY_INSERT, glfw.RELEASE, 0))
+	testing.expect(t, !app.clipboard_insert_suppressed)
+	testing.expect(t, !app.pending_valid)
+
+	app.paste_confirmation_suppressed_key = glfw.KEY_ENTER
+	app.pending_valid = true
+	testing.expect(t, modal_key_lifecycle_event(&app, glfw.KEY_ENTER, glfw.REPEAT, 0))
+	testing.expect_value(t, app.paste_confirmation_suppressed_key, i32(glfw.KEY_ENTER))
+	testing.expect(t, modal_key_lifecycle_event(&app, glfw.KEY_ENTER, glfw.RELEASE, 0))
+	testing.expect_value(t, app.paste_confirmation_suppressed_key, i32(0))
+	testing.expect(t, !app.pending_valid)
+}
+
+@(test)
 mouse_button_state_tracks_events_before_ui_routing :: proc(t: ^testing.T) {
 	buttons := u16(0)
 	mouse_button_state_update(&buttons, glfw.MOUSE_BUTTON_LEFT, glfw.PRESS)

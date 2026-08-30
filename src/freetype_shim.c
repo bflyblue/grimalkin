@@ -45,6 +45,11 @@ struct GrimalkinFontCatalog {
   size_t capacity;
 };
 
+struct GrimalkinFallbackCatalog {
+  FcFontSet *matches;
+  uint8_t require_colour;
+};
+
 static bool size_multiply(size_t left, size_t right, size_t *result) {
   if (left != 0 && right > SIZE_MAX / left) return false;
   *result = left * right;
@@ -755,6 +760,92 @@ int grimalkin_font_match(const char *family,
   memcpy(path, matched_path, required);
   *out_face_index = matched_index;
   FcFontSetDestroy(matches);
+  return GRIMALKIN_FONT_OK;
+}
+
+int grimalkin_fallback_catalog_create(const char *style,
+                                      uint8_t require_colour,
+                                      GrimalkinFallbackCatalog **out_catalog) {
+  if (out_catalog == NULL) return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  *out_catalog = NULL;
+  if (!FcInit()) return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  FcPattern *pattern = FcPatternCreate();
+  if (pattern == NULL) return GRIMALKIN_FONT_OUT_OF_MEMORY;
+  if (style != NULL && style[0] != '\0')
+    FcPatternAddString(pattern, FC_STYLE, (const FcChar8 *)style);
+  if (require_colour)
+    FcPatternAddBool(pattern, FC_COLOR, FcTrue);
+  else
+    FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
+  FcConfigSubstitute(NULL, pattern, FcMatchPattern);
+  FcDefaultSubstitute(pattern);
+  FcResult result = FcResultNoMatch;
+  FcFontSet *matches = FcFontSort(NULL, pattern, FcFalse, NULL, &result);
+  FcPatternDestroy(pattern);
+  if (matches == NULL || result == FcResultNoMatch) {
+    if (matches != NULL) FcFontSetDestroy(matches);
+    return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  }
+  GrimalkinFallbackCatalog *catalog = calloc(1, sizeof(*catalog));
+  if (catalog == NULL) {
+    FcFontSetDestroy(matches);
+    return GRIMALKIN_FONT_OUT_OF_MEMORY;
+  }
+  catalog->matches = matches;
+  catalog->require_colour = require_colour;
+  *out_catalog = catalog;
+  return GRIMALKIN_FONT_OK;
+}
+
+void grimalkin_fallback_catalog_destroy(GrimalkinFallbackCatalog *catalog) {
+  if (catalog == NULL) return;
+  if (catalog->matches != NULL) FcFontSetDestroy(catalog->matches);
+  free(catalog);
+}
+
+int grimalkin_fallback_catalog_match(const GrimalkinFallbackCatalog *catalog,
+                                     const uint32_t *codepoints,
+                                     size_t codepoint_count,
+                                     size_t candidate_index,
+                                     char *path,
+                                     size_t path_capacity,
+                                     int32_t *out_face_index,
+                                     size_t *out_candidates_checked) {
+  if (catalog == NULL || catalog->matches == NULL ||
+      (codepoint_count > 0 && codepoints == NULL) || path == NULL ||
+      path_capacity == 0 || out_face_index == NULL)
+    return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  size_t filtered_index = 0;
+  size_t checked = 0;
+  FcPattern *match = NULL;
+  for (int i = 0; i < catalog->matches->nfont; ++i) {
+    FcPattern *candidate = catalog->matches->fonts[i];
+    checked++;
+    if (!fontconfig_covers_grapheme(candidate, codepoints, codepoint_count))
+      continue;
+    if (fontconfig_is_last_resort(candidate)) continue;
+    if (catalog->require_colour) {
+      FcBool colour = FcFalse;
+      if (FcPatternGetBool(candidate, FC_COLOR, 0, &colour) != FcResultMatch ||
+          !colour)
+        continue;
+    }
+    if (filtered_index++ == candidate_index) {
+      match = candidate;
+      break;
+    }
+  }
+  if (out_candidates_checked != NULL) *out_candidates_checked = checked;
+  if (match == NULL) return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  FcChar8 *matched_path = NULL;
+  int matched_index = 0;
+  if (FcPatternGetString(match, FC_FILE, 0, &matched_path) != FcResultMatch ||
+      FcPatternGetInteger(match, FC_INDEX, 0, &matched_index) != FcResultMatch)
+    return GRIMALKIN_FONT_INVALID_ARGUMENT;
+  size_t required = strlen((const char *)matched_path) + 1;
+  if (required > path_capacity) return GRIMALKIN_FONT_OUT_OF_MEMORY;
+  memcpy(path, matched_path, required);
+  *out_face_index = matched_index;
   return GRIMALKIN_FONT_OK;
 }
 

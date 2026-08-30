@@ -7,6 +7,7 @@ import "core:path/filepath"
 import "core:strings"
 
 font_match_fallback_candidate :: proc(
+	resources: ^Renderer_Resources,
 	style: Font_Style,
 	codepoints: []u32,
 	candidate_index: int,
@@ -52,19 +53,24 @@ font_match_fallback_candidate :: proc(
 	}
 	path_buffer: [4096]u8
 	face_index: i32
-	result := int(
-		grimalkin_font_match(
-			c_family,
-			c_style,
-			raw_data(codepoints),
-			c.size_t(len(codepoints)),
-			u8(require_colour),
-			c.size_t(system_index),
-			&path_buffer[0],
-			len(path_buffer),
-			&face_index,
-		),
-	)
+	catalog := resources.fallback_catalogs[int(style)]
+	if require_colour do catalog = resources.colour_fallback_catalog
+	checked: c.size_t
+	result := int(grimalkin_fallback_catalog_match(
+		catalog,
+		raw_data(codepoints),
+		c.size_t(len(codepoints)),
+		c.size_t(system_index),
+		&path_buffer[0],
+		len(path_buffer),
+		&face_index,
+		&checked,
+	))
+	resources.performance.fallback_queries += 1
+	resources.performance.fallback_candidates += u64(checked)
+	if require_colour {
+		resources.performance.colour_queries += 1
+	}
 	if result != GRIMALKIN_FONT_OK {
 		return "", 0, false
 	}

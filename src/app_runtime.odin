@@ -146,6 +146,7 @@ run_grimalkin :: proc(mode: Grimalkin_Run_Mode) -> bool {
 	)
 	demo.session = session
 	defer grimalkin_demo_destroy(&demo)
+	defer font_performance_report(&demo.resources)
 	if !demo_mode && !cursor_gpu_test {
 		_ = terminal_session_resize(
 			&demo.session,

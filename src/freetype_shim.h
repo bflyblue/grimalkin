@@ -10,6 +10,7 @@ extern "C" {
 
 typedef struct GrimalkinFont GrimalkinFont;
 typedef struct GrimalkinFontCatalog GrimalkinFontCatalog;
+typedef struct GrimalkinFallbackCatalog GrimalkinFallbackCatalog;
 
 typedef struct {
   int32_t x;
@@ -130,6 +131,19 @@ int grimalkin_font_match(const char *family,
                          char *path,
                     size_t path_capacity,
                     int32_t *out_face_index);
+
+int grimalkin_fallback_catalog_create(const char *style,
+                                      uint8_t require_colour,
+                                      GrimalkinFallbackCatalog **out_catalog);
+void grimalkin_fallback_catalog_destroy(GrimalkinFallbackCatalog *catalog);
+int grimalkin_fallback_catalog_match(const GrimalkinFallbackCatalog *catalog,
+                                     const uint32_t *codepoints,
+                                     size_t codepoint_count,
+                                     size_t candidate_index,
+                                     char *path,
+                                     size_t path_capacity,
+                                     int32_t *out_face_index,
+                                     size_t *out_candidates_checked);
 
 int grimalkin_font_catalog_create(GrimalkinFontCatalog **out_catalog);
 void grimalkin_font_catalog_destroy(GrimalkinFontCatalog *catalog);

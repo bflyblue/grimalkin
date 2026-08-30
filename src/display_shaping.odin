@@ -265,18 +265,22 @@ resolve_shaped_group :: proc(
 	canvas_width_64 := u64(cell_width) * u64(span)
 	if canvas_width_64 == 0 || canvas_width_64 > u64(max(u32)) {
 		resources.glyph_cache_full = true
+		warn_atlas_pressure(resources)
 		return visual_ids, {}
 	}
 	canvas_width := u32(canvas_width_64)
 	if face.is_colour && !resources.colour_glyph_atlas_initialized {
-		resources.colour_glyph_atlas = raster_atlas_init(&resources.textures, .Colour_RGBA8, GLYPH_ATLAS_MAX_LAYERS)
+		resources.colour_glyph_atlas = raster_atlas_pool_init(&resources.textures, .Colour_RGBA8, resources.glyph_atlas.budget_bytes)
 		resources.colour_glyph_atlas_initialized = true
 	}
 	atlas := face.is_colour ? &resources.colour_glyph_atlas : &resources.glyph_atlas
+	other_used := face.is_colour ? resources.glyph_atlas.used_bytes : resources.colour_glyph_atlas.used_bytes
+	atlas.budget_bytes = max(atlas.used_bytes, resources.text_atlas_budget - min(resources.text_atlas_budget, other_used))
 	bpp := texture_bytes_per_pixel(atlas.format)
 	canvas_bytes, canvas_bytes_ok := texture_byte_count(canvas_width, cell_height, 1, bpp)
 	if !canvas_bytes_ok {
 		resources.glyph_cache_full = true
+		warn_atlas_pressure(resources)
 		return visual_ids, {}
 	}
 	canvas := make([]u8, canvas_bytes, context.temp_allocator)
@@ -383,6 +387,7 @@ resolve_shaped_group :: proc(
 		tile_bytes, tile_bytes_ok := texture_byte_count(cell_width, cell_height, 1, bpp)
 		if !tile_bytes_ok {
 			resources.glyph_cache_full = true
+			warn_atlas_pressure(resources)
 			return visual_ids, {}
 		}
 		tile := make([]u8, tile_bytes, context.temp_allocator)
@@ -394,7 +399,7 @@ resolve_shaped_group :: proc(
 				canvas[source_offset:source_offset + int(cell_width) * bpp],
 			)
 		}
-		visual_id, added := visual_cache_add_atlas(
+		visual_id, added, generation_created := visual_cache_add_atlas_pool(
 			&resources.visuals,
 			key,
 			atlas,
@@ -405,13 +410,21 @@ resolve_shaped_group :: proc(
 			face.is_colour ? Visual_Kind.Colour : font_visual_kind(resources.render_config),
 			{0, 0, i32(cell_width), i32(cell_height)},
 		)
+		if generation_created do resources.performance.atlas_generations_created += 1
 		if !added {
 			resources.glyph_cache_full = true
+			warn_atlas_pressure(resources)
 			return visual_ids, {}
 		}
 		visual_ids[slice_index] = visual_id
 	}
 	return visual_ids, {}
+}
+
+warn_atlas_pressure :: proc(resources: ^Renderer_Resources) {
+	if resources.atlas_pressure_warning_emitted do return
+	resources.atlas_pressure_warning_emitted = true
+	fmt.eprintln("grimalkin: text atlas budget exhausted; leaving uncached glyphs blank until cold atlas generations can be retired")
 }
 
 warn_glyph_raster_failure :: proc(
