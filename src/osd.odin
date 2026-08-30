@@ -409,7 +409,7 @@ osd_write_text :: proc(
 	defer delete(groups)
 	for group in groups {
 		span := group.cell_end - group.cell_start
-		visuals := resolve_shaped_group(
+		visuals := resolve_shaped_group_resilient(
 			resources,
 			face,
 			shaped[group.glyph_start:group.glyph_end],

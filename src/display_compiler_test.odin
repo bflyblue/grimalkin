@@ -224,20 +224,63 @@ shaped_groups_are_anchored_independently_of_prior_font_advances :: proc(t: ^test
 	testing.expect_value(t, len(groups), 2)
 
 	second := groups[1]
-	baseline := resolve_shaped_group(
+	baseline, baseline_error := resolve_shaped_group(
 		&resources,
 		face,
 		shaped[second.glyph_start:second.glyph_end],
 		second.cell_end - second.cell_start,
 	)
+	testing.expect_value(t, baseline_error.result, GRIMALKIN_FONT_OK)
 	shaped[0].x_advance += 17 * 64
-	anchored := resolve_shaped_group(
+	anchored, anchored_error := resolve_shaped_group(
 		&resources,
 		face,
 		shaped[second.glyph_start:second.glyph_end],
 		second.cell_end - second.cell_start,
 	)
+	testing.expect_value(t, anchored_error.result, GRIMALKIN_FONT_OK)
 	testing.expect_value(t, anchored[0], baseline[0])
+}
+
+@(test)
+glyph_raster_failure_uses_primary_replacement_and_deduplicates_warning :: proc(t: ^testing.T) {
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
+	defer renderer_resources_destroy(&resources)
+	failing := Font_Face {
+		id = 999,
+		font = Font_Instance {
+			key = Font_Instance_Key{style = .Regular},
+			path = "synthetic-failing-font.ttf",
+		},
+		is_fallback = true,
+	}
+	glyphs := [1]Shaped_Glyph{{glyph_index = 123}}
+	first := resolve_shaped_group_resilient(&resources, &failing, glyphs[:], 1)
+	testing.expect(t, first[0] != 0)
+	testing.expect_value(t, len(resources.raster_warnings), 1)
+	second := resolve_shaped_group_resilient(&resources, &failing, glyphs[:], 1)
+	testing.expect_value(t, second[0], first[0])
+	testing.expect_value(t, len(resources.raster_warnings), 1)
+}
+
+@(test)
+glyph_and_replacement_raster_failure_leave_a_transparent_visual :: proc(t: ^testing.T) {
+	resources := renderer_resources_init_configured(FONT_PIXEL_HEIGHT, font_render_config_grayscale())
+	defer renderer_resources_destroy(&resources)
+	real_primary := resources.font_faces[int(Font_Style.Regular)]
+	failing_primary := Font_Face {
+		id = 1000,
+		font = Font_Instance {
+			key = Font_Instance_Key{style = .Regular},
+			path = "synthetic-failing-primary.ttf",
+		},
+	}
+	resources.font_faces[int(Font_Style.Regular)] = &failing_primary
+	defer resources.font_faces[int(Font_Style.Regular)] = real_primary
+	glyphs := [1]Shaped_Glyph{{glyph_index = 123}}
+	visuals := resolve_shaped_group_resilient(&resources, &failing_primary, glyphs[:], 1)
+	testing.expect_value(t, visuals[0], u32(0))
+	testing.expect_value(t, len(resources.raster_warnings), 2)
 }
 
 @(test)
@@ -513,7 +556,7 @@ bundled_nerd_font_glyphs_are_fitted_individually :: proc(t: ^testing.T) {
 		testing.expect(t, gear != 0)
 		full_size := font_rasterize_borrowed(&font, gear)
 		testing.expect(t, full_size.width > resources.cell_metrics.cell_width)
-		fitted, ink_bounds := glyph_rasterize_fitted(
+		fitted, ink_bounds, fit_result := glyph_rasterize_fitted(
 			&font,
 			gear,
 			resources.cell_metrics.cell_width,
@@ -521,6 +564,7 @@ bundled_nerd_font_glyphs_are_fitted_individually :: proc(t: ^testing.T) {
 			full_size,
 			texture_bytes_per_pixel(font_atlas_format(resources.render_config)),
 		)
+		testing.expect_value(t, fit_result, GRIMALKIN_FONT_OK)
 		testing.expect(t, fitted.width > 0)
 		testing.expect(t, glyph_ink_fits(
 			ink_bounds,

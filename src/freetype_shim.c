@@ -247,6 +247,19 @@ void grimalkin_bgra_to_straight_rgba(const uint8_t *source,
   }
 }
 
+void grimalkin_gray_to_neutral_rgba(const uint8_t *source,
+                                    uint8_t *destination,
+                                    size_t pixel_count) {
+  if (source == NULL || destination == NULL) return;
+  for (size_t pixel = 0; pixel < pixel_count; ++pixel) {
+    const uint8_t coverage = source[pixel];
+    destination[pixel * 4 + 0] = coverage;
+    destination[pixel * 4 + 1] = coverage;
+    destination[pixel * 4 + 2] = coverage;
+    destination[pixel * 4 + 3] = coverage;
+  }
+}
+
 static FT_Error select_pixel_height(GrimalkinFont *font,
                                     uint32_t pixel_height) {
   if (!FT_IS_SCALABLE(font->face) && font->face->num_fixed_sizes > 0) {
@@ -431,7 +444,7 @@ static int rasterize_current_size(GrimalkinFont *font,
     return (int)error;
   }
 
-  const FT_GlyphSlot slot = font->face->glyph;
+  FT_GlyphSlot slot = font->face->glyph;
   const FT_Bitmap *bitmap = &slot->bitmap;
   const unsigned char expected_pixel_mode = font->render_colour
       ? FT_PIXEL_MODE_BGRA
@@ -440,20 +453,52 @@ static int rasterize_current_size(GrimalkinFont *font,
           : font->render_mode == GRIMALKIN_FONT_RENDER_MONOCHROME
           ? FT_PIXEL_MODE_MONO
           : FT_PIXEL_MODE_GRAY;
+
+  // Some outline and fallback glyphs ignore the requested LCD target and
+  // produce another bitmap format. Retry those glyphs as grayscale so a
+  // single unusual glyph cannot make the terminal unusable. The grayscale
+  // coverage is promoted to neutral RGBA below, preserving the fixed Harmony
+  // atlas format without inventing coloured subpixel coverage.
+  if (!font->render_colour &&
+      font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY &&
+      (bitmap->width != 0 || bitmap->rows != 0) &&
+      bitmap->pixel_mode != FT_PIXEL_MODE_LCD &&
+      bitmap->pixel_mode != FT_PIXEL_MODE_GRAY) {
+    FT_Int32 retry_flags = FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP;
+    if (font->hinting == GRIMALKIN_FONT_HINTING_NONE) {
+      retry_flags |= FT_LOAD_NO_HINTING;
+    } else if (font->hinting == GRIMALKIN_FONT_HINTING_LIGHT) {
+      retry_flags |= FT_LOAD_TARGET_LIGHT;
+    } else {
+      retry_flags |= FT_LOAD_TARGET_NORMAL;
+    }
+    error = FT_Load_Glyph(font->face, (FT_UInt)glyph_index, retry_flags);
+    if (error != 0) return (int)error;
+    error = FT_Render_Glyph(font->face->glyph, FT_RENDER_MODE_NORMAL);
+    if (error != 0) return (int)error;
+    slot = font->face->glyph;
+    bitmap = &slot->bitmap;
+  }
+
+  const bool neutral_harmony =
+      !font->render_colour &&
+      font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY &&
+      bitmap->pixel_mode == FT_PIXEL_MODE_GRAY;
   if ((bitmap->width != 0 || bitmap->rows != 0) &&
-      bitmap->pixel_mode != expected_pixel_mode) {
+      bitmap->pixel_mode != expected_pixel_mode && !neutral_harmony) {
     return GRIMALKIN_FONT_UNSUPPORTED_BITMAP;
   }
 
   if (!font->render_colour &&
       font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY &&
+      !neutral_harmony &&
       bitmap->width % 3 != 0) {
     return GRIMALKIN_FONT_UNSUPPORTED_BITMAP;
   }
 
   const size_t logical_width =
       !font->render_colour && font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY
-          ? bitmap->width / 3
+          ? neutral_harmony ? bitmap->width : bitmap->width / 3
           : bitmap->width;
   if ((font->render_colour ||
        font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY) &&
@@ -490,16 +535,21 @@ static int rasterize_current_size(GrimalkinFont *font,
         grimalkin_bgra_to_straight_rgba(
             source, destination, (size_t)logical_width);
       } else if (font->render_mode == GRIMALKIN_FONT_RENDER_HARMONY) {
-        for (uint32_t x = 0; x < logical_width; ++x) {
-          const uint8_t red = source[x * 3 + 0];
-          const uint8_t green = source[x * 3 + 1];
-          const uint8_t blue = source[x * 3 + 2];
-          destination[x * 4 + 0] = red;
-          destination[x * 4 + 1] = green;
-          destination[x * 4 + 2] = blue;
-          destination[x * 4 + 3] =
-              red > green ? (red > blue ? red : blue)
-                          : (green > blue ? green : blue);
+        if (neutral_harmony) {
+          grimalkin_gray_to_neutral_rgba(
+              source, destination, (size_t)logical_width);
+        } else {
+          for (uint32_t x = 0; x < logical_width; ++x) {
+            const uint8_t red = source[x * 3 + 0];
+            const uint8_t green = source[x * 3 + 1];
+            const uint8_t blue = source[x * 3 + 2];
+            destination[x * 4 + 0] = red;
+            destination[x * 4 + 1] = green;
+            destination[x * 4 + 2] = blue;
+            destination[x * 4 + 3] =
+                red > green ? (red > blue ? red : blue)
+                            : (green > blue ? green : blue);
+          }
         }
       } else if (font->render_mode == GRIMALKIN_FONT_RENDER_MONOCHROME) {
         for (uint32_t x = 0; x < logical_width; ++x) {
