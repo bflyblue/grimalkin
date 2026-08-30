@@ -294,6 +294,7 @@ Application_Input_State :: struct {
 	font_size_shortcut: Font_Size_Shortcut_State,
 	selection:          Terminal_Selection,
 	clipboard_insert_suppressed: bool,
+	paste_confirmation_suppressed_key: i32,
 	mouse_buttons:      u16,
 	scroll_remainder:   f64,
 	selection_text_cursor:  glfw.CursorHandle,
