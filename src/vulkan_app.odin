@@ -91,6 +91,7 @@ Gpu_Texture_Image :: struct {
 }
 
 Benchmark_Frame_Sample :: struct {
+	submitted:             bool,
 	cpu_redraw_ms:         f64,
 	gpu_draw_ms:           f64,
 	total_ms:              f64,

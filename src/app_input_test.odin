@@ -4,6 +4,14 @@ import "core:testing"
 import "vendor:glfw"
 
 @(test)
+terminal_input_redraws_only_for_an_immediate_local_visual_change :: proc(t: ^testing.T) {
+	testing.expect(t, !terminal_input_changes_local_display(false, false))
+	testing.expect(t, terminal_input_changes_local_display(true, false))
+	testing.expect(t, terminal_input_changes_local_display(false, true))
+	testing.expect(t, terminal_input_changes_local_display(true, true))
+}
+
+@(test)
 printable_text_and_shortcut_modifiers_choose_their_glfw_stream :: proc(t: ^testing.T) {
 	testing.expect(t, printable_key_waits_for_character(0))
 	testing.expect(t, printable_key_waits_for_character(glfw.MOD_SHIFT))

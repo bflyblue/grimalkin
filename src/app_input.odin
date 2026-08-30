@@ -158,6 +158,10 @@ unshifted_codepoint_for_key :: proc(key, scancode: i32) -> u32 {
 	return 0
 }
 
+terminal_input_changes_local_display :: proc(selection_active, returns_to_tail: bool) -> bool {
+	return selection_active || returns_to_tail
+}
+
 send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, text: []u8 = nil) {
 	if app.demo.demo_mode || app.demo.session.handle == nil do return
 	buffer: [256]u8
@@ -171,13 +175,18 @@ send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, te
 		buffer[:],
 	)
 	if ok && len(encoded) > 0 {
-		selection_clear(&app.selection)
-		if terminal_input_returns_to_tail(
+		returns_to_tail := terminal_input_returns_to_tail(
 			action,
 			ok,
 			len(encoded),
 			app.demo.snapshot.viewport_active,
-		) {
+		)
+		local_display_changed := terminal_input_changes_local_display(
+			app.selection.active,
+			returns_to_tail,
+		)
+		selection_clear(&app.selection)
+		if returns_to_tail {
 			previous_offset := app.demo.snapshot.scroll_offset_rows
 			terminal_core_scroll_bottom(&app.demo.terminal)
 			_ = refresh_terminal_display(app)
@@ -187,7 +196,7 @@ send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, te
 			}
 		}
 		_ = terminal_session_write(&app.demo.session, encoded)
-		app.redraw = true
+		app.redraw = app.redraw || local_display_changed
 	}
 }
 
