@@ -69,6 +69,8 @@ create_swapchain :: proc(
 		return false
 	}
 	renderer.manual_srgb_output = !surface_format_is_srgb(renderer.surface_format.format)
+	composite_alpha, composite_alpha_ok := try_choose_composite_alpha(support.capabilities.supportedCompositeAlpha)
+	if !composite_alpha_ok do return false
 	renderer.extent = choose_extent(renderer, window, support.capabilities)
 	image_usage := vk.ImageUsageFlags{.COLOR_ATTACHMENT}
 	if framebuffer_readback {
@@ -94,7 +96,7 @@ create_swapchain :: proc(
 		imageArrayLayers = 1,
 		imageUsage       = image_usage,
 		preTransform     = support.capabilities.currentTransform,
-		compositeAlpha   = {.OPAQUE},
+		compositeAlpha   = composite_alpha,
 		presentMode      = choose_present_mode(support.present_modes),
 		clipped          = true,
 	}
@@ -139,6 +141,16 @@ create_swapchain :: proc(
 		}
 	}
 	return true
+}
+
+try_choose_composite_alpha :: proc(
+	supported: vk.CompositeAlphaFlagsKHR,
+) -> (vk.CompositeAlphaFlagsKHR, bool) {
+	preferred := [4]vk.CompositeAlphaFlagKHR{.OPAQUE, .PRE_MULTIPLIED, .POST_MULTIPLIED, .INHERIT}
+	for candidate in preferred {
+		if candidate in supported do return {candidate}, true
+	}
+	return {}, false
 }
 
 try_choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> (vk.SurfaceFormatKHR, bool) {

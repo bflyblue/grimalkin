@@ -131,7 +131,8 @@ gpu_candidate_surface_suitable :: proc(app: ^Grimalkin_App, device: vk.PhysicalD
 	}
 	if .COLOR_ATTACHMENT not_in capabilities.supportedUsageFlags do return false
 	if app.framebuffer_readback && .TRANSFER_SRC not_in capabilities.supportedUsageFlags do return false
-	if .OPAQUE not_in capabilities.supportedCompositeAlpha do return false
+	_, composite_alpha_ok := try_choose_composite_alpha(capabilities.supportedCompositeAlpha)
+	if !composite_alpha_ok do return false
 
 	format_count: u32
 	if vk.GetPhysicalDeviceSurfaceFormatsKHR(device, app.surface, &format_count, nil) != .SUCCESS || format_count == 0 {
