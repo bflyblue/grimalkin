@@ -191,6 +191,20 @@ surface_format_prefers_hardware_srgb_then_manual_unorm :: proc(t: ^testing.T) {
 }
 
 @(test)
+swapchain_composite_alpha_prefers_opaque_and_falls_back_to_supported_modes :: proc(t: ^testing.T) {
+	selected, ok := try_choose_composite_alpha({.OPAQUE, .INHERIT})
+	testing.expect(t, ok)
+	testing.expect(t, .OPAQUE in selected)
+
+	selected, ok = try_choose_composite_alpha({.POST_MULTIPLIED, .INHERIT})
+	testing.expect(t, ok)
+	testing.expect(t, .POST_MULTIPLIED in selected)
+
+	_, ok = try_choose_composite_alpha({})
+	testing.expect(t, !ok)
+}
+
+@(test)
 texture_formats_keep_masks_linear_and_colour_resources_srgb :: proc(t: ^testing.T) {
 	mask := Texture_Resource {
 		format     = .Mask_R8,
