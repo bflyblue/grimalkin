@@ -114,6 +114,11 @@ When an application such as nvim or `htop` enables mouse reporting, hold
 rectangular selection in that situation. Right-click pastes; use
 `Shift+right-click` in a mouse-aware application.
 
+A selection follows its text through real terminal scrolling. It clears when
+the selected text is overwritten by an in-place application repaint, or when
+keyboard or mouse input is forwarded to the application, so the highlight and
+copied text cannot silently refer to different content.
+
 Window movement, resizing, and maximizing use the operating system's standard
 window controls. Inside the terminal area Grimalkin uses `Alt` only for opening
 links, described below, and assigns nothing to the middle mouse button.

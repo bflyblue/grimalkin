@@ -1379,6 +1379,96 @@ int grimalkin_ghostty_selection_bounds(GrimalkinGhostty *terminal,
   return GRIMALKIN_GHOSTTY_OK;
 }
 
+static GhosttyPoint screen_point(uint16_t x, uint32_t y);
+
+static bool point_before(uint16_t ax, uint32_t ay,
+                         uint16_t bx, uint32_t by) {
+  return ay < by || (ay == by && ax < bx);
+}
+
+int grimalkin_ghostty_selection_drag_bounds(GrimalkinGhostty *terminal,
+                                            uint16_t press_x,
+                                            uint32_t press_y,
+                                            uint16_t current_x,
+                                            uint32_t current_y,
+                                            uint8_t unit,
+                                            uint16_t *out_start_x,
+                                            uint32_t *out_start_y,
+                                            uint16_t *out_end_x,
+                                            uint32_t *out_end_y) {
+  if (terminal == NULL || out_start_x == NULL || out_start_y == NULL ||
+      out_end_x == NULL || out_end_y == NULL || (unit != 1 && unit != 2)) {
+    return GRIMALKIN_GHOSTTY_INVALID_ARGUMENT;
+  }
+
+  GhosttyGridRef press_ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyGridRef current_ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyResult result = ghostty_terminal_grid_ref(
+      terminal->terminal, screen_point(press_x, press_y), &press_ref);
+  if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+  result = ghostty_terminal_grid_ref(
+      terminal->terminal, screen_point(current_x, current_y), &current_ref);
+  if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+
+  GhosttySelection press_selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  GhosttySelection current_selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  if (unit == 1) {
+    /* Searching from both ends keeps a double-click drag attached to the
+       nearest selectable words while the pointer crosses separators. */
+    GhosttyTerminalSelectWordBetweenOptions forward =
+        GHOSTTY_INIT_SIZED(GhosttyTerminalSelectWordBetweenOptions);
+    forward.start = press_ref;
+    forward.end = current_ref;
+    result = ghostty_terminal_select_word_between(
+        terminal->terminal, &forward, &press_selection);
+    if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+
+    GhosttyTerminalSelectWordBetweenOptions reverse =
+        GHOSTTY_INIT_SIZED(GhosttyTerminalSelectWordBetweenOptions);
+    reverse.start = current_ref;
+    reverse.end = press_ref;
+    result = ghostty_terminal_select_word_between(
+        terminal->terminal, &reverse, &current_selection);
+    if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+  } else {
+    GhosttyTerminalSelectLineOptions press_options =
+        GHOSTTY_INIT_SIZED(GhosttyTerminalSelectLineOptions);
+    press_options.ref = press_ref;
+    press_options.semantic_prompt_boundary = false;
+    result = ghostty_terminal_select_line(
+        terminal->terminal, &press_options, &press_selection);
+    if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+
+    GhosttyTerminalSelectLineOptions current_options =
+        GHOSTTY_INIT_SIZED(GhosttyTerminalSelectLineOptions);
+    current_options.ref = current_ref;
+    current_options.semantic_prompt_boundary = false;
+    result = ghostty_terminal_select_line(
+        terminal->terminal, &current_options, &current_selection);
+    if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+  }
+
+  const GhosttyGridRef *start = &press_selection.start;
+  const GhosttyGridRef *end = &current_selection.end;
+  if (point_before(current_x, current_y, press_x, press_y)) {
+    start = &current_selection.start;
+    end = &press_selection.end;
+  }
+  GhosttyPointCoordinate start_point = {0}, end_point = {0};
+  result = ghostty_terminal_point_from_grid_ref(
+      terminal->terminal, start, GHOSTTY_POINT_TAG_SCREEN, &start_point);
+  if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+  result = ghostty_terminal_point_from_grid_ref(
+      terminal->terminal, end, GHOSTTY_POINT_TAG_SCREEN, &end_point);
+  if (result != GHOSTTY_SUCCESS) return bridge_result(result);
+
+  *out_start_x = start_point.x;
+  *out_start_y = start_point.y;
+  *out_end_x = end_point.x;
+  *out_end_y = end_point.y;
+  return GRIMALKIN_GHOSTTY_OK;
+}
+
 static GhosttyPoint screen_point(uint16_t x, uint32_t y) {
   return (GhosttyPoint){
       .tag = GHOSTTY_POINT_TAG_SCREEN,

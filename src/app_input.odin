@@ -162,6 +162,12 @@ terminal_input_changes_local_display :: proc(selection_active, returns_to_tail: 
 	return selection_active || returns_to_tail
 }
 
+terminal_input_clear_selection :: proc(selection: ^Terminal_Selection) -> bool {
+	was_active := selection.active
+	selection_clear(selection)
+	return was_active
+}
+
 send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, text: []u8 = nil) {
 	if app.demo.demo_mode || app.demo.session.handle == nil do return
 	buffer: [256]u8
@@ -181,11 +187,11 @@ send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, te
 			len(encoded),
 			app.demo.snapshot.viewport_active,
 		)
+		selection_was_active := terminal_input_clear_selection(&app.selection)
 		local_display_changed := terminal_input_changes_local_display(
-			app.selection.active,
+			selection_was_active,
 			returns_to_tail,
 		)
-		selection_clear(&app.selection)
 		if returns_to_tail {
 			previous_offset := app.demo.snapshot.scroll_offset_rows
 			terminal_core_scroll_bottom(&app.demo.terminal)
@@ -202,12 +208,11 @@ send_key_event :: proc(app: ^Grimalkin_App, key, scancode, action, mods: i32, te
 
 selection_snapshot_updated :: proc(app: ^Grimalkin_App) {
 	if app == nil || app.demo == nil do return
-	if !selection_sync_tracked_endpoints(&app.selection) ||
-	   selection_should_clear_for_snapshot(&app.selection, &app.demo.snapshot) {
-		selection_clear(&app.selection)
-	} else if app.selection.active {
-		_ = selection_rebuild_mask(&app.selection, &app.demo.snapshot)
-	}
+	_ = selection_reconcile_snapshot(
+		&app.selection,
+		&app.demo.terminal,
+		&app.demo.snapshot,
+	)
 	app.redraw = true
 }
 
@@ -627,7 +632,10 @@ send_mouse_event :: proc(
 		buffer[:],
 	)
 	if ok && len(encoded) > 0 {
+		selection_was_active := terminal_input_clear_selection(&app.selection)
+		local_display_changed := terminal_input_changes_local_display(selection_was_active, false)
 		_ = terminal_session_write(&app.demo.session, encoded)
+		app.redraw = app.redraw || local_display_changed
 	}
 }
 
