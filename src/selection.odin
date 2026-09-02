@@ -1,5 +1,6 @@
 package main
 
+import "core:bytes"
 import "core:unicode"
 import "vendor:glfw"
 
@@ -56,14 +57,17 @@ Terminal_Selection :: struct {
 	focus:              Selection_Point,
 	origin_start:       Selection_Point,
 	origin_end:         Selection_Point,
-	// Owned Ghostty tracking handles keep endpoints attached to terminal content
-	// as scrollback moves. Deactivation must release both explicitly.
+	// Endpoint handles retain a completed selection. The press handle has the
+	// shorter button-down lifetime needed to keep a drag's origin attached to
+	// content while output or viewport movement occurs during the gesture.
 	anchor_ref:         rawptr,
 	focus_ref:          rawptr,
+	press_ref:          rawptr,
 	click_count:        u8,
 	last_click_at:      f64,
 	last_click_x:       f64,
 	last_click_y:       f64,
+	last_click_screen:  u8,
 	press_point:        Selection_Point,
 	press_x:            f64,
 	press_y:            f64,
@@ -73,6 +77,8 @@ Terminal_Selection :: struct {
 	mask_rows:          u16,
 	mask_generation:    u64,
 	selected_text:      []u8,
+	content_snapshot:   []u8,
+	content_snapshot_valid: bool,
 	source_cols:        u16,
 	source_rows:        u16,
 	source_total_rows:  u64,
@@ -84,19 +90,26 @@ Terminal_Selection :: struct {
 selection_destroy :: proc(selection: ^Terminal_Selection) {
 	terminal_core_selection_track_free(selection.anchor_ref)
 	terminal_core_selection_track_free(selection.focus_ref)
+	terminal_core_selection_track_free(selection.press_ref)
 	delete(selection.mask)
 	delete(selection.selected_text)
+	delete(selection.content_snapshot)
 	selection^ = {}
 }
 
 selection_deactivate :: proc(selection: ^Terminal_Selection) {
 	terminal_core_selection_track_free(selection.anchor_ref)
 	terminal_core_selection_track_free(selection.focus_ref)
+	terminal_core_selection_track_free(selection.press_ref)
 	selection.anchor_ref = nil
 	selection.focus_ref = nil
+	selection.press_ref = nil
 	selection.active = false
 	delete(selection.selected_text)
 	selection.selected_text = nil
+	delete(selection.content_snapshot)
+	selection.content_snapshot = nil
+	selection.content_snapshot_valid = false
 	for &word in selection.mask do word = 0
 	selection.mask_generation += 1
 }
@@ -125,7 +138,19 @@ selection_track_endpoints :: proc(selection: ^Terminal_Selection, terminal: ^Ter
 	}
 }
 
+selection_track_press :: proc(selection: ^Terminal_Selection, terminal: ^Terminal_Core) {
+	terminal_core_selection_track_free(selection.press_ref)
+	selection.press_ref = nil
+	if terminal == nil || terminal.handle == nil do return
+	selection.press_ref = terminal_core_selection_track(terminal, selection.press_point)
+}
+
 selection_sync_tracked_endpoints :: proc(selection: ^Terminal_Selection) -> bool {
+	if selection.press_ref != nil {
+		press, press_ok := terminal_core_selection_track_point(selection.press_ref)
+		if !press_ok do return false
+		selection.press_point = press
+	}
 	if selection.anchor_ref == nil && selection.focus_ref == nil do return true
 	if selection.anchor_ref == nil || selection.focus_ref == nil do return false
 	anchor, anchor_ok := terminal_core_selection_track_point(selection.anchor_ref)
@@ -134,6 +159,50 @@ selection_sync_tracked_endpoints :: proc(selection: ^Terminal_Selection) -> bool
 	selection.anchor = anchor
 	selection.focus = focus
 	return true
+}
+
+selection_capture_content_snapshot :: proc(
+	selection: ^Terminal_Selection,
+	terminal: ^Terminal_Core,
+) -> bool {
+	delete(selection.content_snapshot)
+	selection.content_snapshot = nil
+	selection.content_snapshot_valid = false
+	if !selection.active || terminal == nil || terminal.handle == nil do return false
+	text, ok := terminal_core_selection_text(
+		terminal,
+		selection.anchor.x,
+		selection.anchor.y,
+		selection.focus.x,
+		selection.focus.y,
+		selection.mode == .Rectangle,
+		false,
+	)
+	if !ok do return false
+	selection.content_snapshot = text
+	selection.content_snapshot_valid = true
+	return true
+}
+
+selection_content_snapshot_matches :: proc(
+	selection: ^Terminal_Selection,
+	terminal: ^Terminal_Core,
+) -> bool {
+	if !selection.active || !selection.content_snapshot_valid ||
+	   terminal == nil || terminal.handle == nil {
+		return false
+	}
+	text, ok := terminal_core_selection_text(
+		terminal,
+		selection.anchor.x,
+		selection.anchor.y,
+		selection.focus.x,
+		selection.focus.y,
+		selection.mode == .Rectangle,
+		false,
+		context.temp_allocator,
+	)
+	return ok && bytes.equal(text, selection.content_snapshot)
 }
 
 selection_visible_start_row :: proc(snapshot: ^Terminal_Snapshot) -> u64 {
@@ -317,15 +386,17 @@ selection_begin :: proc(
 	x, y, now: f64,
 ) {
 	near_previous := abs(x - selection.last_click_x) <= SELECTION_MULTI_CLICK_DISTANCE &&
-	                 abs(y - selection.last_click_y) <= SELECTION_MULTI_CLICK_DISTANCE
+	                 abs(y - selection.last_click_y) <= SELECTION_MULTI_CLICK_DISTANCE &&
+	                 snapshot.active_screen == selection.last_click_screen
 	if now - selection.last_click_at <= SELECTION_MULTI_CLICK_SECONDS && near_previous {
-		selection.click_count = selection.click_count % 3 + 1
+		selection.click_count = min(u8(3), selection.click_count + 1)
 	} else {
 		selection.click_count = 1
 	}
 	selection.last_click_at = now
 	selection.last_click_x = x
 	selection.last_click_y = y
+	selection.last_click_screen = snapshot.active_screen
 	selection_deactivate(selection)
 	selection.mode = mode
 	selection.unit = mode == .Rectangle ? .Character : Selection_Unit(clamp(int(selection.click_count) - 1, 0, 2))
@@ -334,6 +405,7 @@ selection_begin :: proc(
 	selection.press_point = point
 	selection.press_x = x
 	selection.press_y = y
+	selection_track_press(selection, terminal)
 	selection.anchor = point
 	selection.focus = point
 	if !selection.drag_threshold_passed do return
@@ -355,6 +427,7 @@ selection_begin :: proc(
 	selection.source_active_screen = snapshot.active_screen
 	selection_track_endpoints(selection, terminal)
 	selection_rebuild_mask(selection, snapshot)
+	_ = selection_capture_content_snapshot(selection, terminal)
 }
 
 selection_extend :: proc(
@@ -365,6 +438,14 @@ selection_extend :: proc(
 	x, y: f64,
 ) {
 	if !selection.dragging do return
+	if selection.press_ref != nil {
+		press, ok := terminal_core_selection_track_point(selection.press_ref)
+		if !ok {
+			selection_clear(selection)
+			return
+		}
+		selection.press_point = press
+	}
 	if !selection.drag_threshold_passed {
 		dx := x - selection.press_x
 		dy := y - selection.press_y
@@ -383,7 +464,21 @@ selection_extend :: proc(
 	if selection.unit == .Character || selection.mode == .Rectangle {
 		selection.focus = point
 	} else {
-		start, end, ok := terminal_core_selection_bounds(terminal, point.x, point.y, selection.unit)
+		start, end, ok := terminal_core_selection_drag_bounds(
+			terminal,
+			selection.press_point,
+			point,
+			selection.unit,
+		)
+		if ok {
+			selection.anchor = start
+			selection.focus = end
+			selection_track_endpoints(selection, terminal)
+			selection_rebuild_mask(selection, snapshot)
+			_ = selection_capture_content_snapshot(selection, terminal)
+			return
+		}
+		start, end, ok = terminal_core_selection_bounds(terminal, point.x, point.y, selection.unit)
 		if !ok && selection.unit == .Word do start, end = selection_expand_word(selection, snapshot, point)
 		if !ok && selection.unit == .Logical_Line do start, end = selection_expand_logical_line(snapshot, point)
 		before_origin := point.y < selection.origin_start.y ||
@@ -398,13 +493,34 @@ selection_extend :: proc(
 	}
 	selection_track_endpoints(selection, terminal)
 	selection_rebuild_mask(selection, snapshot)
+	_ = selection_capture_content_snapshot(selection, terminal)
 }
 
 selection_release :: proc(selection: ^Terminal_Selection) {
+	terminal_core_selection_track_free(selection.press_ref)
+	selection.press_ref = nil
 	selection.dragging = false
 	selection.drag_threshold_passed = false
 	selection.autoscroll_rows = 0
 	selection.autoscroll_next_at = max(f64)
+}
+
+selection_dirty_rows_intersect :: proc(
+	selection: ^Terminal_Selection,
+	snapshot: ^Terminal_Snapshot,
+) -> bool {
+	if !selection.active || snapshot.rows == 0 || len(snapshot.row_data) == 0 do return false
+	start, end := selection_point_order(selection.anchor, selection.focus)
+	visible_start := selection_visible_start_row(snapshot)
+	visible_end := visible_start + u64(snapshot.rows) - 1
+	if u64(end.y) < visible_start || u64(start.y) > visible_end do return false
+	first := int(max(u64(start.y), visible_start) - visible_start)
+	last := int(min(u64(end.y), visible_end) - visible_start)
+	last = min(last, len(snapshot.row_data) - 1)
+	for row in first ..= last {
+		if row >= 0 && snapshot.row_data[row].dirty do return true
+	}
+	return false
 }
 
 selection_should_clear_for_snapshot :: proc(
@@ -417,6 +533,25 @@ selection_should_clear_for_snapshot :: proc(
 	// A shrinking retained screen means history was pruned or the active screen
 	// changed. Both invalidate screen-coordinate anchors.
 	return snapshot.scroll_total_rows < selection.source_total_rows
+}
+
+selection_reconcile_snapshot :: proc(
+	selection: ^Terminal_Selection,
+	terminal: ^Terminal_Core,
+	snapshot: ^Terminal_Snapshot,
+) -> bool {
+	if !selection_sync_tracked_endpoints(selection) ||
+	   selection_should_clear_for_snapshot(selection, snapshot) {
+		selection_clear(selection)
+		return false
+	}
+	if selection.active && selection_dirty_rows_intersect(selection, snapshot) &&
+	   !selection_content_snapshot_matches(selection, terminal) {
+		selection_clear(selection)
+		return false
+	}
+	if selection.active do _ = selection_rebuild_mask(selection, snapshot)
+	return selection.active
 }
 
 selection_modifiers_rectangle :: proc(mods: i32, mouse_tracking: bool) -> bool {
