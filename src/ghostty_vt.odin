@@ -200,6 +200,7 @@ foreign ghostty_shim {
 	grimalkin_ghostty_encode_mouse :: proc(terminal: Grimalkin_Ghostty, action, button: u8, modifiers: u16, x, y: f32, screen_width, screen_height, cell_width, cell_height, padding_top, padding_bottom, padding_right, padding_left: u32, any_button_pressed: u8, out: [^]u8, out_capacity: c.size_t, out_len: ^c.size_t) -> c.int ---
 	grimalkin_ghostty_selection_text :: proc(terminal: Grimalkin_Ghostty, start_x: u16, start_y: u32, end_x: u16, end_y: u32, rectangle, trim: u8, out: [^]u8, out_capacity: c.size_t, out_len: ^c.size_t) -> c.int ---
 	grimalkin_ghostty_selection_bounds :: proc(terminal: Grimalkin_Ghostty, x: u16, y: u32, unit: u8, out_start_x: ^u16, out_start_y: ^u32, out_end_x: ^u16, out_end_y: ^u32) -> c.int ---
+	grimalkin_ghostty_selection_drag_bounds :: proc(terminal: Grimalkin_Ghostty, press_x: u16, press_y: u32, current_x: u16, current_y: u32, unit: u8, out_start_x: ^u16, out_start_y: ^u32, out_end_x: ^u16, out_end_y: ^u32) -> c.int ---
 	grimalkin_ghostty_selection_track :: proc(terminal: Grimalkin_Ghostty, x: u16, y: u32, out_ref: ^rawptr) -> c.int ---
 	grimalkin_ghostty_selection_track_set :: proc(ref: rawptr, terminal: Grimalkin_Ghostty, x: u16, y: u32) -> c.int ---
 	grimalkin_ghostty_selection_track_point :: proc(ref: rawptr, out_x: ^u16, out_y: ^u32) -> c.int ---
@@ -691,6 +692,30 @@ terminal_core_selection_bounds :: proc(
 		terminal.handle,
 		x,
 		y,
+		u8(unit),
+		&start_x,
+		&start_y,
+		&end_x,
+		&end_y,
+	))
+	if result != GRIMALKIN_GHOSTTY_OK do return {}, {}, false
+	return {x = start_x, y = start_y}, {x = end_x, y = end_y}, true
+}
+
+terminal_core_selection_drag_bounds :: proc(
+	terminal: ^Terminal_Core,
+	press, current: Selection_Point,
+	unit: Selection_Unit,
+) -> (Selection_Point, Selection_Point, bool) {
+	if terminal == nil || terminal.handle == nil || unit == .Character do return {}, {}, false
+	start_x, end_x: u16
+	start_y, end_y: u32
+	result := int(grimalkin_ghostty_selection_drag_bounds(
+		terminal.handle,
+		press.x,
+		press.y,
+		current.x,
+		current.y,
 		u8(unit),
 		&start_x,
 		&start_y,

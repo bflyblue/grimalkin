@@ -12,6 +12,17 @@ terminal_input_redraws_only_for_an_immediate_local_visual_change :: proc(t: ^tes
 }
 
 @(test)
+terminal_input_clears_an_active_selection_and_reports_the_visual_change :: proc(t: ^testing.T) {
+	selection := Terminal_Selection{active = true, dragging = true, click_count = 2}
+	defer selection_destroy(&selection)
+	testing.expect(t, terminal_input_clear_selection(&selection))
+	testing.expect(t, !selection.active)
+	testing.expect(t, !selection.dragging)
+	testing.expect_value(t, selection.click_count, u8(0))
+	testing.expect(t, !terminal_input_clear_selection(&selection))
+}
+
+@(test)
 printable_text_and_shortcut_modifiers_choose_their_glfw_stream :: proc(t: ^testing.T) {
 	testing.expect(t, printable_key_waits_for_character(0))
 	testing.expect(t, printable_key_waits_for_character(glfw.MOD_SHIFT))
