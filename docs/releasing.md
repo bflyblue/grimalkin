@@ -66,6 +66,82 @@ explicit DLL allowlist and includes the bundled font license and redistributed
 library licenses. Test the installer on a clean Windows 11 machine with the
 Visual C++ Redistributable.
 
+## Cutting a release
+
+A release is two steps: a release-preparation pull request that fixes the
+version and the notes, then an annotated tag on that merge commit. The tag
+triggers `.github/workflows/release.yml`, and nothing becomes public until that
+workflow creates the release.
+
+### Prepare the version and the notes
+
+Open one pull request that changes exactly two files:
+
+- `VERSION`, set to the new version without a leading `v`;
+- `docs/releases/v<version>.md`, containing the curated release notes.
+
+`Prepare v0.1.33 release (#92)` shows the shape. Merge it into `main` and let
+platform CI go green before tagging. The workflow never builds a commit that
+`main` does not already contain.
+
+Every release so far has incremented the patch component. The notes sentence
+that a release does not change the settings format or command-line interface is
+what makes a patch bump honest: when a change does alter either surface, the
+version component and the notes must both say so.
+
+Write the notes as the public release body, because the workflow passes the
+file straight to `gh release create --notes-file`. Follow a recent file such as
+`docs/releases/v0.1.32.md`:
+
+- `# Grimalkin <version>`, then two or three sentences of user-visible summary;
+- one section per changed area, written for users rather than contributors;
+- measured numbers wherever the release claims a speedup, naming the hardware,
+  refresh rate, and workload behind them;
+- `## Downloads`, listing the artifacts the workflow publishes; and
+- `## Compatibility notes`, covering the settings format, the command-line
+  interface, and installer-signing warnings users will hit.
+
+Do not generate the notes from the commit log. The workflow uses only this
+file, so an uncurated commit list becomes the public description of the
+release.
+
+### Tag and push
+
+Tag the release-preparation merge commit on `main`, with a message that matches
+the title the workflow gives the release:
+
+```sh
+git switch main && git pull --ff-only
+git tag -a "v$(cat VERSION)" -m "Grimalkin $(cat VERSION)"
+git push origin "v$(cat VERSION)"
+```
+
+The tag must point at the commit that carries both the matching `VERSION` and
+the notes file. Validation reads both from the tagged commit rather than from
+the branch tip, so a tag on an older commit reports the previous version. Only
+the repository owner's tag push starts the workflow.
+
+### Watch the run
+
+```sh
+gh run list --workflow=release.yml --limit 1
+gh run watch <run-id>
+```
+
+The build jobs run first; the job that needs signing material waits in the
+protected `release` environment, which requires maintainer approval. Expect a
+few minutes for a clean run. Publication rechecks that the tag has not moved
+and refuses to replace an existing release.
+
+When GitHub drops the tag-push event, dispatch the same workflow against the
+existing tag as shown in [GitHub release workflow](#github-release-workflow).
+
+An attempt that fails before publication leaves its tag in place. Do not reuse
+that version: fix the cause, take the next number, and replace the abandoned
+notes file in the new preparation pull request. The `Prepare v0.1.30 release
+(#85)` commit renamed `docs/releases/v0.1.29.md` forward, and its notes record
+that `v0.1.30` supersedes the unpublished `v0.1.28` and `v0.1.29` tags.
+
 ## GitHub release workflow
 
 A `v*` tag pushed by the repository owner triggers
